@@ -5,9 +5,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packages = ReplicatedStorage.Packages
 local Trove = require(Packages.Trove)
 
+local Weapons = require(ReplicatedStorage.Shared.weapons)
+local WeaponControllerModule = require(script.Parent.WeaponController)
+
+local Fists = Weapons.Fists
+
 export type CharacterController = {
 	Character: Model,
 	Trove: typeof(Trove.new()),
+	WeaponController: WeaponControllerModule.WeaponController,
 	Destroy: (self: CharacterController) -> (),
 	IsAlive: (self: CharacterController) -> boolean,
 }
@@ -19,37 +25,12 @@ function CharacterController.new(character: Model): CharacterController
 	local self = setmetatable({
 		Character = character,
 		Trove = Trove.new(),
+		WeaponController = WeaponControllerModule.new(character),
 	}, CharacterController)
 
-	self:_start()
-
-	return self
-end
-
-function CharacterController:_start()
-	-- If Roblox destroys the character directly, make the character's Trove
-	-- responsible for all owned connections/resources as well.
 	self.Trove:AttachToInstance(self.Character)
 
-	local humanoid = self.Character:FindFirstChildOfClass("Humanoid")
-
-	if humanoid then
-		self:_on_humanoid_added(humanoid)
-	else
-		self.Trove:Connect(
-			self.Character.ChildAdded,
-			function(child)
-				if child:IsA("Humanoid") then
-					self:_on_humanoid_added(child)
-				end
-			end
-		)
-	end
-end
-
-function CharacterController:_on_humanoid_added(_humanoid: Humanoid)
-	-- Character-specific gameplay can be added here later.
-	-- The controller owns the character lifecycle, not the gameplay state.
+	return self
 end
 
 function CharacterController:IsAlive(): boolean
@@ -57,6 +38,7 @@ function CharacterController:IsAlive(): boolean
 end
 
 function CharacterController:Destroy()
+	self.WeaponController:Destroy()
 	self.Trove:Destroy()
 end
 
