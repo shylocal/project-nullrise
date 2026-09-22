@@ -1,0 +1,19 @@
+# Wally dependencies
+/Packages/
+/wally.lock
+
+# Rojo / generated files
+*.rbxl
+*.rbxlx
+*.rbxlx.lock
+*.rbxm
+
+# Roblox / Studio
+*.rblx
+*.rbxl
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
