@@ -26,6 +26,10 @@ function CharacterController.new(character: Model): CharacterController
 end
 
 function CharacterController:_start()
+	-- If Roblox destroys the character directly, make the character's Trove
+	-- responsible for all owned connections/resources as well.
+	self.Trove:AttachToInstance(self.Character)
+
 	local humanoid = self.Character:FindFirstChildOfClass("Humanoid")
 
 	if humanoid then
@@ -34,35 +38,17 @@ function CharacterController:_start()
 		self.Trove:Connect(
 			self.Character.ChildAdded,
 			function(child)
-				if not child:IsA("Humanoid") then
-					return
+				if child:IsA("Humanoid") then
+					self:_on_humanoid_added(child)
 				end
-
-				self:_on_humanoid_added(child)
 			end
 		)
 	end
-
-	-- A character can disappear without CharacterRemoving being useful to
-	-- the controller owner, especially during unusual teardown/reparenting.
-	self.Trove:Connect(
-		self.Character.Destroying,
-		function()
-			self:Destroy()
-		end
-	)
 end
 
-function CharacterController:_on_humanoid_added(humanoid: Humanoid)
-	-- CharacterController is intentionally lifecycle-focused for now.
-	-- Gameplay/animation/input behaviour can subscribe here without owning
-	-- the character's lifetime.
-	self.Trove:Add(
-		humanoid.Died:Connect(function()
-			-- Keep the controller alive until the character is actually removed.
-			-- Roblox can leave the model around after death for a respawn period.
-		end)
-	)
+function CharacterController:_on_humanoid_added(_humanoid: Humanoid)
+	-- Character-specific gameplay can be added here later.
+	-- The controller owns the character lifecycle, not the gameplay state.
 end
 
 function CharacterController:IsAlive(): boolean
@@ -70,12 +56,7 @@ function CharacterController:IsAlive(): boolean
 end
 
 function CharacterController:Destroy()
-	if not self.Trove then
-		return
-	end
-
 	self.Trove:Destroy()
-	self.Trove = nil :: any
 end
 
 return CharacterController
