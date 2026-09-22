@@ -1,7 +1,3 @@
-# Wally dependencies
-/Packages/
-/wally.lock
-
 # Rojo / generated files
 *.rbxl
 *.rbxlx
@@ -10,7 +6,6 @@
 
 # Roblox / Studio
 *.rblx
-*.rbxl
 
 # OS / editor
 .DS_Store
