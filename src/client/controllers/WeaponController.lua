@@ -41,8 +41,6 @@ function WeaponController.new(character: Model): WeaponController
 end
 
 function WeaponController:_start()
-	self.Trove:AttachToInstance(self.Character)
-
 	local humanoid = self.Character:FindFirstChildOfClass("Humanoid")
 
 	if humanoid then
