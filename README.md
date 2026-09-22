@@ -10,13 +10,13 @@ Nullrise intentionally avoids a heavyweight game framework. The project uses ord
 
 - Native Luau
 - Rojo for project syncing
-- Wally for packages
+- Roblox-managed package assets
 - Trove for cleanup/lifecycles
 - Signal for Lua-side events
 - Explicit module dependencies
 - Roblox RemoteEvents/RemoteFunctions for networking when needed
 
-No roblox-ts, Flamework, Reflex, or generated framework layer.
+No roblox-ts, Flamework, Reflex, Wally, or generated framework layer.
 
 ## Project layout
 
@@ -34,21 +34,18 @@ src/
     ├── modules/
     └── types/
 
-Packages/
 default.project.json
-wally.toml
 ```
 
 ## Setup
 
-Install the project tools, then run:
+Use Rojo to sync the project into Roblox Studio.
 
 ```sh
-wally install
 rojo serve
 ```
 
-Open the generated Rojo project in Roblox Studio and connect to the running Rojo server.
+Install and manage third-party packages through the Roblox package workflow rather than a repository-side package manager.
 
 ## Conventions
 
