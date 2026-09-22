@@ -22,13 +22,18 @@ local CharacterController = {}
 CharacterController.__index = CharacterController
 
 function CharacterController.new(character: Model): CharacterController
+	local trove = Trove.new()
+	local weapon_controller = WeaponControllerModule.new(character)
+
 	local self = setmetatable({
 		Character = character,
-		Trove = Trove.new(),
-		WeaponController = WeaponControllerModule.new(character),
+		Trove = trove,
+		WeaponController = weapon_controller,
 	}, CharacterController)
 
-	self.Trove:AttachToInstance(self.Character)
+	trove:AttachToInstance(self.Character)
+	trove:Add(weapon_controller)
+
 	self.WeaponController:Equip(Fists)
 
 	return self
@@ -39,7 +44,6 @@ function CharacterController:IsAlive(): boolean
 end
 
 function CharacterController:Destroy()
-	self.WeaponController:Destroy()
 	self.Trove:Destroy()
 end
 
