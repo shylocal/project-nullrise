@@ -29,7 +29,9 @@ function WeaponController.new(character: Model): WeaponController
 	local self = setmetatable({
 		Character = character,
 		Trove = Trove.new(),
+		AnimationTrove = Trove.new(),
 		Equipped = nil,
+		Animator = nil,
 		Tracks = {} :: { [string]: AnimationTrack },
 	}, WeaponController)
 
@@ -104,17 +106,15 @@ function WeaponController:_load_track(animator: Animator, definition: AnimationD
 	track.Priority = definition.Priority
 	track.Looped = definition.Looped
 
-	self.Trove:Add(animation)
-	self.Trove:Add(track)
+	self.AnimationTrove:Add(animation)
+	self.AnimationTrove:Add(track)
 
 	return track
 end
 
 function WeaponController:_clear_tracks()
-	for _, track in pairs(self.Tracks) do
-		track:Stop()
-	end
-
+	self.AnimationTrove:Destroy()
+	self.AnimationTrove = Trove.new()
 	table.clear(self.Tracks)
 end
 
@@ -125,13 +125,14 @@ function WeaponController:_play_equip()
 		return
 	end
 
-	local connection = equip.Ended:Connect(function()
-		if self.Equipped then
-			self:Play("Idle")
+	self.Trove:Connect(
+		equip.Ended,
+		function()
+			if self.Equipped and equip.Parent ~= nil then
+				self:Play("Idle")
+			end
 		end
-	end)
-
-	self.Trove:Add(connection)
+	)
 end
 
 function WeaponController:Equip(weapon: WeaponDefinition)
@@ -167,7 +168,7 @@ end
 
 function WeaponController:Attack(attack_index: number): AnimationTrack?
 	local weapon = self.Equipped
-	if not weapon then
+	if not weapon or not self.Animator then
 		return nil
 	end
 
@@ -177,17 +178,8 @@ function WeaponController:Attack(attack_index: number): AnimationTrack?
 	end
 
 	local animation_name = "__attack_" .. attack_index
-	local existing = self.Tracks[animation_name]
-
-	if existing then
-		existing:Stop()
-		existing:Destroy()
-		self.Tracks[animation_name] = nil
-	end
-
-	if not self.Animator then
-		return nil
-	end
+	self.AnimationTrove:Remove(self.Tracks[animation_name])
+	self.Tracks[animation_name] = nil
 
 	local track = self:_load_track(self.Animator, attack.Animation)
 	self.Tracks[animation_name] = track
@@ -197,6 +189,7 @@ function WeaponController:Attack(attack_index: number): AnimationTrack?
 end
 
 function WeaponController:Destroy()
+	self.AnimationTrove:Destroy()
 	self.Trove:Destroy()
 end
 
