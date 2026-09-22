@@ -1,10 +1,14 @@
 --!strict
 
-local Server = {}
+local WeaponService = require(script.services.WeaponService)
+
+local Server = {
+	WeaponService = WeaponService.new(),
+}
 
 function Server.start()
 	-- Server bootstrap lives here.
-	-- Add game-specific services/systems as the project grows.
+	-- Game-specific services can be added explicitly as the project grows.
 end
 
 Server.start()
