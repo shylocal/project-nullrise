@@ -2,7 +2,8 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Trove = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Trove"))
+local Packages = ReplicatedStorage.Packages
+local Trove = require(Packages.Trove)
 
 export type CharacterController = {
 	Character: Model,
