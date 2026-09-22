@@ -2,14 +2,15 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local Trove = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Trove"))
-local CharacterController = require(script.Parent.CharacterController)
+local CharacterControllerModule = require(script.Parent.CharacterController)
 
 export type PlayerController = {
 	Player: Player,
 	Trove: typeof(Trove.new()),
-	CharacterController: typeof(CharacterController.new)?,
+	CharacterController: CharacterControllerModule.CharacterController?,
 	Destroy: (self: PlayerController) -> (),
 }
 
@@ -74,11 +75,11 @@ function PlayerController:_set_character(character: Model)
 
 	-- The player can be removed between CharacterAdded firing and this code
 	-- running. Avoid creating a controller for an already-detached character.
-	if self.Player.Parent ~= Players or character.Parent ~= self.Player then
+	if self.Player.Parent ~= Players or not character:IsDescendantOf(Workspace) then
 		return
 	end
 
-	self.CharacterController = CharacterController.new(character)
+	self.CharacterController = CharacterControllerModule.new(character)
 
 	-- CharacterController owns its own resources. Adding it to this Trove
 	-- makes the ownership explicit and guarantees cleanup with the player.
