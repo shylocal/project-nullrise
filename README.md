@@ -24,9 +24,13 @@ No roblox-ts, Flamework, Reflex, Wally, or generated framework layer.
 src/
 ├── client/
 │   ├── controllers/
+│   │   ├── PlayerController.lua
+│   │   ├── CharacterController.lua
+│   │   └── WeaponController.lua
 │   └── init.client.lua
 ├── server/
 │   ├── services/
+│   │   └── WeaponService.lua
 │   ├── systems/
 │   └── init.server.lua
 └── shared/
@@ -52,6 +56,8 @@ Install and manage third-party packages through the Roblox package workflow rath
 Prefer plain modules over abstractions.
 
 Use a class-style module only when an object has meaningful state and lifecycle. Give objects an explicit `Destroy` method and use Trove when they own connections, instances, threads, or other disposable resources.
+
+Weapon definitions are data modules under `src/shared/weapons`. Client controllers interpret them for presentation; server services remain authoritative over gameplay state.
 
 Use Signal for internal Lua events. Use Roblox remotes for client/server communication.
 
