@@ -30,12 +30,9 @@ function PlayerController.new(player: Player): PlayerController
 end
 
 function PlayerController:_start()
-	-- Handle an already-spawned character before subscribing. This avoids
-	-- missing the current character when the controller starts late.
-	if self.Player.Character then
-		self:_set_character(self.Player.Character)
-	end
-
+	-- Subscribe before checking the current character:
+	-- this handles both an already-spawned character and a spawn that happens
+	-- immediately after bootstrap without requiring a yield.
 	self.Trove:Connect(
 		self.Player.CharacterAdded,
 		function(character)
@@ -52,8 +49,6 @@ function PlayerController:_start()
 		end
 	)
 
-	-- PlayerRemoving is the final ownership boundary. Destroying the Trove
-	-- disconnects all player lifecycle listeners and the active character.
 	self.Trove:Connect(
 		Players.PlayerRemoving,
 		function(player)
@@ -62,49 +57,47 @@ function PlayerController:_start()
 			end
 		end
 	)
+
+	-- CharacterAdded may have happened before the controller was created.
+	local current_character = self.Player.Character
+	if current_character then
+		self:_set_character(current_character)
+	end
 end
 
 function PlayerController:_set_character(character: Model)
-	local previous = self.CharacterController
+	local current = self.CharacterController
 
-	if previous and previous.Character == character then
+	if current and current.Character == character then
 		return
 	end
 
 	self:_clear_character()
 
-	-- The player can be removed between CharacterAdded firing and this code
-	-- running. Avoid creating a controller for an already-detached character.
+	-- CharacterAdded is expected to provide a character parented into the
+	-- data model. If the player is already being removed, don't keep an object
+	-- alive for a character that is no longer part of the game.
 	if self.Player.Parent ~= Players or not character:IsDescendantOf(Workspace) then
 		return
 	end
 
-	self.CharacterController = CharacterControllerModule.new(character)
-
-	-- CharacterController owns its own resources. Adding it to this Trove
-	-- makes the ownership explicit and guarantees cleanup with the player.
-	self.Trove:Add(self.CharacterController)
+	local controller = CharacterControllerModule.new(character)
+	self.CharacterController = controller
+	self.Trove:Add(controller)
 end
 
 function PlayerController:_clear_character()
-	local character_controller = self.CharacterController
+	local controller = self.CharacterController
 	self.CharacterController = nil
 
-	if character_controller then
-		character_controller:Destroy()
+	if controller then
+		controller:Destroy()
 	end
 end
 
 function PlayerController:Destroy()
-	local trove = self.Trove
-
-	if not trove then
-		return
-	end
-
-	self.Trove = nil :: any
+	self.Trove:Destroy()
 	self.CharacterController = nil
-	trove:Destroy()
 end
 
 return PlayerController
