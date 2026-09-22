@@ -125,7 +125,7 @@ function WeaponController:_play_equip()
 		return
 	end
 
-	self.Trove:Connect(
+	self.AnimationTrove:Connect(
 		equip.Ended,
 		function()
 			if self.Equipped and equip.Parent ~= nil then
@@ -178,8 +178,12 @@ function WeaponController:Attack(attack_index: number): AnimationTrack?
 	end
 
 	local animation_name = "__attack_" .. attack_index
-	self.AnimationTrove:Remove(self.Tracks[animation_name])
-	self.Tracks[animation_name] = nil
+	local previous = self.Tracks[animation_name]
+	if previous then
+		previous:Stop()
+		self.AnimationTrove:Remove(previous)
+		self.Tracks[animation_name] = nil
+	end
 
 	local track = self:_load_track(self.Animator, attack.Animation)
 	self.Tracks[animation_name] = track
