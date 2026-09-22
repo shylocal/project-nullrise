@@ -29,6 +29,7 @@ function CharacterController.new(character: Model): CharacterController
 	}, CharacterController)
 
 	self.Trove:AttachToInstance(self.Character)
+	self.WeaponController:Equip(Fists)
 
 	return self
 end
