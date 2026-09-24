@@ -12,14 +12,23 @@ local CombatRemote = ReplicatedStorage.remotes.Combat
 local CombatController = {}
 CombatController.__index = CombatController
 
-function CombatController.new(weapon_controller, input_controller)
+local COMBO_RESET_DELAY = 0.8
+
+function CombatController.new(weapon_controller, movement_controller, input_controller)
 	local self = setmetatable({
 		Trove = Trove.new(),
 		WeaponController = weapon_controller,
+		MovementController = movement_controller,
+
 		AttackTrove = nil,
 		Hitbox = nil,
+
 		NextAttack = 1,
+		LastAttackAt = 0,
+		CurrentAttackIndex = nil,
+
 		Attacking = false,
+		BufferedAttack = false,
 
 		Hit = Signal.new(),
 	}, CombatController)
@@ -41,8 +50,9 @@ function CombatController:_start(input_controller)
 	)
 end
 
-function CombatController:Attack()
+function CombatController:Attack(buffered)
 	if self.Attacking then
+		self.BufferedAttack = true
 		return
 	end
 
@@ -51,9 +61,14 @@ function CombatController:Attack()
 		return
 	end
 
+	if not buffered and os.clock() - self.LastAttackAt > COMBO_RESET_DELAY then
+		self.NextAttack = 1
+	end
+
 	local attack_index = self.NextAttack
 	local attack = weapon.Attacks[attack_index]
 	if not attack then
+		self.NextAttack = 1
 		return
 	end
 
@@ -63,7 +78,12 @@ function CombatController:Attack()
 	end
 
 	self.Attacking = true
+	self.BufferedAttack = false
+	self.CurrentAttackIndex = attack_index
+	self.LastAttackAt = os.clock()
 	self.NextAttack = attack_index == #weapon.Attacks and 1 or attack_index + 1
+
+	self.MovementController:SetSprintBlocked(true)
 
 	local attack_trove = Trove.new()
 	self.AttackTrove = attack_trove
@@ -89,16 +109,33 @@ function CombatController:Attack()
 
 	task.spawn(function()
 		track.Ended:Wait()
-
-		self:_stop_hitbox()
-
-		if self.AttackTrove == attack_trove then
-			self.AttackTrove = nil
-		end
-
-		self.Trove:Remove(attack_trove)
-		self.Attacking = false
+		self:_finish_attack(attack_index, attack_trove)
 	end)
+end
+
+function CombatController:_finish_attack(attack_index, attack_trove)
+	self:_stop_hitbox()
+	CombatRemote:FireServer("HitStop", attack_index)
+
+	if self.AttackTrove ~= attack_trove then
+		return
+	end
+
+	self.AttackTrove = nil
+	self.Trove:Remove(attack_trove)
+
+	self.Attacking = false
+	self.CurrentAttackIndex = nil
+	self.MovementController:SetSprintBlocked(false)
+
+	if self.BufferedAttack then
+		self.BufferedAttack = false
+		task.defer(function()
+			if not self.Attacking then
+				self:Attack(true)
+			end
+		end)
+	end
 end
 
 function CombatController:_start_hitbox(attack_index)
@@ -143,7 +180,14 @@ function CombatController:_start_hitbox(attack_index)
 		CombatRemote:FireServer("Hit", attack_index, hit_character)
 	end)
 
-	self.AttackTrove:Add(hitbox)
+	local attack_trove = self.AttackTrove
+	if attack_trove then
+		attack_trove:Add(hitbox)
+	else
+		hitbox:Destroy()
+		self.Hitbox = nil
+		return
+	end
 
 	hitbox:HitStart()
 end
@@ -168,6 +212,11 @@ function CombatController:_stop_hitbox()
 end
 
 function CombatController:Reset()
+	local attack_index = self.CurrentAttackIndex
+	if attack_index then
+		CombatRemote:FireServer("HitStop", attack_index)
+	end
+
 	self:_stop_hitbox()
 
 	if self.AttackTrove then
@@ -175,14 +224,18 @@ function CombatController:Reset()
 		self.AttackTrove = nil
 	end
 
+	self.MovementController:SetSprintBlocked(false)
+
 	self.NextAttack = 1
+	self.LastAttackAt = 0
+	self.CurrentAttackIndex = nil
 	self.Attacking = false
+	self.BufferedAttack = false
 end
 
 function CombatController:Destroy()
-	self:_stop_hitbox()
+	self:Reset()
 	self.Trove:Destroy()
-	self.AttackTrove = nil
 end
 
 return CombatController
