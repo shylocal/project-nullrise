@@ -210,7 +210,7 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 		end
 	)
 
-	CombatRemote:FireServer(remote_action, attack_key == "Charge" and nil or attack_key)
+	CombatRemote:FireServer(remote_action, attack_key)
 
 	self.AnimationController:Play(
 		track,
