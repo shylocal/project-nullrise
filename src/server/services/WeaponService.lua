@@ -1,3 +1,4 @@
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
@@ -140,6 +141,14 @@ function WeaponService:_attach_weapon(player, character, weapon, character_trove
 
 		character_trove:Add(clone)
 		self.Wielded[player][wield_name] = clone
+	end
+end
+
+function WeaponService:_tag_hitpoints(instance)
+	for _, descendant in instance:GetDescendants() do
+		if descendant:IsA("Attachment") and descendant.Name == "Hitpoint" then
+			CollectionService:AddTag(descendant, "DmgPoint")
+		end
 	end
 end
 
