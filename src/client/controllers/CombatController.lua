@@ -2,6 +2,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
+local Signal = require(Packages.Signal)
+local ShapecastHitbox = require(Packages.ShapecastHitbox)
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 
@@ -16,10 +18,14 @@ function CombatController.new(weapon_controller, input_controller)
 		Trove = Trove.new(),
 		WeaponController = weapon_controller,
 		AttackTrove = nil,
+		Hitbox = nil,
 		NextAttack = 1,
 		Attacking = false,
+
+		Hit = Signal.new(),
 	}, CombatController)
 
+	self.Trove:Add(self.Hit)
 	self:_start(input_controller)
 
 	return self
@@ -67,6 +73,7 @@ function CombatController:Attack()
 	attack_trove:Connect(
 		track:GetMarkerReachedSignal("HitStart"),
 		function()
+			self:_start_hitbox(attack_index)
 			CombatRemote:FireServer("HitStart", attack_index)
 		end
 	)
@@ -74,6 +81,7 @@ function CombatController:Attack()
 	attack_trove:Connect(
 		track:GetMarkerReachedSignal("HitStop"),
 		function()
+			self:_stop_hitbox()
 			CombatRemote:FireServer("HitStop", attack_index)
 		end
 	)
@@ -82,6 +90,8 @@ function CombatController:Attack()
 
 	task.spawn(function()
 		track.Ended:Wait()
+
+		self:_stop_hitbox()
 
 		if self.AttackTrove == attack_trove then
 			self.AttackTrove = nil
@@ -92,7 +102,75 @@ function CombatController:Attack()
 	end)
 end
 
+function CombatController:_start_hitbox(attack_index)
+	if self.Hitbox then
+		return
+	end
+
+	local weapon = self.WeaponController.Equipped
+	local attack = weapon and weapon.Attacks and weapon.Attacks[attack_index]
+	if not attack then
+		return
+	end
+
+	local wielded = self.WeaponController:GetWielded(attack.Hitbox)
+	if not wielded then
+		return
+	end
+
+	local raycast_params = RaycastParams.new()
+	raycast_params.FilterType = Enum.RaycastFilterType.Exclude
+	raycast_params.FilterDescendantsInstances = {self.WeaponController.Character}
+
+	local hitbox = ShapecastHitbox.new(wielded, raycast_params)
+	self.Hitbox = hitbox
+
+	local hit_characters = {}
+
+	hitbox:OnHit(function(raycast_result)
+		local hit_part = raycast_result.Instance
+		local hit_character = hit_part and hit_part:FindFirstAncestorOfClass("Model")
+		if not hit_character or hit_character == self.WeaponController.Character then
+			return
+		end
+
+		if hit_characters[hit_character] then
+			return
+		end
+
+		hit_characters[hit_character] = true
+
+		self.Hit:Fire(hit_character, raycast_result)
+		CombatRemote:FireServer("Hit", attack_index, hit_character)
+	end)
+
+	self.AttackTrove:Add(hitbox)
+
+	hitbox:HitStart()
+end
+
+function CombatController:_stop_hitbox()
+	local hitbox = self.Hitbox
+	self.Hitbox = nil
+
+	if not hitbox then
+		return
+	end
+
+	if hitbox.Active then
+		hitbox:HitStop()
+	end
+
+	if self.AttackTrove then
+		self.AttackTrove:Remove(hitbox)
+	else
+		hitbox:Destroy()
+	end
+end
+
 function CombatController:Reset()
+	self:_stop_hitbox()
+
 	if self.AttackTrove then
 		self.Trove:Remove(self.AttackTrove)
 		self.AttackTrove = nil
@@ -103,6 +181,7 @@ function CombatController:Reset()
 end
 
 function CombatController:Destroy()
+	self:_stop_hitbox()
 	self.Trove:Destroy()
 	self.AttackTrove = nil
 end
