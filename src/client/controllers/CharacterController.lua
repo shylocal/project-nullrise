@@ -6,12 +6,11 @@ local Trove = require(Packages.Trove)
 local WeaponControllerModule = require(script.Parent.WeaponController)
 local MovementControllerModule = require(script.Parent.MovementController)
 local CombatControllerModule = require(script.Parent.CombatController)
-local HitFeedbackControllerModule = require(script.Parent.HitFeedbackController)
 
 local CharacterController = {}
 CharacterController.__index = CharacterController
 
-function CharacterController.new(character, input_controller, weapon_menu_controller)
+function CharacterController.new(character, input_controller, weapon_id)
 	local trove = Trove.new()
 
 	local weapon_controller = WeaponControllerModule.new(character)
@@ -21,7 +20,6 @@ function CharacterController.new(character, input_controller, weapon_menu_contro
 		movement_controller,
 		input_controller
 	)
-	local hit_feedback_controller = HitFeedbackControllerModule.new(combat_controller)
 
 	local self = setmetatable({
 		Character = character,
@@ -29,25 +27,12 @@ function CharacterController.new(character, input_controller, weapon_menu_contro
 		WeaponController = weapon_controller,
 		MovementController = movement_controller,
 		CombatController = combat_controller,
-		HitFeedbackController = hit_feedback_controller,
 	}, CharacterController)
 
 	trove:AttachToInstance(self.Character)
 	trove:Add(weapon_controller)
 	trove:Add(movement_controller)
 	trove:Add(combat_controller)
-	trove:Add(hit_feedback_controller)
-
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		trove:Connect(
-			humanoid.Died,
-			function()
-				combat_controller:Reset()
-				movement_controller:SetSprintBlocked(false)
-			end
-		)
-	end
 
 	trove:Connect(
 		movement_controller.SprintingChanged,
@@ -56,18 +41,25 @@ function CharacterController.new(character, input_controller, weapon_menu_contro
 		end
 	)
 
-	trove:Connect(
-		weapon_menu_controller.SelectionChanged,
-		function(weapon_id)
-			combat_controller:Reset()
-			weapon_controller:EquipById(weapon_id)
-		end
-	)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		trove:Connect(
+			humanoid.Died,
+			function()
+				combat_controller:Reset()
+			end
+		)
+	end
 
 	weapon_controller:SetSprinting(movement_controller:IsSprinting())
-	weapon_controller:EquipById(weapon_menu_controller.SelectedWeapon)
+	weapon_controller:EquipById(weapon_id or "Fists")
 
 	return self
+end
+
+function CharacterController:SetWeapon(weapon_id)
+	self.CombatController:Reset()
+	return self.WeaponController:EquipById(weapon_id)
 end
 
 function CharacterController:IsAlive()
