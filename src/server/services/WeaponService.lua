@@ -1,4 +1,3 @@
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
@@ -10,9 +9,10 @@ local Fists = require(WeaponsFolder.Fists)
 local WeaponService = {}
 WeaponService.__index = WeaponService
 
-function WeaponService.new()
+function WeaponService.new(player_service)
 	local self = setmetatable({
 		Trove = Trove.new(),
+		PlayerService = player_service,
 		Equipped = {},
 	}, WeaponService)
 
@@ -23,26 +23,26 @@ end
 
 function WeaponService:_start()
 	self.Trove:Connect(
-		Players.PlayerAdded,
+		self.PlayerService.PlayerAdded,
 		function(player)
 			self:_player_added(player)
 		end
 	)
 
 	self.Trove:Connect(
-		Players.PlayerRemoving,
+		self.PlayerService.PlayerRemoving,
 		function(player)
 			self.Equipped[player] = nil
 		end
 	)
 
-	for _, player in Players:GetPlayers() do
+	for _, player in self.PlayerService:GetPlayers() do
 		self:_player_added(player)
 	end
 end
 
 function WeaponService:_player_added(player)
-	if player.Parent ~= Players then
+	if self.Equipped[player] then
 		return
 	end
 
@@ -54,7 +54,7 @@ function WeaponService:GetEquipped(player)
 end
 
 function WeaponService:Equip(player, weapon_id)
-	if player.Parent ~= Players then
+	if not self.PlayerService:Get(player) then
 		return false
 	end
 
@@ -73,7 +73,7 @@ function WeaponService:Equip(player, weapon_id)
 end
 
 function WeaponService:Destroy()
-	self.Equipped = {}
+	table.clear(self.Equipped)
 	self.Trove:Destroy()
 end
 
