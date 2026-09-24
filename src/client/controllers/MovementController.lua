@@ -27,8 +27,6 @@ function MovementController.new(character, input_controller)
 end
 
 function MovementController:_start()
-	self.Trove:AttachToInstance(self.Character)
-
 	local humanoid = self.Character:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		self:_set_humanoid(humanoid)
