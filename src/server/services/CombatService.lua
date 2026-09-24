@@ -7,6 +7,8 @@ local Trove = require(Packages.Trove)
 local CombatService = {}
 CombatService.__index = CombatService
 
+local ATTACK_REQUEST_INTERVAL = 0.1
+local COMBO_RESET_DELAY = 0.8
 local HIT_DISTANCE_MARGIN = 4
 local ATTACK_TIMEOUT = 2
 
@@ -16,7 +18,11 @@ function CombatService.new(player_service, weapon_service, remote)
 		PlayerService = player_service,
 		WeaponService = weapon_service,
 		Remote = remote,
+
 		ActiveAttacks = {},
+		NextAttack = {},
+		LastAttackAt = {},
+		PlayerTroves = {},
 	}, CombatService)
 
 	self:_start()
@@ -41,37 +47,48 @@ function CombatService:_start()
 	)
 
 	self.Trove:Connect(
+		self.PlayerService.PlayerAdded,
+		function(player)
+			self:_watch_player(player)
+		end
+	)
+
+	self.Trove:Connect(
 		self.PlayerService.PlayerRemoving,
 		function(player)
-			self:_clear_attack(player)
+			self:_player_removing(player)
+		end
+	)
+
+	self.Trove:Connect(
+		self.WeaponService.EquippedChanged,
+		function(player)
+			self:_reset_player(player)
 		end
 	)
 
 	for _, player in self.PlayerService:GetPlayers() do
 		self:_watch_player(player)
 	end
-
-	self.Trove:Connect(
-		self.PlayerService.PlayerAdded,
-		function(player)
-			self:_watch_player(player)
-		end
-	)
 end
 
 function CombatService:_watch_player(player)
+	if self.PlayerTroves[player] then
+		return
+	end
+
 	local session = self.PlayerService:Get(player)
 	if not session then
 		return
 	end
 
-	self.Trove:Connect(
+	local player_trove = Trove.new()
+	self.PlayerTroves[player] = player_trove
+
+	player_trove:Connect(
 		session.CharacterRemoving,
-		function(character)
-			local active = self.ActiveAttacks[player]
-			if active and active.Character == character then
-				self:_clear_attack(player)
-			end
+		function()
+			self:_reset_player(player)
 		end
 	)
 end
@@ -102,16 +119,35 @@ function CombatService:_attack(player, attack_index)
 		return
 	end
 
-	local wielded = self.WeaponService:GetWielded(player, attack.Hitbox)
-	if not wielded then
+	local now = os.clock()
+	local last_attack = self.LastAttackAt[player] or 0
+
+	if now - last_attack < ATTACK_REQUEST_INTERVAL then
 		return
 	end
+
+	if now - last_attack > COMBO_RESET_DELAY then
+		self.NextAttack[player] = 1
+	end
+
+	local expected_attack = self.NextAttack[player] or 1
+	if attack_index ~= expected_attack then
+		return
+	end
+
+	local wielded = self.WeaponService:GetWielded(player, attack.Hitbox)
+	if not wielded or wielded.Parent ~= character then
+		return
+	end
+
+	self.LastAttackAt[player] = now
+	self.NextAttack[player] = attack_index == #weapon.Attacks and 1 or attack_index + 1
 
 	local active = {
 		AttackIndex = attack_index,
 		Character = character,
 		Attack = attack,
-		Hitbox = wielded,
+		Wielded = wielded,
 		HitActive = false,
 		HitTargets = {},
 	}
@@ -132,6 +168,12 @@ function CombatService:_hit_start(player, attack_index)
 	end
 
 	if active.Character.Parent == nil then
+		self:_clear_attack(player)
+		return
+	end
+
+	local wielded = self.WeaponService:GetWielded(player, active.Attack.Hitbox)
+	if wielded ~= active.Wielded or wielded.Parent ~= active.Character then
 		self:_clear_attack(player)
 		return
 	end
@@ -157,6 +199,11 @@ function CombatService:_hit(player, attack_index, hit_character)
 		return
 	end
 
+	local wielded = self.WeaponService:GetWielded(player, active.Attack.Hitbox)
+	if wielded ~= active.Wielded or wielded.Parent ~= active.Character then
+		return
+	end
+
 	local hit_humanoid = hit_character:FindFirstChildOfClass("Humanoid")
 	local hit_root = hit_character:FindFirstChild("HumanoidRootPart")
 	local attacker_root = active.Character:FindFirstChild("HumanoidRootPart")
@@ -165,15 +212,13 @@ function CombatService:_hit(player, attack_index, hit_character)
 		return
 	end
 
-	local attack = active.Attack
-	local range = attack.Range or 8
-
+	local range = active.Attack.Range or 8
 	if (hit_root.Position - attacker_root.Position).Magnitude > range + HIT_DISTANCE_MARGIN then
 		return
 	end
 
 	active.HitTargets[hit_character] = true
-	hit_humanoid:TakeDamage(attack.Damage or 0)
+	hit_humanoid:TakeDamage(active.Attack.Damage or 0)
 end
 
 function CombatService:_hit_stop(player, attack_index)
@@ -186,11 +231,40 @@ function CombatService:_hit_stop(player, attack_index)
 end
 
 function CombatService:_clear_attack(player)
+	local active = self.ActiveAttacks[player]
+	if active then
+		table.clear(active.HitTargets)
+	end
+
 	self.ActiveAttacks[player] = nil
 end
 
+function CombatService:_reset_player(player)
+	self:_clear_attack(player)
+	self.NextAttack[player] = 1
+	self.LastAttackAt[player] = 0
+end
+
+function CombatService:_player_removing(player)
+	self:_reset_player(player)
+
+	local player_trove = self.PlayerTroves[player]
+	if player_trove then
+		player_trove:Destroy()
+		self.PlayerTroves[player] = nil
+	end
+end
+
 function CombatService:Destroy()
+	for player in pairs(self.PlayerTroves) do
+		self:_player_removing(player)
+	end
+
+	table.clear(self.PlayerTroves)
 	table.clear(self.ActiveAttacks)
+	table.clear(self.NextAttack)
+	table.clear(self.LastAttackAt)
+
 	self.Trove:Destroy()
 end
 
