@@ -51,6 +51,11 @@ function CombatController:_start(input_controller)
 end
 
 function CombatController:Attack(buffered)
+	local humanoid = self.WeaponController.Character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return
+	end
+
 	if self.Attacking then
 		self.BufferedAttack = true
 		return
