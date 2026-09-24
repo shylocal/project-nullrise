@@ -60,7 +60,6 @@ function Session:_set_character(character)
 	self.CharacterTrove = Trove.new()
 
 	self.CharacterTrove:AttachToInstance(character)
-	self.Trove:Add(self.CharacterTrove)
 
 	self.CharacterAdded:Fire(character)
 end
@@ -81,11 +80,8 @@ function Session:_remove_character(character)
 end
 
 function Session:Destroy()
-	self.Character = nil
-
-	if self.CharacterTrove then
-		self.CharacterTrove:Destroy()
-		self.CharacterTrove = nil
+	if self.Character then
+		self:_remove_character(self.Character)
 	end
 
 	self.Trove:Destroy()
