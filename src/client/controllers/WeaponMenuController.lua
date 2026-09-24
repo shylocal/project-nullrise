@@ -106,7 +106,7 @@ function WeaponMenuController:_start()
 		self.Buttons[weapon_id] = button
 	end
 
-	self.SelectedWeapon = weapon_ids[1]
+	self.SelectedWeapon = self.Buttons.Fists and "Fists" or weapon_ids[1]
 
 	self.Trove:Connect(
 		WeaponRemote.OnClientEvent,
