@@ -1,3 +1,4 @@
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -214,8 +215,14 @@ function CombatService:_hit(player, attack_index, hit_character, segment_instanc
 		return
 	end
 
-	if segment_instance and not segment_instance:IsDescendantOf(active.Wielded) then
-		return
+	if segment_instance then
+		if not segment_instance:IsDescendantOf(active.Wielded) then
+			return
+		end
+
+		if not CollectionService:HasTag(segment_instance, "DmgPoint") then
+			return
+		end
 	end
 
 	local hit_humanoid = hit_character:FindFirstChildOfClass("Humanoid")
