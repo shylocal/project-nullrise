@@ -159,7 +159,7 @@ function AnimationController:_play_movement_animation()
 
 	local track
 
-	if self.Sprinting then
+	if self.Sprinting and self.Tracks.Sprint then
 		track = self.Tracks.Sprint
 	else
 		track = self.Tracks.Idle
