@@ -104,7 +104,6 @@ function WeaponService:_character_added(player, character)
 	end
 
 	local character_trove = Trove.new()
-	character_trove:AttachToInstance(character)
 
 	self.CharacterTroves[player] = character_trove
 	self.Wielded[player] = {}
