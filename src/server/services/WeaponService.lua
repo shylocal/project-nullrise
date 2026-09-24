@@ -13,7 +13,7 @@ WeaponService.__index = WeaponService
 function WeaponService.new()
 	local self = setmetatable({
 		Trove = Trove.new(),
-		Equipped = {} :: { [Player]: WeaponDefinition },
+		Equipped = {},
 	}, WeaponService)
 
 	self:_start()
@@ -63,7 +63,7 @@ function WeaponService:Equip(player, weapon_id)
 		return false
 	end
 
-	local weapon = require(weapon_module) :: WeaponDefinition
+	local weapon = require(weapon_module)
 	if not weapon then
 		return false
 	end
