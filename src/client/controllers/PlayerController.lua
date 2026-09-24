@@ -9,13 +9,14 @@ local CharacterControllerModule = require(script.Parent.CharacterController)
 local PlayerController = {}
 PlayerController.__index = PlayerController
 
-function PlayerController.new(player, input_controller, weapon_menu_controller)
+function PlayerController.new(player, input_controller, ui_controller)
 	local self = setmetatable({
 		Player = player,
 		Trove = Trove.new(),
 		CharacterController = nil,
 		InputController = input_controller,
-		WeaponMenuController = weapon_menu_controller,
+		UIController = ui_controller,
+		WeaponMenu = ui_controller:Get("WeaponMenu"),
 	}, PlayerController)
 
 	self:_start()
@@ -37,6 +38,13 @@ function PlayerController:_start()
 			if self.CharacterController and self.CharacterController.Character == character then
 				self:_clear_character()
 			end
+		end
+	)
+
+	self.Trove:Connect(
+		self.WeaponMenu.SelectionChanged,
+		function(weapon_id)
+			self:_set_weapon(weapon_id)
 		end
 	)
 
@@ -71,14 +79,24 @@ function PlayerController:_set_character(character)
 	local controller = CharacterControllerModule.new(
 		character,
 		self.InputController,
-		self.WeaponMenuController
+		self.WeaponMenu.SelectedWeapon
 	)
 
 	self.CharacterController = controller
 	self.Trove:Add(controller)
+	self.UIController:BindCharacter(controller)
+end
+
+function PlayerController:_set_weapon(weapon_id)
+	local controller = self.CharacterController
+	if controller then
+		controller:SetWeapon(weapon_id)
+	end
 end
 
 function PlayerController:_clear_character()
+	self.UIController:BindCharacter(nil)
+
 	local controller = self.CharacterController
 	self.CharacterController = nil
 
@@ -88,6 +106,7 @@ function PlayerController:_clear_character()
 end
 
 function PlayerController:Destroy()
+	self.UIController:BindCharacter(nil)
 	self.Trove:Destroy()
 	self.CharacterController = nil
 end
