@@ -120,13 +120,13 @@ function CombatService:_attack(player, attack_index)
 	end
 
 	local now = os.clock()
-	local last_attack = self.LastAttackAt[player] or 0
+	local last_attack = self.LastAttackAt[player]
 
-	if now - last_attack < ATTACK_REQUEST_INTERVAL then
+	if last_attack and now - last_attack < ATTACK_REQUEST_INTERVAL then
 		return
 	end
 
-	if now - last_attack > COMBO_RESET_DELAY then
+	if not last_attack or now - last_attack > COMBO_RESET_DELAY then
 		self.NextAttack[player] = 1
 	end
 
@@ -264,7 +264,7 @@ end
 function CombatService:_reset_player(player)
 	self:_clear_attack(player)
 	self.NextAttack[player] = 1
-	self.LastAttackAt[player] = 0
+	self.LastAttackAt[player] = nil
 end
 
 function CombatService:_player_removing(player)
