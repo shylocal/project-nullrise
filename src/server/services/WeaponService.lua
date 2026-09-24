@@ -6,8 +6,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packages = ReplicatedStorage.Packages
 local Trove = require(Packages.Trove)
 
-local Weapons = require(ReplicatedStorage.Shared.weapons)
-local Fists = Weapons.Fists
+local WeaponsFolder = ReplicatedStorage.Shared.weapons
+local Fists = require(WeaponsFolder.Fists)
 
 type WeaponDefinition = typeof(Fists)
 
@@ -69,7 +69,12 @@ function WeaponService:Equip(player: Player, weapon_id: string): boolean
 		return false
 	end
 
-	local weapon = Weapons[weapon_id]
+	local weapon_module = WeaponsFolder:FindFirstChild(weapon_id)
+	if not weapon_module or not weapon_module:IsA("ModuleScript") then
+		return false
+	end
+
+	local weapon = require(weapon_module) :: WeaponDefinition
 	if not weapon then
 		return false
 	end
