@@ -239,6 +239,20 @@ function CombatService:_hit(player, attack_index, hit_character, segment_instanc
 		return
 	end
 
+	if hit_position then
+		local raycast_params = RaycastParams.new()
+		raycast_params.FilterType = Enum.RaycastFilterType.Exclude
+		raycast_params.FilterDescendantsInstances = {active.Character}
+
+		local origin = segment_instance and segment_instance.WorldPosition or attacker_root.Position
+		local direction = hit_position - origin
+		local result = Workspace:Raycast(origin, direction, raycast_params)
+
+		if result and not result.Instance:IsDescendantOf(hit_character) then
+			return
+		end
+	end
+
 	active.HitTargets[hit_character] = true
 	hit_humanoid:TakeDamage(active.Attack.Damage or 0)
 end
