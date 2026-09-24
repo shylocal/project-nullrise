@@ -4,19 +4,8 @@ local PlayerService = require(script.services.PlayerService)
 local WeaponService = require(script.services.WeaponService)
 local CombatService = require(script.services.CombatService)
 
-local remotes = ReplicatedStorage:FindFirstChild("remotes")
-if not remotes then
-	remotes = Instance.new("Folder")
-	remotes.Name = "remotes"
-	remotes.Parent = ReplicatedStorage
-end
-
-local combat_remote = remotes:FindFirstChild("Combat")
-if not combat_remote then
-	combat_remote = Instance.new("RemoteEvent")
-	combat_remote.Name = "Combat"
-	combat_remote.Parent = remotes
-end
+local remotes = ReplicatedStorage.remotes
+local combat_remote = remotes.Combat
 
 local player_service = PlayerService.new()
 local weapon_service = WeaponService.new(player_service)
