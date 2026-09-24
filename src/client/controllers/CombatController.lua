@@ -15,6 +15,7 @@ function CombatController.new(weapon_controller, input_controller)
 	local self = setmetatable({
 		Trove = Trove.new(),
 		WeaponController = weapon_controller,
+		AttackTrove = nil,
 		NextAttack = 1,
 		Attacking = false,
 	}, CombatController)
@@ -59,21 +60,51 @@ function CombatController:Attack()
 	self.Attacking = true
 	self.NextAttack = attack_index == #weapon.Attacks and 1 or attack_index + 1
 
-	CombatRemote:FireServer(attack_index)
+	local attack_trove = Trove.new()
+	self.AttackTrove = attack_trove
+	self.Trove:Add(attack_trove)
+
+	attack_trove:Connect(
+		track:GetMarkerReachedSignal("HitStart"),
+		function()
+			CombatRemote:FireServer("HitStart", attack_index)
+		end
+	)
+
+	attack_trove:Connect(
+		track:GetMarkerReachedSignal("HitStop"),
+		function()
+			CombatRemote:FireServer("HitStop", attack_index)
+		end
+	)
+
+	CombatRemote:FireServer("Attack", attack_index)
 
 	task.spawn(function()
 		track.Ended:Wait()
+
+		if self.AttackTrove == attack_trove then
+			self.AttackTrove = nil
+		end
+
+		self.Trove:Remove(attack_trove)
 		self.Attacking = false
 	end)
 end
 
 function CombatController:Reset()
+	if self.AttackTrove then
+		self.Trove:Remove(self.AttackTrove)
+		self.AttackTrove = nil
+	end
+
 	self.NextAttack = 1
 	self.Attacking = false
 end
 
 function CombatController:Destroy()
 	self.Trove:Destroy()
+	self.AttackTrove = nil
 end
 
 return CombatController
