@@ -1,5 +1,3 @@
---!strict
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
@@ -10,18 +8,10 @@ local WeaponControllerModule = require(script.Parent.WeaponController)
 
 local Fists = require(WeaponsFolder.Fists)
 
-export type CharacterController = {
-	Character: Model,
-	Trove: typeof(Trove.new()),
-	WeaponController: WeaponControllerModule.WeaponController,
-	Destroy: (self: CharacterController) -> (),
-	IsAlive: (self: CharacterController) -> boolean,
-}
-
 local CharacterController = {}
 CharacterController.__index = CharacterController
 
-function CharacterController.new(character: Model): CharacterController
+function CharacterController.new(character)
 	local trove = Trove.new()
 	local weapon_controller = WeaponControllerModule.new(character)
 
@@ -39,7 +29,7 @@ function CharacterController.new(character: Model): CharacterController
 	return self
 end
 
-function CharacterController:IsAlive(): boolean
+function CharacterController:IsAlive()
 	return self.Character.Parent ~= nil
 end
 
