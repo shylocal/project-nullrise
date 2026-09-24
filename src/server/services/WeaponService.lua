@@ -3,9 +3,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
+local Signal = require(Packages.Signal)
 
 local WeaponsFolder = ReplicatedStorage.shared.weapons
 local WeaponModels = ReplicatedStorage.weapon_models
+local WeaponRemote = ReplicatedStorage.remotes.Weapon
 local Fists = require(WeaponsFolder.Fists)
 
 local WeaponService = {}
@@ -15,17 +17,31 @@ function WeaponService.new(player_service)
 	local self = setmetatable({
 		Trove = Trove.new(),
 		PlayerService = player_service,
+
 		Equipped = {},
 		CharacterTroves = {},
+		PlayerTroves = {},
 		Wielded = {},
+
+		EquippedChanged = Signal.new(),
 	}, WeaponService)
 
+	self.Trove:Add(self.EquippedChanged)
 	self:_start()
 
 	return self
 end
 
 function WeaponService:_start()
+	self.Trove:Connect(
+		WeaponRemote.OnServerEvent,
+		function(player, action, weapon_id)
+			if action == "Equip" then
+				self:Equip(player, weapon_id)
+			end
+		end
+	)
+
 	self.Trove:Connect(
 		self.PlayerService.PlayerAdded,
 		function(player)
@@ -50,21 +66,24 @@ function WeaponService:_player_added(player)
 		return
 	end
 
-	self.Equipped[player] = Fists
-
 	local session = self.PlayerService:Get(player)
 	if not session then
 		return
 	end
 
-	self.Trove:Connect(
+	local player_trove = Trove.new()
+	self.PlayerTroves[player] = player_trove
+
+	self.Equipped[player] = Fists
+
+	player_trove:Connect(
 		session.CharacterAdded,
 		function(character)
 			self:_character_added(player, character)
 		end
 	)
 
-	self.Trove:Connect(
+	player_trove:Connect(
 		session.CharacterRemoving,
 		function(character)
 			self:_character_removing(player, character)
@@ -139,6 +158,8 @@ function WeaponService:_attach_weapon(player, character, weapon, character_trove
 		weld.Part1 = root
 		weld.Parent = root
 
+		self:_tag_hitpoints(clone)
+
 		character_trove:Add(clone)
 		self.Wielded[player][wield_name] = clone
 	end
@@ -203,6 +224,10 @@ function WeaponService:GetWielded(player, wield_name)
 end
 
 function WeaponService:Equip(player, weapon_id)
+	if typeof(weapon_id) ~= "string" then
+		return false
+	end
+
 	if not self.PlayerService:Get(player) then
 		return false
 	end
@@ -213,8 +238,18 @@ function WeaponService:Equip(player, weapon_id)
 	end
 
 	local weapon = require(weapon_module)
-	if not weapon or weapon.Type ~= "Melee" then
+	if not weapon or weapon.Type ~= "Melee" or not weapon.Model then
 		return false
+	end
+
+	if not WeaponModels:FindFirstChild(weapon.Model) then
+		return false
+	end
+
+	local current = self.Equipped[player]
+	if current == weapon then
+		WeaponRemote:FireClient(player, "Equipped", weapon_id)
+		return true
 	end
 
 	self.Equipped[player] = weapon
@@ -224,22 +259,38 @@ function WeaponService:Equip(player, weapon_id)
 		self:_character_added(player, session.Character)
 	end
 
+	self.EquippedChanged:Fire(player, weapon)
+	WeaponRemote:FireClient(player, "Equipped", weapon_id)
+
 	return true
 end
 
 function WeaponService:_player_removing(player)
 	self:_clear_character(player)
 
+	local player_trove = self.PlayerTroves[player]
+	if player_trove then
+		player_trove:Destroy()
+		self.PlayerTroves[player] = nil
+	end
+
 	self.Equipped[player] = nil
 end
 
 function WeaponService:Destroy()
+	for player in pairs(self.PlayerTroves) do
+		self:_player_removing(player)
+	end
+
 	for player in pairs(self.CharacterTroves) do
 		self:_clear_character(player)
 	end
 
+	table.clear(self.PlayerTroves)
+	table.clear(self.CharacterTroves)
 	table.clear(self.Wielded)
 	table.clear(self.Equipped)
+
 	self.Trove:Destroy()
 end
 
