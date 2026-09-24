@@ -3,6 +3,7 @@
 *.rbxlx
 *.rbxlx.lock
 *.rbxm
+sourcemap.json
 
 # Roblox / Studio
 *.rblx
