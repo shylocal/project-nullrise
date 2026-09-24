@@ -41,6 +41,34 @@ function CombatService:_start()
 			self:_clear_attack(player)
 		end
 	)
+
+	for _, player in self.PlayerService:GetPlayers() do
+		self:_watch_player(player)
+	end
+
+	self.Trove:Connect(
+		self.PlayerService.PlayerAdded,
+		function(player)
+			self:_watch_player(player)
+		end
+	)
+end
+
+function CombatService:_watch_player(player)
+	local session = self.PlayerService:Get(player)
+	if not session then
+		return
+	end
+
+	self.Trove:Connect(
+		session.CharacterRemoving,
+		function(character)
+			local active = self.ActiveAttacks[player]
+			if active and active.Character == character then
+				self:_clear_attack(player)
+			end
+		end
+	)
 end
 
 function CombatService:_attack(player, attack_index)
