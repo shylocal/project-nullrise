@@ -3,22 +3,25 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 
-local WeaponsFolder = ReplicatedStorage.shared.weapons
 local WeaponControllerModule = require(script.Parent.WeaponController)
 local MovementControllerModule = require(script.Parent.MovementController)
 local CombatControllerModule = require(script.Parent.CombatController)
-
-local Fists = require(WeaponsFolder.Fists)
+local HitFeedbackControllerModule = require(script.Parent.HitFeedbackController)
 
 local CharacterController = {}
 CharacterController.__index = CharacterController
 
-function CharacterController.new(character, input_controller)
+function CharacterController.new(character, input_controller, weapon_menu_controller)
 	local trove = Trove.new()
 
 	local weapon_controller = WeaponControllerModule.new(character)
 	local movement_controller = MovementControllerModule.new(character, input_controller)
-	local combat_controller = CombatControllerModule.new(weapon_controller, input_controller)
+	local combat_controller = CombatControllerModule.new(
+		weapon_controller,
+		movement_controller,
+		input_controller
+	)
+	local hit_feedback_controller = HitFeedbackControllerModule.new(combat_controller)
 
 	local self = setmetatable({
 		Character = character,
@@ -26,14 +29,32 @@ function CharacterController.new(character, input_controller)
 		WeaponController = weapon_controller,
 		MovementController = movement_controller,
 		CombatController = combat_controller,
+		HitFeedbackController = hit_feedback_controller,
 	}, CharacterController)
 
 	trove:AttachToInstance(self.Character)
 	trove:Add(weapon_controller)
 	trove:Add(movement_controller)
 	trove:Add(combat_controller)
+	trove:Add(hit_feedback_controller)
 
-	self.WeaponController:Equip(Fists)
+	trove:Connect(
+		movement_controller.SprintingChanged,
+		function(sprinting)
+			weapon_controller:SetSprinting(sprinting)
+		end
+	)
+
+	trove:Connect(
+		weapon_menu_controller.SelectionChanged,
+		function(weapon_id)
+			combat_controller:Reset()
+			weapon_controller:EquipById(weapon_id)
+		end
+	)
+
+	weapon_controller:SetSprinting(movement_controller:IsSprinting())
+	weapon_controller:EquipById(weapon_menu_controller.SelectedWeapon)
 
 	return self
 end
