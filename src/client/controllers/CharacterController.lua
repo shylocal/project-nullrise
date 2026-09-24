@@ -2,13 +2,13 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Packages = ReplicatedStorage.Packages
+local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 
-local Weapons = require(ReplicatedStorage.Shared.weapons)
+local WeaponsFolder = ReplicatedStorage.shared.weapons
 local WeaponControllerModule = require(script.Parent.WeaponController)
 
-local Fists = Weapons.Fists
+local Fists = require(WeaponsFolder.Fists)
 
 export type CharacterController = {
 	Character: Model,

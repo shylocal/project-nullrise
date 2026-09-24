@@ -2,7 +2,7 @@
 
 local Players = game:GetService("Players")
 
-local PlayerController = require(script.Parent.controllers.PlayerController)
+local PlayerController = require(script.controllers.PlayerController)
 
 local local_player = Players.LocalPlayer
 assert(local_player, "project-nullrise: LocalPlayer is unavailable")

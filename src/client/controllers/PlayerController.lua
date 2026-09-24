@@ -4,7 +4,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
-local Packages = ReplicatedStorage.Packages
+local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local CharacterControllerModule = require(script.Parent.CharacterController)
 
