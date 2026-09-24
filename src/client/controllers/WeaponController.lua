@@ -5,8 +5,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packages = ReplicatedStorage.Packages
 local Trove = require(Packages.Trove)
 
-local Weapons = require(ReplicatedStorage.Shared.weapons)
-local Fists = Weapons.Fists
+local WeaponsFolder = ReplicatedStorage.Shared.weapons
+local Fists = require(WeaponsFolder.Fists)
 
 type WeaponDefinition = typeof(Fists)
 type AnimationDefinition = WeaponDefinition.Animations["Equip"]
