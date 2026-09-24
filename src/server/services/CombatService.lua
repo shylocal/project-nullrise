@@ -33,13 +33,13 @@ end
 function CombatService:_start()
 	self.Trove:Connect(
 		self.Remote.OnServerEvent,
-		function(player, action, attack_index, hit_character, segment_instance)
+		function(player, action, attack_index, hit_character, segment_instance, hit_position)
 			if action == "Attack" then
 				self:_attack(player, attack_index)
 			elseif action == "HitStart" then
 				self:_hit_start(player, attack_index)
 			elseif action == "Hit" then
-				self:_hit(player, attack_index, hit_character, segment_instance)
+				self:_hit(player, attack_index, hit_character, segment_instance, hit_position)
 			elseif action == "HitStop" then
 				self:_hit_stop(player, attack_index)
 			end
@@ -181,7 +181,7 @@ function CombatService:_hit_start(player, attack_index)
 	active.HitActive = true
 end
 
-function CombatService:_hit(player, attack_index, hit_character, segment_instance)
+function CombatService:_hit(player, attack_index, hit_character, segment_instance, hit_position)
 	local active = self.ActiveAttacks[player]
 	if not active or active.AttackIndex ~= attack_index or not active.HitActive then
 		return
@@ -191,7 +191,13 @@ function CombatService:_hit(player, attack_index, hit_character, segment_instanc
 		return
 	end
 
-	if typeof(segment_instance) ~= "Instance" or not segment_instance:IsA("Attachment") then
+	if segment_instance ~= nil then
+		if typeof(segment_instance) ~= "Instance" or not segment_instance:IsA("Attachment") then
+			return
+		end
+	end
+
+	if hit_position ~= nil and typeof(hit_position) ~= "Vector3" then
 		return
 	end
 
@@ -208,7 +214,7 @@ function CombatService:_hit(player, attack_index, hit_character, segment_instanc
 		return
 	end
 
-	if not segment_instance:IsDescendantOf(active.Wielded) then
+	if segment_instance and not segment_instance:IsDescendantOf(active.Wielded) then
 		return
 	end
 
@@ -225,7 +231,11 @@ function CombatService:_hit(player, attack_index, hit_character, segment_instanc
 		return
 	end
 
-	if (hit_root.Position - segment_instance.WorldPosition).Magnitude > range + HIT_DISTANCE_MARGIN then
+	if hit_position and (hit_root.Position - hit_position).Magnitude > range + HIT_DISTANCE_MARGIN then
+		return
+	end
+
+	if segment_instance and hit_position and (segment_instance.WorldPosition - hit_position).Magnitude > HIT_DISTANCE_MARGIN then
 		return
 	end
 
