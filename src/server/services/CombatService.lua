@@ -33,13 +33,13 @@ end
 function CombatService:_start()
 	self.Trove:Connect(
 		self.Remote.OnServerEvent,
-		function(player, action, attack_index, hit_character)
+		function(player, action, attack_index, hit_character, segment_instance)
 			if action == "Attack" then
 				self:_attack(player, attack_index)
 			elseif action == "HitStart" then
 				self:_hit_start(player, attack_index)
 			elseif action == "Hit" then
-				self:_hit(player, attack_index, hit_character)
+				self:_hit(player, attack_index, hit_character, segment_instance)
 			elseif action == "HitStop" then
 				self:_hit_stop(player, attack_index)
 			end
@@ -181,13 +181,17 @@ function CombatService:_hit_start(player, attack_index)
 	active.HitActive = true
 end
 
-function CombatService:_hit(player, attack_index, hit_character)
+function CombatService:_hit(player, attack_index, hit_character, segment_instance)
 	local active = self.ActiveAttacks[player]
 	if not active or active.AttackIndex ~= attack_index or not active.HitActive then
 		return
 	end
 
 	if typeof(hit_character) ~= "Instance" or not hit_character:IsA("Model") then
+		return
+	end
+
+	if typeof(segment_instance) ~= "Instance" or not segment_instance:IsA("Attachment") then
 		return
 	end
 
@@ -204,6 +208,10 @@ function CombatService:_hit(player, attack_index, hit_character)
 		return
 	end
 
+	if not segment_instance:IsDescendantOf(active.Wielded) then
+		return
+	end
+
 	local hit_humanoid = hit_character:FindFirstChildOfClass("Humanoid")
 	local hit_root = hit_character:FindFirstChild("HumanoidRootPart")
 	local attacker_root = active.Character:FindFirstChild("HumanoidRootPart")
@@ -214,6 +222,10 @@ function CombatService:_hit(player, attack_index, hit_character)
 
 	local range = active.Attack.Range or 8
 	if (hit_root.Position - attacker_root.Position).Magnitude > range + HIT_DISTANCE_MARGIN then
+		return
+	end
+
+	if (hit_root.Position - segment_instance.WorldPosition).Magnitude > range + HIT_DISTANCE_MARGIN then
 		return
 	end
 
