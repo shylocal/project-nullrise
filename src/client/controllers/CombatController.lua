@@ -163,7 +163,7 @@ function CombatController:_start_hitbox(attack_index)
 
 	local hit_characters = {}
 
-	hitbox:OnHit(function(raycast_result)
+	hitbox:OnHit(function(raycast_result, segment)
 		local hit_part = raycast_result.Instance
 		local hit_character = hit_part and hit_part:FindFirstAncestorOfClass("Model")
 		if not hit_character or hit_character == self.WeaponController.Character then
@@ -177,7 +177,8 @@ function CombatController:_start_hitbox(attack_index)
 		hit_characters[hit_character] = true
 
 		self.Hit:Fire(hit_character, raycast_result)
-		CombatRemote:FireServer("Hit", attack_index, hit_character)
+		local segment_instance = segment and segment.Instance
+		CombatRemote:FireServer("Hit", attack_index, hit_character, segment_instance)
 	end)
 
 	local attack_trove = self.AttackTrove
