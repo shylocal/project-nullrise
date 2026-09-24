@@ -16,7 +16,7 @@ function WeaponController.new(character)
 		AnimationTrove = Trove.new(),
 		Equipped = nil,
 		Animator = nil,
-		Tracks = {} :: { [string]: AnimationTrack },
+		Tracks = {},
 	}, WeaponController)
 
 	self:_start()
