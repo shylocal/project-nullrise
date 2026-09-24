@@ -84,7 +84,7 @@ function PlayerController:_clear_character()
 	self.CharacterController = nil
 
 	if controller then
-		controller:Destroy()
+		self.Trove:Remove(controller)
 	end
 end
 
