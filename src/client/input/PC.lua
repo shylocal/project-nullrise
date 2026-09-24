@@ -1,6 +1,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
+local Packages = ReplicatedStorage.packages
+local Trove = require(Packages.Trove)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 
 local PCInput = {}
@@ -15,7 +17,7 @@ local Bindings = {
 
 function PCInput.new(on_began, on_ended)
 	local self = setmetatable({
-		Connections = {},
+		Trove = Trove.new(),
 	}, PCInput)
 
 	self:_start(on_began, on_ended)
@@ -24,7 +26,7 @@ function PCInput.new(on_began, on_ended)
 end
 
 function PCInput:_start(on_began, on_ended)
-	self.Connections.InputBegan = UserInputService.InputBegan:Connect(function(input, game_processed)
+	self.Trove:Connect(UserInputService.InputBegan, function(input, game_processed)
 		if game_processed then
 			return
 		end
@@ -35,7 +37,7 @@ function PCInput:_start(on_began, on_ended)
 		end
 	end)
 
-	self.Connections.InputEnded = UserInputService.InputEnded:Connect(function(input)
+	self.Trove:Connect(UserInputService.InputEnded, function(input)
 		local action = self:_get_action(input)
 		if action then
 			on_ended(action)
@@ -48,11 +50,7 @@ function PCInput:_get_action(input)
 end
 
 function PCInput:Destroy()
-	for _, connection in pairs(self.Connections) do
-		connection:Disconnect()
-	end
-
-	table.clear(self.Connections)
+	self.Trove:Destroy()
 end
 
 return PCInput
