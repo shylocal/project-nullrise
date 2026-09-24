@@ -9,12 +9,13 @@ local CharacterControllerModule = require(script.Parent.CharacterController)
 local PlayerController = {}
 PlayerController.__index = PlayerController
 
-function PlayerController.new(player, input_controller)
+function PlayerController.new(player, input_controller, weapon_menu_controller)
 	local self = setmetatable({
 		Player = player,
 		Trove = Trove.new(),
 		CharacterController = nil,
 		InputController = input_controller,
+		WeaponMenuController = weapon_menu_controller,
 	}, PlayerController)
 
 	self:_start()
@@ -23,9 +24,6 @@ function PlayerController.new(player, input_controller)
 end
 
 function PlayerController:_start()
-	-- Subscribe before checking the current character:
-	-- this handles both an already-spawned character and a spawn that happens
-	-- immediately after bootstrap without requiring a yield.
 	self.Trove:Connect(
 		self.Player.CharacterAdded,
 		function(character)
@@ -51,7 +49,6 @@ function PlayerController:_start()
 		end
 	)
 
-	-- CharacterAdded may have happened before the controller was created.
 	local current_character = self.Player.Character
 	if current_character then
 		self:_set_character(current_character)
@@ -67,14 +64,16 @@ function PlayerController:_set_character(character)
 
 	self:_clear_character()
 
-	-- CharacterAdded is expected to provide a character parented into the
-	-- data model. If the player is already being removed, don't keep an object
-	-- alive for a character that is no longer part of the game.
 	if self.Player.Parent ~= Players or not character:IsDescendantOf(Workspace) then
 		return
 	end
 
-	local controller = CharacterControllerModule.new(character, self.InputController)
+	local controller = CharacterControllerModule.new(
+		character,
+		self.InputController,
+		self.WeaponMenuController
+	)
+
 	self.CharacterController = controller
 	self.Trove:Add(controller)
 end
