@@ -45,8 +45,6 @@ function WeaponMenuController:_start()
 	frame.AutomaticSize = Enum.AutomaticSize.X
 	frame.BackgroundTransparency = 0.15
 	frame.Parent = gui
-	self.Trove:Add(frame)
-
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, 6)
 	corner.Parent = frame
