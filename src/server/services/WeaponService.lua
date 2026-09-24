@@ -1,5 +1,3 @@
---!strict
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -9,19 +7,10 @@ local Trove = require(Packages.Trove)
 local WeaponsFolder = ReplicatedStorage.shared.weapons
 local Fists = require(WeaponsFolder.Fists)
 
-type WeaponDefinition = typeof(Fists)
-
-export type WeaponService = {
-	Trove: typeof(Trove.new()),
-	GetEquipped: (self: WeaponService, player: Player) -> WeaponDefinition?,
-	Equip: (self: WeaponService, player: Player, weapon_id: string) -> boolean,
-	Destroy: (self: WeaponService) -> (),
-}
-
 local WeaponService = {}
 WeaponService.__index = WeaponService
 
-function WeaponService.new(): WeaponService
+function WeaponService.new()
 	local self = setmetatable({
 		Trove = Trove.new(),
 		Equipped = {} :: { [Player]: WeaponDefinition },
@@ -52,7 +41,7 @@ function WeaponService:_start()
 	end
 end
 
-function WeaponService:_player_added(player: Player)
+function WeaponService:_player_added(player)
 	if player.Parent ~= Players then
 		return
 	end
@@ -60,11 +49,11 @@ function WeaponService:_player_added(player: Player)
 	self.Equipped[player] = Fists
 end
 
-function WeaponService:GetEquipped(player: Player): WeaponDefinition?
+function WeaponService:GetEquipped(player)
 	return self.Equipped[player]
 end
 
-function WeaponService:Equip(player: Player, weapon_id: string): boolean
+function WeaponService:Equip(player, weapon_id)
 	if player.Parent ~= Players then
 		return false
 	end
