@@ -2,6 +2,7 @@ local Fists = {}
 
 Fists.Type = "Melee"
 Fists.MeleeType = "Blunt"
+Fists.Model = "Fists"
 
 Fists.Wield = {
 	RightFist = "Right Arm",
