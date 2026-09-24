@@ -9,11 +9,12 @@ local CharacterControllerModule = require(script.Parent.CharacterController)
 local PlayerController = {}
 PlayerController.__index = PlayerController
 
-function PlayerController.new(player)
+function PlayerController.new(player, input_controller)
 	local self = setmetatable({
 		Player = player,
 		Trove = Trove.new(),
 		CharacterController = nil,
+		InputController = input_controller,
 	}, PlayerController)
 
 	self:_start()
@@ -73,7 +74,7 @@ function PlayerController:_set_character(character)
 		return
 	end
 
-	local controller = CharacterControllerModule.new(character)
+	local controller = CharacterControllerModule.new(character, self.InputController)
 	self.CharacterController = controller
 	self.Trove:Add(controller)
 end
