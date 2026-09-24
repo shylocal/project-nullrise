@@ -1,13 +1,16 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+
+local Actions = require(ReplicatedStorage.shared.input.Actions)
 
 local PCInput = {}
 PCInput.__index = PCInput
 
 local Bindings = {
-	[Enum.UserInputType.MouseButton1] = "Primary",
+	[Enum.UserInputType.MouseButton1] = Actions.Primary,
 
-	[Enum.KeyCode.LeftShift] = "Sprint",
-	[Enum.KeyCode.RightShift] = "Sprint",
+	[Enum.KeyCode.LeftShift] = Actions.Sprint,
+	[Enum.KeyCode.RightShift] = Actions.Sprint,
 }
 
 function PCInput.new(on_began, on_ended)
