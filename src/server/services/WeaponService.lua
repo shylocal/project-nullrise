@@ -75,6 +75,7 @@ function WeaponService:_player_added(player)
 	self.PlayerTroves[player] = player_trove
 
 	self.Equipped[player] = Fists
+	WeaponRemote:FireClient(player, "Equipped", "Fists")
 
 	player_trove:Connect(
 		session.CharacterAdded,
