@@ -152,7 +152,7 @@ function AnimationController:_claim_action(track)
 	track:AdjustSpeed(1)
 end
 
-function AnimationController:_play_movement_animation()
+function AnimationController:_update_movement_animation()
 	if self.ActionTrack then
 		return
 	end
