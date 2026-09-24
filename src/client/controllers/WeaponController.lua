@@ -3,9 +3,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 
-local WeaponsFolder = ReplicatedStorage.shared.weapons
-local Fists = require(WeaponsFolder.Fists)
-
 local WeaponController = {}
 WeaponController.__index = WeaponController
 
@@ -115,6 +112,10 @@ function WeaponController:_play_equip()
 			end
 		end
 	)
+end
+
+function WeaponController:GetWielded(wield_name)
+	return self.Character:FindFirstChild(wield_name)
 end
 
 function WeaponController:Equip(weapon)
