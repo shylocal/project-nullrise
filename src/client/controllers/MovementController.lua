@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
+local Signal = require(Packages.Signal)
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 
@@ -19,8 +20,13 @@ function MovementController.new(character, input_controller)
 
 		Humanoid = nil,
 		DefaultWalkSpeed = WALK_SPEED,
+		SprintBlocked = false,
+		Sprinting = false,
+
+		SprintingChanged = Signal.new(),
 	}, MovementController)
 
+	self.Trove:Add(self.SprintingChanged)
 	self:_start()
 
 	return self
@@ -45,7 +51,7 @@ function MovementController:_start()
 		self.InputController.ActionBegan,
 		function(action)
 			if action == Actions.Sprint then
-				self:_set_sprinting(true)
+				self:_update_sprinting()
 			end
 		end
 	)
@@ -54,7 +60,7 @@ function MovementController:_start()
 		self.InputController.ActionEnded,
 		function(action)
 			if action == Actions.Sprint then
-				self:_set_sprinting(false)
+				self:_update_sprinting()
 			end
 		end
 	)
@@ -63,19 +69,36 @@ end
 function MovementController:_set_humanoid(humanoid)
 	self.Humanoid = humanoid
 	self.DefaultWalkSpeed = humanoid.WalkSpeed
+	self:_update_sprinting()
+end
 
-	if self.InputController:IsDown(Actions.Sprint) then
-		self:_set_sprinting(true)
+function MovementController:_update_sprinting()
+	local sprinting = not self.SprintBlocked and self.InputController:IsDown(Actions.Sprint)
+	local changed = self.Sprinting ~= sprinting
+
+	self.Sprinting = sprinting
+
+	local humanoid = self.Humanoid
+	if humanoid and humanoid.Parent ~= nil then
+		humanoid.WalkSpeed = sprinting and SPRINT_SPEED or self.DefaultWalkSpeed
+	end
+
+	if changed then
+		self.SprintingChanged:Fire(sprinting)
 	end
 end
 
-function MovementController:_set_sprinting(sprinting)
-	local humanoid = self.Humanoid
-	if not humanoid or humanoid.Parent == nil then
+function MovementController:SetSprintBlocked(blocked)
+	if self.SprintBlocked == blocked then
 		return
 	end
 
-	humanoid.WalkSpeed = sprinting and SPRINT_SPEED or self.DefaultWalkSpeed
+	self.SprintBlocked = blocked
+	self:_update_sprinting()
+end
+
+function MovementController:IsSprinting()
+	return self.Sprinting
 end
 
 function MovementController:Destroy()
