@@ -1,5 +1,3 @@
---!strict
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -8,17 +6,10 @@ local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local CharacterControllerModule = require(script.Parent.CharacterController)
 
-export type PlayerController = {
-	Player: Player,
-	Trove: typeof(Trove.new()),
-	CharacterController: CharacterControllerModule.CharacterController?,
-	Destroy: (self: PlayerController) -> (),
-}
-
 local PlayerController = {}
 PlayerController.__index = PlayerController
 
-function PlayerController.new(player: Player): PlayerController
+function PlayerController.new(player)
 	local self = setmetatable({
 		Player = player,
 		Trove = Trove.new(),
@@ -66,7 +57,7 @@ function PlayerController:_start()
 	end
 end
 
-function PlayerController:_set_character(character: Model)
+function PlayerController:_set_character(character)
 	local current = self.CharacterController
 
 	if current and current.Character == character then
