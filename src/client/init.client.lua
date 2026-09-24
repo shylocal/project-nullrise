@@ -1,15 +1,12 @@
---!strict
-
-local Players = game:GetService("Players")
-
+local InputController = require(script.controllers.InputController)
 local PlayerController = require(script.controllers.PlayerController)
 
-local local_player = Players.LocalPlayer
-assert(local_player, "project-nullrise: LocalPlayer is unavailable")
+local player = game:GetService("Players").LocalPlayer
 
-local controller = PlayerController.new(local_player)
+local input_controller = InputController.new()
+local player_controller = PlayerController.new(player)
 
--- The controller owns its connections and will clean itself up on PlayerRemoving.
--- Keeping this reference in the bootstrap module prevents accidental collection
--- and makes the root lifecycle explicit.
-return controller
+return {
+	InputController = input_controller,
+	PlayerController = player_controller,
+}
