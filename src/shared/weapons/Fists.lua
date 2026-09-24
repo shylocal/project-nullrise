@@ -49,6 +49,8 @@ Fists.Attacks = {
 
 		Hitbox = "RightFist",
 		Damage = 10,
+		Cooldown = 0.35,
+		HitboxDuration = 0.15,
 	},
 
 	[2] = {
@@ -60,6 +62,8 @@ Fists.Attacks = {
 
 		Hitbox = "LeftFist",
 		Damage = 10,
+		Cooldown = 0.35,
+		HitboxDuration = 0.15,
 	},
 }
 
