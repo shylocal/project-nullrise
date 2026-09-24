@@ -5,7 +5,6 @@ local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local Signal = require(Packages.Signal)
 
-local Actions = require(ReplicatedStorage.shared.input.Actions)
 local PCInput = require(script.Parent.Parent.input.PC)
 local MobileInput = require(script.Parent.Parent.input.Mobile)
 
