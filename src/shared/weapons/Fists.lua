@@ -3,6 +3,7 @@ local Fists = {}
 Fists.Type = "Melee"
 Fists.MeleeType = "Blunt"
 Fists.Model = "Fists"
+Fists.CanSprintWhileAttacking = true
 
 Fists.Wield = {
 	RightFist = "Right Arm",
@@ -63,6 +64,15 @@ Fists.Attacks = {
 		Damage = 10,
 		Range = 8,
 	},
+}
+
+Fists.Charge = {
+	Animation = Fists.Animations.Charge,
+	Hitbox = "RightFist",
+	Damage = 20,
+	Range = 8,
+	HoldTime = 0.15,
+	MaxHoldTime = 10,
 }
 
 return Fists
