@@ -9,6 +9,17 @@
       "shared": {
         "$className": "Folder",
         "$path": "src/shared"
+      },
+
+      "remotes": {
+        "$className": "Folder",
+        "$properties": {
+          "Sandboxed": true
+        },
+
+        "Combat": {
+          "$className": "RemoteEvent"
+        }
       }
     },
 
