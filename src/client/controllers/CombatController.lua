@@ -7,8 +7,7 @@ local ShapecastHitbox = require(Packages.ShapecastHitbox)
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 
-local Remotes = ReplicatedStorage:WaitForChild("remotes")
-local CombatRemote = Remotes:WaitForChild("Combat")
+local CombatRemote = ReplicatedStorage.remotes.Combat
 
 local CombatController = {}
 CombatController.__index = CombatController
