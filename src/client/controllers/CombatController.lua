@@ -178,7 +178,13 @@ function CombatController:_start_hitbox(attack_index)
 
 		self.Hit:Fire(hit_character, raycast_result)
 		local segment_instance = segment and segment.Instance
-		CombatRemote:FireServer("Hit", attack_index, hit_character, segment_instance)
+		CombatRemote:FireServer(
+				"Hit",
+				attack_index,
+				hit_character,
+				segment_instance,
+				raycast_result.Position
+			)
 	end)
 
 	local attack_trove = self.AttackTrove
