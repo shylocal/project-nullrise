@@ -1,16 +1,19 @@
 local ContextActionService = game:GetService("ContextActionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Actions = require(ReplicatedStorage.shared.input.Actions)
 
 local MobileInput = {}
 MobileInput.__index = MobileInput
 
 local Bindings = {
-	Primary = "Nullrise_Primary",
-	Sprint = "Nullrise_Sprint",
+	[Actions.Primary] = "Nullrise_Primary",
+	[Actions.Sprint] = "Nullrise_Sprint",
 }
 
 local Titles = {
-	Primary = "Attack",
-	Sprint = "Sprint",
+	[Actions.Primary] = "Attack",
+	[Actions.Sprint] = "Sprint",
 }
 
 function MobileInput.new(on_began, on_ended)
