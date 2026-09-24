@@ -12,6 +12,7 @@ function HitFeedbackController.new(combat_controller)
 	local self = setmetatable({
 		Trove = Trove.new(),
 		FadeTween = nil,
+		StrokeTween = nil,
 		Stroke = nil,
 	}, HitFeedbackController)
 
@@ -64,6 +65,10 @@ function HitFeedbackController:_show(marker)
 		self.FadeTween:Cancel()
 	end
 
+	if self.StrokeTween then
+		self.StrokeTween:Cancel()
+	end
+
 	marker.TextTransparency = 0
 	self.Stroke.Transparency = 0.15
 	marker.TextSize = 30
@@ -78,12 +83,27 @@ function HitFeedbackController:_show(marker)
 	)
 
 	self.FadeTween:Play()
+
+	self.StrokeTween = TweenService:Create(
+		self.Stroke,
+		TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{
+			Transparency = 1,
+		}
+	)
+
+	self.StrokeTween:Play()
 end
 
 function HitFeedbackController:Destroy()
 	if self.FadeTween then
 		self.FadeTween:Cancel()
 		self.FadeTween = nil
+	end
+
+	if self.StrokeTween then
+		self.StrokeTween:Cancel()
+		self.StrokeTween = nil
 	end
 
 	self.Trove:Destroy()
