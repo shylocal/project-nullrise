@@ -16,7 +16,7 @@
       "$className": "ServerScriptService",
 
       "Server": {
-        "$className": "Folder",
+        "$className": "Script",
         "$path": "src/server"
       }
     },
@@ -28,7 +28,7 @@
         "$className": "StarterPlayerScripts",
 
         "Client": {
-          "$className": "Folder",
+          "$className": "LocalScript",
           "$path": "src/client"
         }
       }
