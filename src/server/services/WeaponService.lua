@@ -4,6 +4,7 @@ local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 
 local WeaponsFolder = ReplicatedStorage.shared.weapons
+local WeaponModels = ReplicatedStorage.weapon_models
 local Fists = require(WeaponsFolder.Fists)
 
 local WeaponService = {}
@@ -14,6 +15,8 @@ function WeaponService.new(player_service)
 		Trove = Trove.new(),
 		PlayerService = player_service,
 		Equipped = {},
+		CharacterTroves = {},
+		Wielded = {},
 	}, WeaponService)
 
 	self:_start()
@@ -32,7 +35,7 @@ function WeaponService:_start()
 	self.Trove:Connect(
 		self.PlayerService.PlayerRemoving,
 		function(player)
-			self.Equipped[player] = nil
+			self:_player_removing(player)
 		end
 	)
 
@@ -47,10 +50,147 @@ function WeaponService:_player_added(player)
 	end
 
 	self.Equipped[player] = Fists
+
+	local session = self.PlayerService:Get(player)
+	if not session then
+		return
+	end
+
+	self.Trove:Connect(
+		session.CharacterAdded,
+		function(character)
+			self:_character_added(player, character)
+		end
+	)
+
+	self.Trove:Connect(
+		session.CharacterRemoving,
+		function(character)
+			self:_character_removing(player, character)
+		end
+	)
+
+	if session.Character then
+		self:_character_added(player, session.Character)
+	end
+end
+
+function WeaponService:_character_added(player, character)
+	self:_clear_character(player)
+
+	local weapon = self.Equipped[player]
+	if not weapon then
+		return
+	end
+
+	local character_trove = Trove.new()
+	character_trove:AttachToInstance(character)
+
+	self.CharacterTroves[player] = character_trove
+	self.Wielded[player] = {}
+
+	self:_attach_weapon(player, character, weapon, character_trove)
+end
+
+function WeaponService:_character_removing(player, character)
+	local session = self.PlayerService:Get(player)
+	if session and session.Character == character then
+		self:_clear_character(player)
+	end
+end
+
+function WeaponService:_clear_character(player)
+	local character_trove = self.CharacterTroves[player]
+
+	if character_trove then
+		character_trove:Destroy()
+		self.CharacterTroves[player] = nil
+	end
+
+	self.Wielded[player] = nil
+end
+
+function WeaponService:_attach_weapon(player, character, weapon, character_trove)
+	local model = WeaponModels:FindFirstChild(weapon.Model)
+	if not model then
+		return
+	end
+
+	for wield_name, character_part_name in pairs(weapon.Wield or {}) do
+		local source = model:FindFirstChild(wield_name)
+		local target = character:FindFirstChild(character_part_name, true)
+
+		if not source or not target or not target:IsA("BasePart") then
+			continue
+		end
+
+		local clone = source:Clone()
+		clone.Parent = character
+
+		local root = self:_prepare_model(clone, target)
+		if not root then
+			clone:Destroy()
+			continue
+		end
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = target
+		weld.Part1 = root
+		weld.Parent = root
+
+		character_trove:Add(clone)
+		self.Wielded[player][wield_name] = clone
+	end
+end
+
+function WeaponService:_prepare_model(instance, target)
+	if instance:IsA("BasePart") then
+		instance.CFrame = target.CFrame
+		instance.Anchored = false
+		instance.CanCollide = false
+		instance.Massless = true
+
+		return instance
+	end
+
+	if not instance:IsA("Model") then
+		return nil
+	end
+
+	local root = instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
+	if not root then
+		return nil
+	end
+
+	instance:PivotTo(target.CFrame)
+
+	for _, descendant in instance:GetDescendants() do
+		if not descendant:IsA("BasePart") then
+			continue
+		end
+
+		descendant.Anchored = false
+		descendant.CanCollide = false
+		descendant.Massless = true
+
+		if descendant ~= root then
+			local weld = Instance.new("WeldConstraint")
+			weld.Part0 = root
+			weld.Part1 = descendant
+			weld.Parent = descendant
+		end
+	end
+
+	return root
 end
 
 function WeaponService:GetEquipped(player)
 	return self.Equipped[player]
+end
+
+function WeaponService:GetWielded(player, wield_name)
+	local wielded = self.Wielded[player]
+	return wielded and wielded[wield_name]
 end
 
 function WeaponService:Equip(player, weapon_id)
@@ -64,15 +204,32 @@ function WeaponService:Equip(player, weapon_id)
 	end
 
 	local weapon = require(weapon_module)
-	if not weapon then
+	if not weapon or weapon.Type ~= "Melee" then
 		return false
 	end
 
 	self.Equipped[player] = weapon
+
+	local session = self.PlayerService:Get(player)
+	if session and session.Character then
+		self:_character_added(player, session.Character)
+	end
+
 	return true
 end
 
+function WeaponService:_player_removing(player)
+	self:_clear_character(player)
+
+	self.Equipped[player] = nil
+end
+
 function WeaponService:Destroy()
+	for player in pairs(self.CharacterTroves) do
+		self:_clear_character(player)
+	end
+
+	table.clear(self.Wielded)
 	table.clear(self.Equipped)
 	self.Trove:Destroy()
 end
