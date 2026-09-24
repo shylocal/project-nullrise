@@ -9,7 +9,6 @@ local CombatService = {}
 CombatService.__index = CombatService
 
 local ATTACK_REQUEST_INTERVAL = 0.1
-local COMBO_RESET_DELAY = 0.8
 local HIT_DISTANCE_MARGIN = 4
 local ATTACK_TIMEOUT = 2
 
@@ -95,7 +94,7 @@ function CombatService:_watch_player(player)
 end
 
 function CombatService:_attack(player, attack_index)
-	if typeof(attack_index) ~= "number" or attack_index % 1 ~= 0 then
+	if typeof(attack_index) ~= "number" then
 		return
 	end
 
@@ -127,7 +126,7 @@ function CombatService:_attack(player, attack_index)
 		return
 	end
 
-	if not last_attack or now - last_attack > COMBO_RESET_DELAY then
+	if not last_attack then
 		self.NextAttack[player] = 1
 	end
 
@@ -220,7 +219,7 @@ function CombatService:_hit(player, attack_index, hit_character, segment_instanc
 			return
 		end
 
-		if not CollectionService:HasTag(segment_instance, "DmgPoint") then
+		if not CollectionService:HasTag(segment_instance, "Hitpoint") then
 			return
 		end
 	end

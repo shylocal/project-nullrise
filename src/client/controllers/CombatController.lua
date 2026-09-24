@@ -50,7 +50,7 @@ function CombatController:_start(input_controller)
 	)
 end
 
-function CombatController:Attack(buffered)
+function CombatController:Attack()
 	local humanoid = self.WeaponController.Character:FindFirstChildOfClass("Humanoid")
 	if not humanoid or humanoid.Health <= 0 then
 		return
@@ -64,10 +64,6 @@ function CombatController:Attack(buffered)
 	local weapon = self.WeaponController.Equipped
 	if not weapon or not weapon.Attacks then
 		return
-	end
-
-	if not buffered and os.clock() - self.LastAttackAt > COMBO_RESET_DELAY then
-		self.NextAttack = 1
 	end
 
 	local attack_index = self.NextAttack
@@ -137,7 +133,7 @@ function CombatController:_finish_attack(attack_index, attack_trove)
 		self.BufferedAttack = false
 		task.defer(function()
 			if not self.Attacking then
-				self:Attack(true)
+				self:Attack()
 			end
 		end)
 	end
