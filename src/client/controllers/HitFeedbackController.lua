@@ -12,6 +12,7 @@ function HitFeedbackController.new(combat_controller)
 	local self = setmetatable({
 		Trove = Trove.new(),
 		FadeTween = nil,
+		Stroke = nil,
 	}, HitFeedbackController)
 
 	self:_start(combat_controller)
@@ -48,6 +49,8 @@ function HitFeedbackController:_start(combat_controller)
 	stroke.Transparency = 0.15
 	stroke.Parent = marker
 
+	self.Stroke = stroke
+
 	self.Trove:Connect(
 		combat_controller.Hit,
 		function()
@@ -62,6 +65,7 @@ function HitFeedbackController:_show(marker)
 	end
 
 	marker.TextTransparency = 0
+	self.Stroke.Transparency = 0.15
 	marker.TextSize = 30
 
 	self.FadeTween = TweenService:Create(
