@@ -1,5 +1,3 @@
---!strict
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
@@ -8,24 +6,10 @@ local Trove = require(Packages.Trove)
 local WeaponsFolder = ReplicatedStorage.shared.weapons
 local Fists = require(WeaponsFolder.Fists)
 
-type WeaponDefinition = typeof(Fists)
-type AnimationDefinition = typeof(Fists.Animations.Equip)
-
-export type WeaponController = {
-	Character: Model,
-	Trove: typeof(Trove.new()),
-	Equipped: WeaponDefinition?,
-	Equip: (self: WeaponController, weapon: WeaponDefinition) -> (),
-	Play: (self: WeaponController, animation_name: string) -> AnimationTrack?,
-	Stop: (self: WeaponController, animation_name: string) -> (),
-	Attack: (self: WeaponController, attack_index: number) -> AnimationTrack?,
-	Destroy: (self: WeaponController) -> (),
-}
-
 local WeaponController = {}
 WeaponController.__index = WeaponController
 
-function WeaponController.new(character: Model): WeaponController
+function WeaponController.new(character)
 	local self = setmetatable({
 		Character = character,
 		Trove = Trove.new(),
@@ -57,7 +41,7 @@ function WeaponController:_start()
 	end
 end
 
-function WeaponController:_watch_humanoid(humanoid: Humanoid)
+function WeaponController:_watch_humanoid(humanoid)
 	local animator = humanoid:FindFirstChildOfClass("Animator")
 
 	if animator then
@@ -74,7 +58,7 @@ function WeaponController:_watch_humanoid(humanoid: Humanoid)
 	end
 end
 
-function WeaponController:_on_animator_added(animator: Animator)
+function WeaponController:_on_animator_added(animator)
 	self.Animator = animator
 
 	if self.Equipped then
@@ -83,7 +67,7 @@ function WeaponController:_on_animator_added(animator: Animator)
 	end
 end
 
-function WeaponController:_load_tracks(weapon: WeaponDefinition)
+function WeaponController:_load_tracks(weapon)
 	self:_clear_tracks()
 
 	local animator = self.Animator
@@ -96,7 +80,7 @@ function WeaponController:_load_tracks(weapon: WeaponDefinition)
 	end
 end
 
-function WeaponController:_load_track(animator: Animator, definition: AnimationDefinition): AnimationTrack
+function WeaponController:_load_track(animator, definition)
 	local animation = Instance.new("Animation")
 	animation.AnimationId = definition.Id
 
@@ -133,7 +117,7 @@ function WeaponController:_play_equip()
 	)
 end
 
-function WeaponController:Equip(weapon: WeaponDefinition)
+function WeaponController:Equip(weapon)
 	self.Equipped = weapon
 
 	self:_load_tracks(weapon)
@@ -143,7 +127,7 @@ function WeaponController:Equip(weapon: WeaponDefinition)
 	end
 end
 
-function WeaponController:Play(animation_name: string): AnimationTrack?
+function WeaponController:Play(animation_name)
 	local track = self.Tracks[animation_name]
 	if not track then
 		return nil
@@ -157,14 +141,14 @@ function WeaponController:Play(animation_name: string): AnimationTrack?
 	return track
 end
 
-function WeaponController:Stop(animation_name: string)
+function WeaponController:Stop(animation_name)
 	local track = self.Tracks[animation_name]
 	if track then
 		track:Stop()
 	end
 end
 
-function WeaponController:Attack(attack_index: number): AnimationTrack?
+function WeaponController:Attack(attack_index)
 	local weapon = self.Equipped
 	if not weapon or not self.Animator then
 		return nil
