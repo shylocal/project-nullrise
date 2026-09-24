@@ -175,13 +175,17 @@ function AnimationController:_play_movement_animation()
 	end
 
 	if not track.IsPlaying then
-		local definition = self.Sprinting
-			and self.Weapon
-			and self.Weapon.Animations
-			and self.Weapon.Animations.Sprint
-			or self.Weapon
-			and self.Weapon.Animations
-			and self.Weapon.Animations.Idle
+		local definition
+
+		if self.Sprinting then
+			definition = self.Weapon
+				and self.Weapon.Animations
+				and self.Weapon.Animations.Sprint
+		else
+			definition = self.Weapon
+				and self.Weapon.Animations
+				and self.Weapon.Animations.Idle
+		end
 
 		track:Play(definition and definition.TransitionTime or 0)
 	end
