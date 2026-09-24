@@ -38,6 +38,17 @@ function CharacterController.new(character, input_controller, weapon_menu_contro
 	trove:Add(combat_controller)
 	trove:Add(hit_feedback_controller)
 
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		trove:Connect(
+			humanoid.Died,
+			function()
+				combat_controller:Reset()
+				movement_controller:SetSprintBlocked(false)
+			end
+		)
+	end
+
 	trove:Connect(
 		movement_controller.SprintingChanged,
 		function(sprinting)
