@@ -128,8 +128,6 @@ function CombatService:_can_begin_attack(player)
 		return nil
 	end
 
-	self.LastAttackAt[player] = now
-
 	return now
 end
 
@@ -192,6 +190,7 @@ function CombatService:_attack(player, attack_index)
 		return
 	end
 
+	self.LastAttackAt[player] = now
 	self.NextAttack[player] = attack_index == #weapon.Attacks and 1 or attack_index + 1
 
 	self:_create_active(
@@ -228,6 +227,8 @@ function CombatService:_charge(player)
 	if not wielded or wielded.Parent ~= character then
 		return
 	end
+
+	self.LastAttackAt[player] = now
 
 	self:_create_active(
 		player,
