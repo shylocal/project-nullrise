@@ -1,5 +1,3 @@
---!strict
-
 local Fists = {}
 
 Fists.Type = "Melee"
