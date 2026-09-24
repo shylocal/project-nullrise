@@ -12,23 +12,30 @@ local CombatRemote = ReplicatedStorage.remotes.Combat
 local CombatController = {}
 CombatController.__index = CombatController
 
-local COMBO_RESET_DELAY = 0.8
-
-function CombatController.new(weapon_controller, movement_controller, input_controller)
+function CombatController.new(
+	weapon_controller,
+	animation_controller,
+	movement_controller,
+	input_controller
+)
 	local self = setmetatable({
 		Trove = Trove.new(),
 		WeaponController = weapon_controller,
+		AnimationController = animation_controller,
 		MovementController = movement_controller,
 
 		AttackTrove = nil,
 		Hitbox = nil,
 
 		NextAttack = 1,
-		LastAttackAt = 0,
-		CurrentAttackIndex = nil,
+		CurrentAttackKey = nil,
+		CurrentTrack = nil,
 
 		Attacking = false,
+		Charging = false,
+		PrimaryHeld = false,
 		BufferedAttack = false,
+		PrimaryToken = 0,
 
 		Hit = Signal.new(),
 	}, CombatController)
@@ -44,20 +51,82 @@ function CombatController:_start(input_controller)
 		input_controller.ActionBegan,
 		function(action)
 			if action == Actions.Primary then
-				self:Attack()
+				self:_primary_began()
+			end
+		end
+	)
+
+	self.Trove:Connect(
+		input_controller.ActionEnded,
+		function(action)
+			if action == Actions.Primary then
+				self:_primary_ended()
 			end
 		end
 	)
 end
 
-function CombatController:Attack()
-	local humanoid = self.WeaponController.Character:FindFirstChildOfClass("Humanoid")
-	if not humanoid or humanoid.Health <= 0 then
+function CombatController:_primary_began()
+	self.PrimaryHeld = true
+	self.PrimaryToken += 1
+
+	if self.Attacking then
+		if not self.Charging then
+			self.BufferedAttack = true
+		end
+
 		return
 	end
 
+	local weapon = self.WeaponController.Equipped
+	if not weapon then
+		return
+	end
+
+	local charge = weapon.Charge
+	if not charge then
+		self:Attack()
+		return
+	end
+
+	local token = self.PrimaryToken
+	local hold_time = charge.HoldTime or 0.15
+
+	task.delay(hold_time, function()
+		if self.PrimaryToken ~= token or not self.PrimaryHeld or self.Attacking then
+			return
+		end
+
+		self:Charge()
+	end)
+end
+
+function CombatController:_primary_ended()
+	self.PrimaryHeld = false
+	self.PrimaryToken += 1
+
+	if self.Charging then
+		local track = self.CurrentTrack
+		if track then
+			self.AnimationController:Resume(track)
+		end
+
+		return
+	end
+
+	if not self.Attacking then
+		self:Attack()
+	end
+end
+
+function CombatController:Attack()
 	if self.Attacking then
 		self.BufferedAttack = true
+		return
+	end
+
+	local humanoid = self.WeaponController.Character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
 		return
 	end
 
@@ -68,23 +137,54 @@ function CombatController:Attack()
 
 	local attack_index = self.NextAttack
 	local attack = weapon.Attacks[attack_index]
+
 	if not attack then
 		self.NextAttack = 1
 		return
 	end
 
-	local track = self.WeaponController:Attack(attack_index)
+	local track = self.AnimationController:BeginAttack(attack_index)
 	if not track then
 		return
 	end
 
-	self.Attacking = true
-	self.BufferedAttack = false
-	self.CurrentAttackIndex = attack_index
-	self.LastAttackAt = os.clock()
 	self.NextAttack = attack_index == #weapon.Attacks and 1 or attack_index + 1
 
-	self.MovementController:SetSprintBlocked(true)
+	self:_begin_attack(attack_index, attack, track, "Attack")
+end
+
+function CombatController:Charge()
+	if self.Attacking then
+		return
+	end
+
+	local humanoid = self.WeaponController.Character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return
+	end
+
+	local weapon = self.WeaponController.Equipped
+	local charge = weapon and weapon.Charge
+	if not charge then
+		return
+	end
+
+	local track = self.AnimationController:BeginCharge()
+	if not track then
+		return
+	end
+
+	self:_begin_attack("Charge", charge, track, "Charge")
+end
+
+function CombatController:_begin_attack(attack_key, attack, track, remote_action)
+	self.Attacking = true
+	self.Charging = attack_key == "Charge"
+	self.BufferedAttack = false
+	self.CurrentAttackKey = attack_key
+	self.CurrentTrack = track
+
+	self.MovementController:SetSprintBlocked(not self:_can_sprint_while_attacking(attack))
 
 	local attack_trove = Trove.new()
 	self.AttackTrove = attack_trove
@@ -93,8 +193,12 @@ function CombatController:Attack()
 	attack_trove:Connect(
 		track:GetMarkerReachedSignal("HitStart"),
 		function()
-			self:_start_hitbox(attack_index)
-			CombatRemote:FireServer("HitStart", attack_index)
+			if attack_key == "Charge" and self.PrimaryHeld then
+				self.AnimationController:Pause(track)
+			end
+
+			self:_start_hitbox(attack_key, attack)
+			CombatRemote:FireServer("HitStart", attack_key)
 		end
 	)
 
@@ -102,21 +206,26 @@ function CombatController:Attack()
 		track:GetMarkerReachedSignal("HitStop"),
 		function()
 			self:_stop_hitbox()
-			CombatRemote:FireServer("HitStop", attack_index)
+			CombatRemote:FireServer("HitStop", attack_key)
 		end
 	)
 
-	CombatRemote:FireServer("Attack", attack_index)
+	CombatRemote:FireServer(remote_action, attack_key == "Charge" and nil or attack_key)
+
+	self.AnimationController:Play(
+		track,
+		attack.Animation.TransitionTime or 0
+	)
 
 	task.spawn(function()
 		track.Ended:Wait()
-		self:_finish_attack(attack_index, attack_trove)
+		self:_finish_attack(attack_key, attack_trove)
 	end)
 end
 
-function CombatController:_finish_attack(attack_index, attack_trove)
+function CombatController:_finish_attack(attack_key, attack_trove)
 	self:_stop_hitbox()
-	CombatRemote:FireServer("HitStop", attack_index)
+	CombatRemote:FireServer("HitStop", attack_key)
 
 	if self.AttackTrove ~= attack_trove then
 		return
@@ -126,7 +235,9 @@ function CombatController:_finish_attack(attack_index, attack_trove)
 	self.Trove:Remove(attack_trove)
 
 	self.Attacking = false
-	self.CurrentAttackIndex = nil
+	self.Charging = false
+	self.CurrentAttackKey = nil
+	self.CurrentTrack = nil
 	self.MovementController:SetSprintBlocked(false)
 
 	if self.BufferedAttack then
@@ -139,14 +250,18 @@ function CombatController:_finish_attack(attack_index, attack_trove)
 	end
 end
 
-function CombatController:_start_hitbox(attack_index)
-	if self.Hitbox then
-		return
+function CombatController:_can_sprint_while_attacking(attack)
+	local weapon = self.WeaponController.Equipped
+
+	if attack.CanSprintWhileAttacking ~= nil then
+		return attack.CanSprintWhileAttacking
 	end
 
-	local weapon = self.WeaponController.Equipped
-	local attack = weapon and weapon.Attacks and weapon.Attacks[attack_index]
-	if not attack then
+	return weapon and weapon.CanSprintWhileAttacking == true
+end
+
+function CombatController:_start_hitbox(attack_key, attack)
+	if self.Hitbox then
 		return
 	end
 
@@ -167,6 +282,7 @@ function CombatController:_start_hitbox(attack_index)
 	hitbox:OnHit(function(raycast_result, segment)
 		local hit_part = raycast_result.Instance
 		local hit_character = hit_part and hit_part:FindFirstAncestorOfClass("Model")
+
 		if not hit_character or hit_character == self.WeaponController.Character then
 			return
 		end
@@ -178,25 +294,26 @@ function CombatController:_start_hitbox(attack_index)
 		hit_characters[hit_character] = true
 
 		self.Hit:Fire(hit_character, raycast_result)
+
 		local segment_instance = segment and segment.Instance
+
 		CombatRemote:FireServer(
-				"Hit",
-				attack_index,
-				hit_character,
-				segment_instance,
-				raycast_result.Position
-			)
+			"Hit",
+			attack_key,
+			hit_character,
+			segment_instance,
+			raycast_result.Position
+		)
 	end)
 
 	local attack_trove = self.AttackTrove
-	if attack_trove then
-		attack_trove:Add(hitbox)
-	else
+	if not attack_trove then
 		hitbox:Destroy()
 		self.Hitbox = nil
 		return
 	end
 
+	attack_trove:Add(hitbox)
 	hitbox:HitStart()
 end
 
@@ -220,9 +337,12 @@ function CombatController:_stop_hitbox()
 end
 
 function CombatController:Reset()
-	local attack_index = self.CurrentAttackIndex
-	if attack_index then
-		CombatRemote:FireServer("HitStop", attack_index)
+	self.PrimaryHeld = false
+	self.PrimaryToken += 1
+
+	local attack_key = self.CurrentAttackKey
+	if attack_key then
+		CombatRemote:FireServer("HitStop", attack_key)
 	end
 
 	self:_stop_hitbox()
@@ -232,12 +352,14 @@ function CombatController:Reset()
 		self.AttackTrove = nil
 	end
 
+	self.AnimationController:StopAction()
 	self.MovementController:SetSprintBlocked(false)
 
 	self.NextAttack = 1
-	self.LastAttackAt = 0
-	self.CurrentAttackIndex = nil
+	self.CurrentAttackKey = nil
+	self.CurrentTrack = nil
 	self.Attacking = false
+	self.Charging = false
 	self.BufferedAttack = false
 end
 
