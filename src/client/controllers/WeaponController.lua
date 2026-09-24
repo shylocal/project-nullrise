@@ -9,7 +9,7 @@ local WeaponsFolder = ReplicatedStorage.shared.weapons
 local Fists = require(WeaponsFolder.Fists)
 
 type WeaponDefinition = typeof(Fists)
-type AnimationDefinition = WeaponDefinition.Animations["Equip"]
+type AnimationDefinition = typeof(Fists.Animations.Equip)
 
 export type WeaponController = {
 	Character: Model,
