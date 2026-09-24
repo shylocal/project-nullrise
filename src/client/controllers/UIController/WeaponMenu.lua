@@ -65,11 +65,6 @@ function WeaponMenu:_start()
 
 	if self.Buttons.Fists then
 		self:_set_selected("Fists", false)
-	else
-		for weapon_id in pairs(self.Buttons) do
-			self:_set_selected(weapon_id, false)
-			break
-		end
 	end
 
 	self.Trove:Connect(
