@@ -13,7 +13,7 @@ function CombatService.new(player_service, weapon_service, remote)
 		PlayerService = player_service,
 		WeaponService = weapon_service,
 		Remote = remote,
-		Cooldowns = {},
+		ActiveAttacks = {},
 	}, CombatService)
 
 	self:_start()
@@ -24,21 +24,31 @@ end
 function CombatService:_start()
 	self.Trove:Connect(
 		self.Remote.OnServerEvent,
-		function(player, attack_index)
-			self:_attack(player, attack_index)
+		function(player, action, attack_index)
+			if action == "Attack" then
+				self:_attack(player, attack_index)
+			elseif action == "HitStart" then
+				self:_hit_start(player, attack_index)
+			elseif action == "HitStop" then
+				self:_hit_stop(player, attack_index)
+			end
 		end
 	)
 
 	self.Trove:Connect(
 		self.PlayerService.PlayerRemoving,
 		function(player)
-			self.Cooldowns[player] = nil
+			self:_clear_attack(player)
 		end
 	)
 end
 
 function CombatService:_attack(player, attack_index)
 	if typeof(attack_index) ~= "number" or attack_index % 1 ~= 0 then
+		return
+	end
+
+	if self.ActiveAttacks[player] then
 		return
 	end
 
@@ -59,27 +69,59 @@ function CombatService:_attack(player, attack_index)
 		return
 	end
 
-	local now = os.clock()
-	if now < (self.Cooldowns[player] or 0) then
-		return
-	end
-
 	local wielded = self.WeaponService:GetWielded(player, attack.Hitbox)
 	if not wielded then
 		return
 	end
 
-	self.Cooldowns[player] = now + (attack.Cooldown or 0.35)
-	self:_start_hitbox(character, wielded, attack)
+	self.ActiveAttacks[player] = {
+		AttackIndex = attack_index,
+		Character = character,
+		Attack = attack,
+		Wielded = wielded,
+		Hitbox = nil,
+	}
 end
 
-function CombatService:_start_hitbox(character, wielded, attack)
+function CombatService:_hit_start(player, attack_index)
+	local active = self.ActiveAttacks[player]
+	if not active or active.AttackIndex ~= attack_index or active.Hitbox then
+		return
+	end
+
+	if active.Character.Parent == nil then
+		self:_clear_attack(player)
+		return
+	end
+
+	self:_start_hitbox(player, active)
+end
+
+function CombatService:_hit_stop(player, attack_index)
+	local active = self.ActiveAttacks[player]
+	if not active or active.AttackIndex ~= attack_index then
+		return
+	end
+
+	if active.Hitbox then
+		active.Hitbox:HitStop()
+	end
+
+	self.ActiveAttacks[player] = nil
+end
+
+function CombatService:_start_hitbox(player, active)
+	local character = active.Character
+	local attack = active.Attack
+	local wielded = active.Wielded
+
 	local raycast_params = RaycastParams.new()
 	raycast_params.FilterType = Enum.RaycastFilterType.Exclude
 	raycast_params.FilterDescendantsInstances = {character}
 
 	local hitbox = ShapecastHitbox.new(wielded, raycast_params)
 	hitbox.FilterPartsHit = true
+	active.Hitbox = hitbox
 
 	local hit_characters = {}
 
@@ -103,15 +145,39 @@ function CombatService:_start_hitbox(character, wielded, attack)
 		hit_humanoid:TakeDamage(attack.Damage or 0)
 	end)
 
-	hitbox:HitStart(attack.HitboxDuration or 0.15):OnStopped(function(clean_callbacks)
+	hitbox:OnStopped(function(clean_callbacks)
 		clean_callbacks()
 		table.clear(hit_characters)
+
+		if self.ActiveAttacks[player] and self.ActiveAttacks[player].Hitbox == hitbox then
+			self.ActiveAttacks[player] = nil
+		end
+
 		hitbox:Destroy()
 	end)
+
+	hitbox:HitStart()
+end
+
+function CombatService:_clear_attack(player)
+	local active = self.ActiveAttacks[player]
+	if not active then
+		return
+	end
+
+	if active.Hitbox then
+		active.Hitbox:HitStop()
+	else
+		self.ActiveAttacks[player] = nil
+	end
 end
 
 function CombatService:Destroy()
-	table.clear(self.Cooldowns)
+	for player in pairs(self.ActiveAttacks) do
+		self:_clear_attack(player)
+	end
+
+	table.clear(self.ActiveAttacks)
 	self.Trove:Destroy()
 end
 
