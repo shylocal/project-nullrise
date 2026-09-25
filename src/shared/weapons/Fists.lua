@@ -69,6 +69,11 @@ Fists.Attacks = {
 		Hitbox = "LeftFist",
 		Damage = 10,
 		AttackDuration = 0.1,
+		Cooldown = 0.1,
+		Startup = 0.05,
+		ActiveTime = 0.15,
+		Recovery = 0.1,
+		NetworkTolerance = 3,
 		Range = 8,
 	},
 }
