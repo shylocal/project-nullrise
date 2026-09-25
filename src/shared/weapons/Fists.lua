@@ -51,6 +51,11 @@ Fists.Attacks = {
 		Hitbox = "RightFist",
 		Damage = 10,
 		AttackDuration = 0.1,
+		Cooldown = 0.1,
+		Startup = 0.05,
+		ActiveTime = 0.15,
+		Recovery = 0.1,
+		NetworkTolerance = 3,
 		Range = 8,
 	},
 
@@ -73,6 +78,10 @@ Fists.Charge = {
 	Hitbox = "RightFist",
 	Damage = 20,
 	AttackDuration = 0.1,
+	Cooldown = 0.1,
+	ActiveTime = 0.15,
+	MaxHoldTime = 2,
+	NetworkTolerance = 3,
 	Range = 8,
 	HoldTime = 0.15,
 }
