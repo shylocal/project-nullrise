@@ -5,6 +5,13 @@ local CombatValidation = {}
 
 local HIT_DISTANCE_MARGIN = 4
 
+local function is_finite_vector3(value)
+	return typeof(value) == "Vector3"
+		and math.isfinite(value.X)
+		and math.isfinite(value.Y)
+		and math.isfinite(value.Z)
+end
+
 function CombatValidation.ValidateHit(
 	weapon_service,
 	player,
@@ -23,7 +30,7 @@ function CombatValidation.ValidateHit(
 		end
 	end
 
-	if hit_position ~= nil and typeof(hit_position) ~= "Vector3" then
+	if hit_position ~= nil and not is_finite_vector3(hit_position) then
 		return nil
 	end
 
@@ -55,17 +62,29 @@ function CombatValidation.ValidateHit(
 	end
 
 	local range = active.Attack.Range or 8
+	local network_tolerance = active.Attack.NetworkTolerance or HIT_DISTANCE_MARGIN
 
-	if (hit_root.Position - attacker_root.Position).Magnitude > range + HIT_DISTANCE_MARGIN then
+	if typeof(range) ~= "number"
+		or not math.isfinite(range)
+		or range <= 0
+		or typeof(network_tolerance) ~= "number"
+		or not math.isfinite(network_tolerance)
+		or network_tolerance < 0 then
 		return nil
 	end
 
-	if hit_position and (hit_root.Position - hit_position).Magnitude > range + HIT_DISTANCE_MARGIN then
+	local max_distance = range + network_tolerance
+
+	if (hit_root.Position - attacker_root.Position).Magnitude > max_distance then
+		return nil
+	end
+
+	if hit_position and (hit_root.Position - hit_position).Magnitude > max_distance then
 		return nil
 	end
 
 	if segment_instance and hit_position
-		and (segment_instance.WorldPosition - hit_position).Magnitude > HIT_DISTANCE_MARGIN then
+		and (segment_instance.WorldPosition - hit_position).Magnitude > network_tolerance then
 		return nil
 	end
 
@@ -76,10 +95,13 @@ function CombatValidation.ValidateHit(
 
 		local origin = segment_instance and segment_instance.WorldPosition or attacker_root.Position
 		local direction = hit_position - origin
-		local result = Workspace:Raycast(origin, direction, raycast_params)
 
-		if result and not result.Instance:IsDescendantOf(hit_character) then
-			return nil
+		if direction.Magnitude > 0 then
+			local result = Workspace:Raycast(origin, direction, raycast_params)
+
+			if result and not result.Instance:IsDescendantOf(hit_character) then
+				return nil
+			end
 		end
 	end
 

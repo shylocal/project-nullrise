@@ -8,6 +8,19 @@ local CombatService = {}
 CombatService.__index = CombatService
 
 local ATTACK_TIMEOUT = 2
+local TIMING_TOLERANCE = 0.05
+
+local REMOTE_MIN_INTERVAL = {
+	Attack = 0.08,
+	Charge = 0.08,
+	HitStart = 0.02,
+	Hit = 0.02,
+	HitStop = 0.02,
+}
+
+local function is_valid_duration(value)
+	return typeof(value) == "number" and math.isfinite(value) and value >= 0
+end
 
 function CombatService.new(player_service, weapon_service, remote)
 	local self = setmetatable({
@@ -19,6 +32,7 @@ function CombatService.new(player_service, weapon_service, remote)
 		ActiveAttacks = {},
 		NextAttack = {},
 		NextAttackAt = {},
+		RemoteAt = {},
 		PlayerTroves = {},
 	}, CombatService)
 
@@ -31,6 +45,15 @@ function CombatService:_start()
 	self.Trove:Connect(
 		self.Remote.OnServerEvent,
 		function(player, action, attack_key, hit_character, segment_instance, hit_position)
+			if typeof(action) ~= "string" then
+				return
+			end
+
+			local min_interval = REMOTE_MIN_INTERVAL[action]
+			if not min_interval or not self:_allow_remote(player, action, min_interval) then
+				return
+			end
+
 			if action == "Attack" then
 				self:_attack(player, attack_key)
 			elseif action == "Charge" then
@@ -69,6 +92,24 @@ function CombatService:_start()
 	for _, player in self.PlayerService:GetPlayers() do
 		self:_watch_player(player)
 	end
+end
+
+function CombatService:_allow_remote(player, action, min_interval)
+	local now = os.clock()
+	local remote_at = self.RemoteAt[player]
+
+	if not remote_at then
+		remote_at = {}
+		self.RemoteAt[player] = remote_at
+	end
+
+	local last_at = remote_at[action]
+	if last_at and now - last_at < min_interval then
+		return false
+	end
+
+	remote_at[action] = now
+	return true
 end
 
 function CombatService:_watch_player(player)
@@ -112,6 +153,61 @@ function CombatService:_get_attack_context(player)
 	return character, weapon
 end
 
+function CombatService:_get_attack_timing(attack, is_charge)
+	if is_charge then
+		local ready_time = attack.ChargeReadyTime
+		if ready_time == nil then
+			ready_time = attack.HoldTime
+		end
+		if ready_time == nil then
+			ready_time = 0.15
+		end
+
+		local max_hold_time = attack.MaxHoldTime or 2
+		local active_time = attack.ActiveTime or attack.AttackDuration
+		local cooldown = attack.Cooldown or attack.AttackDuration
+
+		if not is_valid_duration(ready_time)
+			or not is_valid_duration(max_hold_time)
+			or not is_valid_duration(active_time)
+			or not is_valid_duration(cooldown)
+			or max_hold_time <= 0
+			or active_time <= 0
+			or cooldown <= 0 then
+			return nil
+		end
+
+		return {
+			ReadyTime = ready_time,
+			ActiveTime = active_time,
+			Lifetime = max_hold_time + active_time,
+			Cooldown = cooldown,
+		}
+	end
+
+	local startup = attack.Startup or 0
+	local active_time = attack.ActiveTime or attack.AttackDuration
+	local recovery = attack.Recovery or 0
+	local cooldown = attack.Cooldown or attack.AttackDuration
+
+	if not is_valid_duration(startup)
+		or not is_valid_duration(active_time)
+		or not is_valid_duration(recovery)
+		or not is_valid_duration(cooldown)
+		or active_time <= 0
+		or cooldown <= 0 then
+		return nil
+	end
+
+	return {
+		Startup = startup,
+		ActiveTime = active_time,
+		Recovery = recovery,
+		Lifetime = startup + active_time + recovery,
+		Cooldown = cooldown,
+	}
+end
+
 function CombatService:_can_begin_attack(player)
 	local now = os.clock()
 	local next_attack_at = self.NextAttackAt[player]
@@ -123,32 +219,37 @@ function CombatService:_can_begin_attack(player)
 	return now
 end
 
-function CombatService:_create_active(player, attack_key, attack, wielded, character)
+function CombatService:_create_active(player, attack_key, attack, timing, wielded, character)
+	local started_at = os.clock()
+	local lifetime = attack_key == "Charge" and timing.Lifetime or math.max(timing.Lifetime, timing.Cooldown)
+	local expires_at = started_at + lifetime + ATTACK_TIMEOUT
+
 	local active = {
 		AttackIndex = attack_key,
 		Character = character,
 		Attack = attack,
+		Timing = timing,
 		Wielded = wielded,
 		HitActive = false,
+		HitEndsAt = nil,
 		HitTargets = {},
-		StartedAt = os.clock(),
+		StartedAt = started_at,
+		ExpiresAt = expires_at,
 	}
 
 	self.ActiveAttacks[player] = active
 
-	if attack_key ~= "Charge" then
-		task.delay(ATTACK_TIMEOUT, function()
-			if self.ActiveAttacks[player] == active then
-				self:_clear_attack(player)
-			end
-		end)
-	end
+	task.delay(expires_at - started_at, function()
+		if self.ActiveAttacks[player] == active then
+			self:_clear_attack(player)
+		end
+	end)
 
 	return active
 end
 
 function CombatService:_attack(player, attack_index)
-	if typeof(attack_index) ~= "number" then
+	if typeof(attack_index) ~= "number" or not math.isfinite(attack_index) or attack_index % 1 ~= 0 then
 		return
 	end
 
@@ -162,18 +263,14 @@ function CombatService:_attack(player, attack_index)
 		return
 	end
 
-	local attack_duration = attack.AttackDuration
-	if typeof(attack_duration) ~= "number" or attack_duration <= 0 then
+	local timing = self:_get_attack_timing(attack, false)
+	if not timing then
 		return
 	end
 
 	local now = self:_can_begin_attack(player)
 	if not now then
 		return
-	end
-
-	if not self.NextAttack[player] then
-		self.NextAttack[player] = 1
 	end
 
 	local expected_attack = self.NextAttack[player] or 1
@@ -189,15 +286,9 @@ function CombatService:_attack(player, attack_index)
 	self:_clear_attack(player)
 
 	self.NextAttack[player] = attack_index == #weapon.Attacks and 1 or attack_index + 1
-	self.NextAttackAt[player] = now + attack_duration
+	self.NextAttackAt[player] = now + timing.Cooldown
 
-	self:_create_active(
-		player,
-		attack_index,
-		attack,
-		wielded,
-		character
-	)
+	self:_create_active(player, attack_index, attack, timing, wielded, character)
 end
 
 function CombatService:_charge(player)
@@ -211,8 +302,8 @@ function CombatService:_charge(player)
 		return
 	end
 
-	local attack_duration = charge.AttackDuration
-	if typeof(attack_duration) ~= "number" or attack_duration <= 0 then
+	local timing = self:_get_attack_timing(charge, true)
+	if not timing then
 		return
 	end
 
@@ -227,21 +318,13 @@ function CombatService:_charge(player)
 	end
 
 	self:_clear_attack(player)
+	self.NextAttackAt[player] = now + timing.Cooldown
 
-	self.NextAttackAt[player] = now + attack_duration
-
-	self:_create_active(
-		player,
-		"Charge",
-		charge,
-		wielded,
-		character
-	)
+	self:_create_active(player, "Charge", charge, timing, wielded, character)
 end
 
 function CombatService:_hit_start(player, attack_key)
 	local active = self.ActiveAttacks[player]
-
 	if not active or active.AttackIndex ~= attack_key or active.HitActive then
 		return
 	end
@@ -257,18 +340,51 @@ function CombatService:_hit_start(player, attack_key)
 		return
 	end
 
+	local now = os.clock()
+	local hit_start_at
+	local hit_end_at
+
+	if attack_key == "Charge" then
+		hit_start_at = active.StartedAt + active.Timing.ReadyTime
+		hit_end_at = now + active.Timing.ActiveTime
+	else
+		hit_start_at = active.StartedAt + active.Timing.Startup
+		hit_end_at = hit_start_at + active.Timing.ActiveTime
+	end
+
+	if now + TIMING_TOLERANCE < hit_start_at or now > hit_end_at + TIMING_TOLERANCE then
+		return
+	end
+
 	active.HitActive = true
+	active.HitEndsAt = hit_end_at
+
+	task.delay(math.max(0, hit_end_at - now), function()
+		if self.ActiveAttacks[player] == active and active.HitActive then
+			active.HitActive = false
+			active.HitEndsAt = nil
+		end
+	end)
 end
 
 function CombatService:_hit(player, attack_key, hit_character, segment_instance, hit_position)
 	local active = self.ActiveAttacks[player]
-
-
 	if not active or active.AttackIndex ~= attack_key or not active.HitActive then
 		return
 	end
 
+	if active.HitEndsAt and os.clock() > active.HitEndsAt + TIMING_TOLERANCE then
+		active.HitActive = false
+		active.HitEndsAt = nil
+		return
+	end
+
 	if active.HitTargets[hit_character] then
+		return
+	end
+
+	local damage = active.Attack.Damage
+	if typeof(damage) ~= "number" or not math.isfinite(damage) or damage < 0 then
 		return
 	end
 
@@ -286,7 +402,7 @@ function CombatService:_hit(player, attack_key, hit_character, segment_instance,
 	end
 
 	active.HitTargets[hit_character] = true
-	hit_humanoid:TakeDamage(active.Attack.Damage or 0)
+	hit_humanoid:TakeDamage(damage)
 end
 
 function CombatService:_hit_stop(player, attack_key)
@@ -301,7 +417,6 @@ end
 function CombatService:_clear_attack(player)
 	local active = self.ActiveAttacks[player]
 
-
 	if active then
 		table.clear(active.HitTargets)
 	end
@@ -313,6 +428,7 @@ function CombatService:_reset_player(player)
 	self:_clear_attack(player)
 	self.NextAttack[player] = 1
 	self.NextAttackAt[player] = nil
+	self.RemoteAt[player] = nil
 end
 
 function CombatService:_player_removing(player)
@@ -334,6 +450,7 @@ function CombatService:Destroy()
 	table.clear(self.ActiveAttacks)
 	table.clear(self.NextAttack)
 	table.clear(self.NextAttackAt)
+	table.clear(self.RemoteAt)
 
 	self.Trove:Destroy()
 end
