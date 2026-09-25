@@ -30,6 +30,7 @@ function CombatController.new(
 		NextAttack = 1,
 		CurrentAttackKey = nil,
 		CurrentTrack = nil,
+		ChargeHoldActive = false,
 		BufferedAttack = nil,
 		BufferToken = 0,
 
@@ -104,6 +105,7 @@ function CombatController:_primary_ended()
 
 	self.PrimaryHeld = false
 	self.PrimaryToken += 1
+	self.ChargeHoldActive = false
 
 	if self.Charging then
 		local track = self.CurrentTrack
@@ -115,6 +117,11 @@ function CombatController:_primary_ended()
 	end
 
 	if was_attacking or self.Attacking then
+		return
+	end
+
+	if self.BufferedAttack then
+		self:_resolve_buffered_attack()
 		return
 	end
 
@@ -180,6 +187,7 @@ end
 function CombatController:_begin_attack(attack_key, attack, track, remote_action)
 	self.Attacking = true
 	self.Charging = attack_key == "Charge"
+	self.ChargeHoldActive = attack_key == "Charge" and self.PrimaryHeld
 	self.BufferedAttack = nil
 	self.CurrentAttackKey = attack_key
 	self.CurrentTrack = track
@@ -195,9 +203,8 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 	attack_trove:Connect(
 		track:GetMarkerReachedSignal("HitStart"),
 		function()
-			if attack_key == "Charge" and self.PrimaryHeld then
+			if attack_key == "Charge" and self.ChargeHoldActive then
 				self.AnimationController.Combat:Pause(track)
-				self:_schedule_buffered_charge()
 			end
 
 			self:_start_hitbox(attack_key, attack)
@@ -220,6 +227,9 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 		attack.Animation.TransitionTime or 0
 	)
 
+	if self.ChargeHoldActive then
+		self:_schedule_buffered_charge()
+	end
 
 	task.spawn(function()
 		track.Ended:Wait()
@@ -242,6 +252,7 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	self.Charging = false
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
+	self.ChargeHoldActive = false
 	self.MovementController:SetSprintBlocked(false)
 
 	if self.BufferedAttack == "Attack" then
@@ -421,6 +432,7 @@ function CombatController:Reset()
 	self.NextAttack = 1
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
+	self.ChargeHoldActive = false
 	self.BufferedAttack = nil
 	self.BufferToken += 1
 	self.Attacking = false
