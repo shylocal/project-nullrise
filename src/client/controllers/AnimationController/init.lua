@@ -80,13 +80,15 @@ function AnimationController:_set_animator(animator)
 		return
 	end
 
+	local weapon = self.Weapon.Weapon
+
 	self:_clear_tracks()
 
 	self.Animator = animator
 
-	self.Movement:SetWeapon(self.Movement.Weapon)
-	self.Weapon:SetWeapon(self.Weapon.Weapon)
-	self.Combat:SetWeapon(self.Combat.Weapon)
+	self.Movement:SetWeapon(weapon)
+	self.Weapon:SetWeapon(weapon)
+	self.Combat:SetWeapon(weapon)
 end
 
 function AnimationController:Load(definition)
