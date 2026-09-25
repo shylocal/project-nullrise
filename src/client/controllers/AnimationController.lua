@@ -20,6 +20,8 @@ function AnimationController.new(character)
 		AttackTracks = {},
 		ActionTrack = nil,
 		Sprinting = false,
+		EquipPending = false,
+		EquipToken = 0,
 	}, AnimationController)
 
 	self:_start()
@@ -76,6 +78,16 @@ function AnimationController:_set_animator(animator)
 
 	if self.Weapon then
 		self:_load_weapon()
+	end
+
+	if self.EquipPending then
+		local token = self.EquipToken
+
+		task.defer(function()
+			if self.EquipToken == token and self.Animator == animator and self.Weapon then
+				self:PlayEquip()
+			end
+		end)
 	end
 end
 
@@ -217,9 +229,17 @@ function AnimationController:SetSprinting(sprinting)
 end
 
 function AnimationController:PlayEquip()
+	self.EquipToken += 1
+	self.EquipPending = true
+
 	local track = self.Tracks.Equip
 
 	if not track then
+		if not self.Animator or self.Animator.Parent == nil then
+			return nil
+		end
+
+		self.EquipPending = false
 		self:_update_movement_animation()
 		return nil
 	end
@@ -227,6 +247,8 @@ function AnimationController:PlayEquip()
 	local definition = self.Weapon
 		and self.Weapon.Animations
 		and self.Weapon.Animations.Equip
+
+	self.EquipPending = false
 
 	return self:_play_action(track, definition and definition.TransitionTime or 0)
 end
@@ -283,6 +305,8 @@ function AnimationController:StopAction()
 end
 
 function AnimationController:Destroy()
+	self.EquipToken += 1
+	self.EquipPending = false
 	self:_clear_tracks()
 	self.Trove:Destroy()
 end
