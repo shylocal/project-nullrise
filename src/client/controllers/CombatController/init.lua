@@ -34,14 +34,11 @@ function CombatController.new(
 		CurrentTrack = nil,
 		ChargeReady = false,
 
-		BufferedAttack = false,
-		BufferedAt = 0,
 
 		Attacking = false,
 		Charging = false,
 		PrimaryHeld = false,
 		PrimaryToken = 0,
-		BufferedToken = 0,
 
 		Hit = Signal.new(),
 	}, CombatController)
@@ -194,7 +191,6 @@ end
 function CombatController:_begin_attack(attack_key, attack, track, remote_action)
 	self.Attacking = true
 	self.Charging = attack_key == "Charge"
-	self.BufferedAttack = false
 	self.CurrentAttackKey = attack_key
 	self.CurrentTrack = track
 	self.ChargeReady = false
@@ -260,19 +256,15 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	self.ChargeReady = false
 	self.MovementController:SetSprintBlocked(false)
 
-	if self.BufferedAttack then
 		self:_resolve_buffered_attack()
 	end
 end
 
 function CombatController:_resolve_buffered_attack()
-	self.BufferedAttack = false
 
 	local weapon = self.WeaponController.Equipped
 	local charge = weapon and weapon.Charge
 
-	self.BufferedAt = 0
-	self.BufferedToken = 0
 
 	if self.PrimaryHeld and charge then
 		self:Charge()
@@ -297,8 +289,6 @@ function CombatController:_queue_buffered_attack(token)
 	local delay_time = math.max(remaining - ATTACK_BUFFER_WINDOW, 0)
 
 	if delay_time <= 0 then
-		self.BufferedAttack = true
-		self.BufferedToken = token
 		return
 	end
 
@@ -315,8 +305,6 @@ function CombatController:_queue_buffered_attack(token)
 			return
 		end
 
-		self.BufferedAttack = true
-		self.BufferedToken = token
 	end)
 end
 
@@ -420,9 +408,6 @@ function CombatController:Reset()
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
 	self.ChargeReady = false
-	self.BufferedAttack = false
-	self.BufferedAt = 0
-	self.BufferedToken = 0
 	self.Attacking = false
 	self.Charging = false
 end
