@@ -141,7 +141,6 @@ function CombatService:_create_active(player, attack_key, attack, wielded, chara
 
 	self.ActiveAttacks[player] = active
 
-	print("[CombatService] Active created", player.Name, attack_key)
 
 	if attack_key ~= "Charge" then
 		task.delay(ATTACK_TIMEOUT, function()
@@ -188,7 +187,7 @@ function CombatService:_attack(player, attack_index)
 	end
 
 	local wielded = self.WeaponService:GetWielded(player, attack.Hitbox)
-	if not wielded or wielded.Parent ~= character then
+	if not wielded or not wielded:IsDescendantOf(character) then
 		return
 	end
 
@@ -243,13 +242,6 @@ end
 function CombatService:_hit_start(player, attack_key)
 	local active = self.ActiveAttacks[player]
 
-	print(
-		"[CombatService] HitStart",
-		player.Name,
-		"active =", active ~= nil,
-		"active_key =", active and active.AttackIndex,
-		"received_key =", attack_key
-	)
 
 	if not active or active.AttackIndex ~= attack_key or active.HitActive then
 		return
@@ -261,7 +253,7 @@ function CombatService:_hit_start(player, attack_key)
 	end
 
 	local wielded = self.WeaponService:GetWielded(player, active.Attack.Hitbox)
-	if wielded ~= active.Wielded or wielded.Parent ~= active.Character then
+	if wielded ~= active.Wielded or not wielded:IsDescendantOf(active.Character) then
 		self:_clear_attack(player)
 		return
 	end
@@ -272,14 +264,6 @@ end
 function CombatService:_hit(player, attack_key, hit_character, segment_instance, hit_position)
 	local active = self.ActiveAttacks[player]
 
-	print(
-		"[CombatService] Hit",
-		player.Name,
-		"active =", active ~= nil,
-		"active_key =", active and active.AttackIndex,
-		"received_key =", attack_key,
-		"hit_active =", active and active.HitActive
-	)
 
 	if not active or active.AttackIndex ~= attack_key or not active.HitActive then
 		return
@@ -318,11 +302,6 @@ end
 function CombatService:_clear_attack(player)
 	local active = self.ActiveAttacks[player]
 
-	print(
-		"[CombatService] Clear",
-		player.Name,
-		"active_key =", active and active.AttackIndex
-	)
 
 	if active then
 		table.clear(active.HitTargets)
