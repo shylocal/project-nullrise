@@ -3,8 +3,6 @@ local ContentProvider = game:GetService("ContentProvider")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
-local Signal = require(Packages.Signal)
-
 local Movement = require(script.Movement)
 local Weapon = require(script.Weapon)
 local Combat = require(script.Combat)
@@ -22,14 +20,11 @@ function AnimationController.new(character)
 		Animator = nil,
 		ActionTrack = nil,
 
-		AnimatorChanged = Signal.new(),
 
 		Movement = nil,
 		Weapon = nil,
 		Combat = nil,
 	}, AnimationController)
-
-	self.Trove:Add(self.AnimatorChanged)
 
 	self.Movement = Movement.new(self)
 	self.Weapon = Weapon.new(self)
@@ -88,11 +83,10 @@ function AnimationController:_set_animator(animator)
 	self:_clear_tracks()
 
 	self.Animator = animator
-	self.AnimatorChanged:Fire(animator)
 
-	if self.Weapon.Weapon then
-		self.Weapon:PlayEquip()
-	end
+	self.Movement:SetWeapon(self.Movement.Weapon)
+	self.Weapon:SetWeapon(self.Weapon.Weapon)
+	self.Combat:SetWeapon(self.Combat.Weapon)
 end
 
 function AnimationController:Load(definition)
