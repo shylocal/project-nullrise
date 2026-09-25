@@ -53,6 +53,23 @@ function WeaponAttachment.Attach(source, wield, character)
 		return nil
 	end
 
+	if clone:IsA("Model") then
+		for wield_name, character_part_name in pairs(wield or {}) do
+			local wielded = clone:FindFirstChild(wield_name, true)
+			local target = character:FindFirstChild(character_part_name, true)
+
+			if wielded and target and target:IsA("BasePart") then
+				local root = get_root(wielded)
+
+				if root then
+					local offset = clone:GetPivot():ToObjectSpace(root.CFrame)
+					clone:PivotTo(target.CFrame * offset:Inverse())
+					break
+				end
+			end
+		end
+	end
+
 	for wield_name, character_part_name in pairs(wield or {}) do
 		local wielded = clone:FindFirstChild(wield_name, true)
 		local target = character:FindFirstChild(character_part_name, true)
@@ -66,7 +83,12 @@ function WeaponAttachment.Attach(source, wield, character)
 			continue
 		end
 
-		root.CFrame = target.CFrame
+		if wielded:IsA("Model") then
+			wielded:PivotTo(target.CFrame)
+			root = get_root(wielded)
+		else
+			root.CFrame = target.CFrame
+		end
 
 		local weld = Instance.new("WeldConstraint")
 		weld.Part0 = target
