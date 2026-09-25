@@ -140,9 +140,11 @@ function CombatController:_primary_ended()
 		return
 	end
 
-	if not self.Attacking then
-		self:Attack()
+	if self.Attacking then
+		return
 	end
+
+	self:Attack()
 end
 
 function CombatController:Attack()
@@ -205,7 +207,7 @@ end
 function CombatController:_begin_attack(attack_key, attack, track, remote_action, auto_release)
 	self.Attacking = true
 	self.Charging = attack_key == "Charge"
-	self.BufferedAttack = false
+	self.BufferedAttack = nil
 	self.AutoReleaseCharge = attack_key == "Charge" and auto_release == true
 	self.CurrentAttackKey = attack_key
 	self.CurrentTrack = track
