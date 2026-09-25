@@ -188,7 +188,6 @@ function AnimationController:StopAction()
 end
 
 function AnimationController:SetWeapon(weapon)
-	self:StopAction()
 	self:_clear_tracks()
 
 	self.Weapon:SetWeapon(weapon)
