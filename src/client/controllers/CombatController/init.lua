@@ -308,6 +308,7 @@ function CombatController:_queue_buffered_attack(token)
 		return
 	end
 
+	local buffered_at = os.clock()
 	local time_length = track.Length
 	if time_length <= 0 then
 		return
@@ -318,7 +319,7 @@ function CombatController:_queue_buffered_attack(token)
 
 	if delay_time <= 0 then
 		self.BufferedAttack = true
-		self.BufferedAt = os.clock()
+		self.BufferedAt = buffered_at
 		self.BufferedToken = token
 		return
 	end
