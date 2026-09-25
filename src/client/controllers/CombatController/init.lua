@@ -251,8 +251,8 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 				return
 			end
 
-			self:_start_hitbox(attack_key, attack)
 			CombatRemote:FireServer("HitStart", attack_key)
+			self:_start_hitbox(attack_key, attack)
 		end
 	)
 
