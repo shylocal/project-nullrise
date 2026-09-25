@@ -204,7 +204,12 @@ function AnimationController:PlayEquip()
 end
 
 function AnimationController:_clear_tracks()
+	local action_track = self.ActionTrack
 	self.ActionTrack = nil
+
+	if action_track then
+		action_track:Stop(0)
+	end
 
 	self.AnimationTrove:Destroy()
 	self.AnimationTrove = Trove.new()

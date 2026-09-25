@@ -14,7 +14,7 @@ function WeaponController.new(character)
 end
 
 function WeaponController:GetWielded(wield_name)
-	return self.Character:FindFirstChild(wield_name)
+	return self.Character:FindFirstChild(wield_name, true)
 end
 
 function WeaponController:EquipById(weapon_id)
