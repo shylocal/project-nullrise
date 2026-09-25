@@ -70,8 +70,5 @@ function Weapon:Clear()
 	self.EquipTrack = nil
 end
 
-function Weapon:Destroy()
-	self:Clear()
-end
 
 return Weapon
