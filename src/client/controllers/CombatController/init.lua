@@ -79,6 +79,13 @@ function CombatController:_primary_began()
 	local weapon = self.WeaponController.Equipped
 
 	if self.Charging then
+		-- A charge animation can outlive its cooldown. Once the attack is
+		-- ready, allow a new regular attack to replace the old animation
+		-- instead of waiting for track.Ended.
+		if self:_can_begin_attack() then
+			self:Attack()
+		end
+
 		return
 	end
 
