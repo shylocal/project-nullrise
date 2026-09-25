@@ -8,12 +8,21 @@ function Weapon.new(animation_controller)
 		EquipTrack = nil,
 	}, Weapon)
 
+	animation_controller.AnimatorChanged:Connect(function()
+		self:_load()
+
+		if self.Weapon then
+			self:PlayEquip()
+		end
+	end)
+
 	return self
 end
 
 function Weapon:SetWeapon(weapon)
 	self.Weapon = weapon
 	self:_load()
+	self:PlayEquip()
 end
 
 function Weapon:_load()
@@ -32,7 +41,6 @@ end
 function Weapon:PlayEquip()
 	local track = self.EquipTrack
 	if not track then
-		self.Controller.Movement:Update()
 		return nil
 	end
 
