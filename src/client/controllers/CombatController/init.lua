@@ -40,7 +40,6 @@ function CombatController.new(
 		Attacking = false,
 		Charging = false,
 		PrimaryHeld = false,
-		PrimaryBeganAt = 0,
 		PrimaryToken = 0,
 		BufferedToken = 0,
 
@@ -75,13 +74,12 @@ end
 
 function CombatController:_primary_began()
 	self.PrimaryHeld = true
-	self.PrimaryBeganAt = os.clock()
 	self.PrimaryToken += 1
 
 	if self.Attacking then
 		if not self.Charging and self:_can_buffer_attack() then
 			self.BufferedAttack = true
-			self.BufferedAt = self.PrimaryBeganAt
+			self.BufferedAt = os.clock()
 			self.BufferedToken = self.PrimaryToken
 		end
 
@@ -143,7 +141,6 @@ end
 
 function CombatController:Attack()
 	if self.Attacking then
-		self.BufferedAttack = true
 		return
 	end
 
@@ -376,7 +373,6 @@ end
 
 function CombatController:Reset()
 	self.PrimaryHeld = false
-	self.PrimaryBeganAt = 0
 	self.PrimaryToken += 1
 
 	local attack_key = self.CurrentAttackKey
