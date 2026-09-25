@@ -9,11 +9,15 @@ MobileInput.__index = MobileInput
 local Bindings = {
 	[Actions.Primary] = "Nullrise_Primary",
 	[Actions.Sprint] = "Nullrise_Sprint",
+	[Actions.Slot1] = "Nullrise_Slot1",
+	[Actions.Slot2] = "Nullrise_Slot2",
 }
 
 local Titles = {
 	[Actions.Primary] = "Attack",
 	[Actions.Sprint] = "Sprint",
+	[Actions.Slot1] = "Slot 1",
+	[Actions.Slot2] = "Slot 2",
 }
 
 function MobileInput.new(on_began, on_ended)
