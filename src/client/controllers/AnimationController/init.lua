@@ -2,7 +2,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
-local Signal = require(Packages.Signal)
 
 local Movement = require(script.Movement)
 local Weapon = require(script.Weapon)
@@ -11,76 +10,26 @@ local Combat = require(script.Combat)
 local AnimationController = {}
 AnimationController.__index = AnimationController
 
-function AnimationController.new(character)
+function AnimationController.new(character, animator)
 	local self = setmetatable({
 		Character = character,
 		Trove = Trove.new(),
 		AnimationTrove = Trove.new(),
 
-		Humanoid = nil,
-		Animator = nil,
+		Humanoid = animator.Parent,
+		Animator = animator,
 		ActionTrack = nil,
-
-		AnimatorChanged = Signal.new(),
 
 		Movement = nil,
 		Weapon = nil,
 		Combat = nil,
 	}, AnimationController)
 
-	self.Trove:Add(self.AnimatorChanged)
-
 	self.Weapon = Weapon.new(self)
 	self.Movement = Movement.new(self)
 	self.Combat = Combat.new(self)
 
-	self:_start()
-
 	return self
-end
-
-function AnimationController:_start()
-	local humanoid = self.Character:FindFirstChildOfClass("Humanoid")
-
-	if humanoid then
-		self:_set_humanoid(humanoid)
-	else
-		self.Trove:Connect(
-			self.Character.ChildAdded,
-			function(child)
-				if child:IsA("Humanoid") then
-					self:_set_humanoid(child)
-				end
-			end
-		)
-	end
-end
-
-function AnimationController:_set_humanoid(humanoid)
-	if self.Humanoid == humanoid then
-		return
-	end
-
-	self.Humanoid = humanoid
-
-	local animator = humanoid:FindFirstChildOfClass("Animator")
-
-	if not animator then
-		animator = humanoid:WaitForChild("Animator")
-	end
-
-	self:_set_animator(animator)
-end
-
-function AnimationController:_set_animator(animator)
-	if self.Animator == animator then
-		return
-	end
-
-	self:_clear_tracks()
-
-	self.Animator = animator
-	self.AnimatorChanged:Fire(animator)
 end
 
 function AnimationController:Load(definition)
@@ -111,7 +60,6 @@ function AnimationController:Load(definition)
 		function()
 			if self.ActionTrack == track then
 				self.ActionTrack = nil
-				self.Movement:Update()
 			end
 		end
 	)
