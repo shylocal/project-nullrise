@@ -357,3 +357,102 @@ function CombatController:_can_buffer_attack()
 	return time_length - track.TimePosition <= ATTACK_BUFFER_WINDOW
 end
 
+function CombatController:_can_sprint_while_attacking(attack)
+	local weapon = self.WeaponController.Equipped
+
+	if attack.CanSprintWhileAttacking ~= nil then
+		return attack.CanSprintWhileAttacking
+	end
+
+	return weapon and weapon.CanSprintWhileAttacking == true
+end
+
+function CombatController:_start_hitbox(attack_key, attack)
+	if self.Hitbox then
+		return
+	end
+
+	local wielded = self.WeaponController:GetWielded(attack.Hitbox)
+	if not wielded then
+		return
+	end
+
+	local attack_trove = self.AttackTrove
+	if not attack_trove then
+		return
+	end
+
+	local hitbox = Hitbox.new(
+		self.WeaponController.Character,
+		wielded,
+		function(hit_character, raycast_result, segment_instance)
+			self.Hit:Fire(hit_character, raycast_result)
+
+			CombatRemote:FireServer(
+				"Hit",
+				attack_key,
+				hit_character,
+				segment_instance,
+				raycast_result.Position
+			)
+		end
+	)
+
+	self.Hitbox = hitbox
+	attack_trove:Add(hitbox)
+	hitbox:Start()
+end
+
+function CombatController:_stop_hitbox()
+	local hitbox = self.Hitbox
+	self.Hitbox = nil
+
+	if not hitbox then
+		return
+	end
+
+	hitbox:Stop()
+
+	if self.AttackTrove then
+		self.AttackTrove:Remove(hitbox)
+	else
+		hitbox:Destroy()
+	end
+end
+
+function CombatController:Reset()
+	self.PrimaryHeld = false
+	self.PrimaryToken += 1
+
+	local attack_key = self.CurrentAttackKey
+	if attack_key then
+		CombatRemote:FireServer("HitStop", attack_key)
+	end
+
+	self:_stop_hitbox()
+
+	if self.AttackTrove then
+		self.Trove:Remove(self.AttackTrove)
+		self.AttackTrove = nil
+	end
+
+	self.AnimationController:StopAction()
+	self.MovementController:SetSprintBlocked(false)
+
+	self.NextAttack = 1
+	self.CurrentAttackKey = nil
+	self.CurrentTrack = nil
+	self.ChargeReady = false
+	self.BufferedAttack = false
+	self.BufferedAt = 0
+	self.BufferedToken = 0
+	self.Attacking = false
+	self.Charging = false
+end
+
+function CombatController:Destroy()
+	self:Reset()
+	self.Trove:Destroy()
+end
+
+return CombatController
