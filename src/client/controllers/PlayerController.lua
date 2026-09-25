@@ -1,7 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
@@ -41,6 +40,15 @@ function PlayerController:_start()
 		function(character)
 			if self.CharacterController and self.CharacterController.Character == character then
 				self:_clear_character()
+			end
+		end
+	)
+
+	self.Trove:Connect(
+		ReplicatedStorage.remotes.Weapon.OnClientEvent,
+		function(action, weapon_id)
+			if action == "Equipped" then
+				self:_set_weapon(weapon_id)
 			end
 		end
 	)
@@ -87,12 +95,19 @@ function PlayerController:_set_character(character)
 	local controller = CharacterControllerModule.new(
 		character,
 		self.InputController,
-		"Fists"
+		self.WeaponMenu.SelectedWeapon or "Fists"
 	)
 
 	self.CharacterController = controller
 	self.Trove:Add(controller)
 	self.UIController:BindCharacter(controller)
+end
+
+function PlayerController:_set_weapon(weapon_id)
+	local controller = self.CharacterController
+	if controller then
+		controller:SetWeapon(weapon_id)
+	end
 end
 
 function PlayerController:_clear_character()
