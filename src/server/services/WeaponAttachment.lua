@@ -2,13 +2,11 @@ local CollectionService = game:GetService("CollectionService")
 
 local WeaponAttachment = {}
 
-local function prepare(instance, target)
+local function prepare(instance)
 	if instance:IsA("BasePart") then
-		instance.CFrame = target.CFrame
 		instance.Anchored = false
 		instance.CanCollide = false
 		instance.Massless = true
-
 		return instance
 	end
 
@@ -16,31 +14,23 @@ local function prepare(instance, target)
 		return nil
 	end
 
-	local root = instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
-	if not root then
-		return nil
-	end
-
-	instance:PivotTo(target.CFrame)
-
 	for _, descendant in instance:GetDescendants() do
-		if not descendant:IsA("BasePart") then
-			continue
-		end
-
-		descendant.Anchored = false
-		descendant.CanCollide = false
-		descendant.Massless = true
-
-		if descendant ~= root then
-			local weld = Instance.new("WeldConstraint")
-			weld.Part0 = root
-			weld.Part1 = descendant
-			weld.Parent = descendant
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = false
+			descendant.CanCollide = false
+			descendant.Massless = true
 		end
 	end
 
-	return root
+	return instance
+end
+
+local function get_root(instance)
+	if instance:IsA("BasePart") then
+		return instance
+	end
+
+	return instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
 end
 
 local function tag_hitpoints(instance)
@@ -54,20 +44,35 @@ local function tag_hitpoints(instance)
 	end
 end
 
-function WeaponAttachment.Attach(source, target, parent)
+function WeaponAttachment.Attach(source, wield, character)
 	local clone = source:Clone()
-	clone.Parent = parent
+	clone.Parent = character
 
-	local root = prepare(clone, target)
-	if not root then
+	if not prepare(clone) then
 		clone:Destroy()
 		return nil
 	end
 
-	local weld = Instance.new("WeldConstraint")
-	weld.Part0 = target
-	weld.Part1 = root
-	weld.Parent = root
+	for wield_name, character_part_name in pairs(wield or {}) do
+		local wielded = clone:FindFirstChild(wield_name, true)
+		local target = character:FindFirstChild(character_part_name, true)
+
+		if not wielded or not target or not target:IsA("BasePart") then
+			continue
+		end
+
+		local root = get_root(wielded)
+		if not root then
+			continue
+		end
+
+		root.CFrame = target.CFrame
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = target
+		weld.Part1 = root
+		weld.Parent = root
+	end
 
 	tag_hitpoints(clone)
 
