@@ -49,6 +49,7 @@ Katana.Attacks = {
 
 		Hitbox = "Mesh",
 		Damage = 15,
+		AttackDuration = 0.1,
 		Range = 10,
 	},
 
@@ -61,6 +62,7 @@ Katana.Attacks = {
 
 		Hitbox = "Mesh",
 		Damage = 15,
+		AttackDuration = 0.1,
 		Range = 10,
 	},
 }
