@@ -10,26 +10,83 @@ local Combat = require(script.Combat)
 local AnimationController = {}
 AnimationController.__index = AnimationController
 
-function AnimationController.new(character, animator)
+function AnimationController.new(character)
 	local self = setmetatable({
 		Character = character,
 		Trove = Trove.new(),
 		AnimationTrove = Trove.new(),
 
-		Humanoid = animator.Parent,
-		Animator = animator,
+		Humanoid = nil,
+		Animator = nil,
 		ActionTrack = nil,
+
+		AnimatorChanged = Signal.new(),
 
 		Movement = nil,
 		Weapon = nil,
 		Combat = nil,
 	}, AnimationController)
 
+	self.Trove:Add(self.AnimatorChanged)
+
 	self.Weapon = Weapon.new(self)
 	self.Movement = Movement.new(self)
 	self.Combat = Combat.new(self)
 
+	self:_start()
+
 	return self
+end
+
+function AnimationController:_start()
+	local humanoid = self.Character:FindFirstChildOfClass("Humanoid")
+
+	if humanoid then
+		self:_set_humanoid(humanoid)
+	else
+		self.Trove:Connect(
+			self.Character.ChildAdded,
+			function(child)
+				if child:IsA("Humanoid") then
+					self:_set_humanoid(child)
+				end
+			end
+		)
+	end
+end
+
+function AnimationController:_set_humanoid(humanoid)
+	if self.Humanoid == humanoid then
+		return
+	end
+
+	self.Humanoid = humanoid
+
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+
+	if animator then
+		self:_set_animator(animator)
+	else
+		self.Trove:Connect(
+			humanoid.ChildAdded,
+			function(child)
+				if child:IsA("Animator") then
+					self:_set_animator(child)
+				end
+			end
+		)
+	end
+end
+
+function AnimationController:_set_animator(animator)
+	if self.Animator == animator then
+		return
+	end
+
+	self:_clear_tracks()
+
+	self.Animator = animator
+	self.AnimatorChanged:Fire(animator)
 end
 
 function AnimationController:Load(definition)
