@@ -337,11 +337,6 @@ function CombatService:_hit(player, attack_key, hit_character, segment_instance,
 		return
 	end
 
-	if active.HitEndsAt and os.clock() > active.HitEndsAt + TIMING_TOLERANCE then
-		active.HitActive = false
-		return
-	end
-
 	if active.HitTargets[hit_character] then
 		return
 	end
