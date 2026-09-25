@@ -36,17 +36,6 @@ end
 
 function WeaponService:_start()
 	self.Trove:Connect(
-		WeaponRemote.OnServerEvent,
-		function(player, action, weapon_id)
-			if action == "Equip" then
-				self:Equip(player, weapon_id)
-			elseif action == "Select" then
-				self.InventoryService:SelectSlot(player, weapon_id)
-			end
-		end
-	)
-
-	self.Trove:Connect(
 		self.InventoryService.Changed,
 		function(player, weapon_id)
 			self:Equip(player, weapon_id)
