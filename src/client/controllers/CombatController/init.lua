@@ -148,7 +148,6 @@ function CombatController:_primary_ended()
 	end
 
 	if self.Charging then
-		self.ChargeReleased = true
 		local track = self.CurrentTrack
 
 		if self.ChargeReady then
@@ -157,6 +156,7 @@ function CombatController:_primary_ended()
 
 			if charge then
 				self.ChargeReady = false
+				self.ChargeReleased = true
 				CombatRemote:FireServer("HitStart", "Charge")
 				self:_start_hitbox("Charge", charge)
 			end
