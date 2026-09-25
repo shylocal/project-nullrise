@@ -305,19 +305,14 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	self.AttackTrove = nil
 	self.Trove:Remove(attack_trove)
 
-	local was_charging = self.Charging
-
+	self.Attacking = false
 	self.Charging = false
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
 	self.ChargeReady = false
+	self.MovementController:SetSprintBlocked(false)
 
-	if was_charging or not self.Attacking then
-		self.Attacking = false
-		self.MovementController:SetSprintBlocked(false)
-	end
-
-	if self.BufferedAttack and not self.Attacking then
+	if self.BufferedAttack then
 		task.defer(function()
 			self:_resolve_buffered_attack()
 		end)
