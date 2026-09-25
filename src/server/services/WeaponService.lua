@@ -1,4 +1,3 @@
-local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
@@ -9,6 +8,8 @@ local WeaponsFolder = ReplicatedStorage.shared.weapons
 local WeaponModels = ReplicatedStorage.weapon_models
 local WeaponRemote = ReplicatedStorage.remotes.Weapon
 local Fists = require(WeaponsFolder.Fists)
+
+local WeaponAttachment = require(script.Parent.WeaponAttachment)
 
 local WeaponService = {}
 WeaponService.__index = WeaponService
@@ -144,74 +145,14 @@ function WeaponService:_attach_weapon(player, character, weapon, character_trove
 			continue
 		end
 
-		local clone = source:Clone()
-		clone.Parent = character
-
-		local root = self:_prepare_model(clone, target)
-		if not root then
-			clone:Destroy()
+		local clone = WeaponAttachment.Attach(source, target, character)
+		if not clone then
 			continue
 		end
-
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = target
-		weld.Part1 = root
-		weld.Parent = root
-
-		self:_tag_hitpoints(clone)
 
 		character_trove:Add(clone)
 		self.Wielded[player][wield_name] = clone
 	end
-end
-
-function WeaponService:_tag_hitpoints(instance)
-	for _, descendant in instance:GetDescendants() do
-		if descendant:IsA("Attachment") and descendant.Name == "Hitpoint" then
-			CollectionService:AddTag(descendant, "DmgPoint")
-		end
-	end
-end
-
-function WeaponService:_prepare_model(instance, target)
-	if instance:IsA("BasePart") then
-		instance.CFrame = target.CFrame
-		instance.Anchored = false
-		instance.CanCollide = false
-		instance.Massless = true
-
-		return instance
-	end
-
-	if not instance:IsA("Model") then
-		return nil
-	end
-
-	local root = instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
-	if not root then
-		return nil
-	end
-
-	instance:PivotTo(target.CFrame)
-
-	for _, descendant in instance:GetDescendants() do
-		if not descendant:IsA("BasePart") then
-			continue
-		end
-
-		descendant.Anchored = false
-		descendant.CanCollide = false
-		descendant.Massless = true
-
-		if descendant ~= root then
-			local weld = Instance.new("WeldConstraint")
-			weld.Part0 = root
-			weld.Part1 = descendant
-			weld.Parent = descendant
-		end
-	end
-
-	return root
 end
 
 function WeaponService:GetEquipped(player)
