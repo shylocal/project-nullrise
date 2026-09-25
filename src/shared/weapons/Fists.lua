@@ -72,7 +72,6 @@ Fists.Charge = {
 	Damage = 20,
 	Range = 8,
 	HoldTime = 0.15,
-	MaxHoldTime = 10,
 }
 
 return Fists
