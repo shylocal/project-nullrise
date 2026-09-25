@@ -268,8 +268,6 @@ end
 function CombatController:_resolve_buffered_attack()
 	self.BufferedAttack = false
 
-	local token = self.BufferedToken
-	local buffered_at = self.BufferedAt
 	local weapon = self.WeaponController.Equipped
 	local charge = weapon and weapon.Charge
 
@@ -277,22 +275,7 @@ function CombatController:_resolve_buffered_attack()
 	self.BufferedToken = 0
 
 	if self.PrimaryHeld and charge then
-		local hold_time = charge.HoldTime or 0.15
-		local remaining = hold_time - (os.clock() - buffered_at)
-
-		if remaining <= 0 then
-			self:Charge()
-			return
-		end
-
-		task.delay(remaining, function()
-			if self.PrimaryToken ~= token or not self.PrimaryHeld or self.Attacking then
-				return
-			end
-
-			self:Charge()
-		end)
-
+		self:Charge()
 		return
 	end
 
@@ -305,7 +288,6 @@ function CombatController:_queue_buffered_attack(token)
 		return
 	end
 
-	local buffered_at = os.clock()
 	local time_length = track.Length
 	if time_length <= 0 then
 		return
@@ -316,7 +298,6 @@ function CombatController:_queue_buffered_attack(token)
 
 	if delay_time <= 0 then
 		self.BufferedAttack = true
-		self.BufferedAt = buffered_at
 		self.BufferedToken = token
 		return
 	end
@@ -335,7 +316,6 @@ function CombatController:_queue_buffered_attack(token)
 		end
 
 		self.BufferedAttack = true
-		self.BufferedAt = buffered_at
 		self.BufferedToken = token
 	end)
 end
