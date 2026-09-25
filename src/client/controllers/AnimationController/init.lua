@@ -1,4 +1,5 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ContentProvider = game:GetService("ContentProvider")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
@@ -103,6 +104,8 @@ function AnimationController:Load(definition)
 
 	local animation = Instance.new("Animation")
 	animation.AnimationId = definition.Id
+
+	ContentProvider:PreloadAsync({animation})
 
 	local track = animator:LoadAnimation(animation)
 
