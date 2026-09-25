@@ -211,12 +211,12 @@ function AnimationController:_clear_tracks()
 		action_track:Stop(0)
 	end
 
-	self.AnimationTrove:Destroy()
-	self.AnimationTrove = Trove.new()
-
 	self.Weapon:Clear()
 	self.Movement:Clear()
 	self.Combat:Clear()
+
+	self.AnimationTrove:Destroy()
+	self.AnimationTrove = Trove.new()
 end
 
 function AnimationController:Destroy()
