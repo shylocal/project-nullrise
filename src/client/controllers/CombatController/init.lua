@@ -40,6 +40,7 @@ function CombatController.new(
 		Attacking = false,
 		Charging = false,
 		ChargeReleased = false,
+		PrimaryPressConsumed = false,
 		PrimaryHeld = false,
 		PrimaryToken = 0,
 
@@ -90,6 +91,7 @@ function CombatController:_primary_began()
 			-- converting the held input into a regular attack.
 		elseif was_charging and was_charge_released and self:_can_begin_attack() then
 			self:Attack()
+			self.PrimaryPressConsumed = true
 			return
 		end
 
@@ -138,6 +140,9 @@ function CombatController:_primary_ended()
 	self.PrimaryHeld = false
 	self.PrimaryToken += 1
 
+	local press_consumed = self.PrimaryPressConsumed
+	self.PrimaryPressConsumed = false
+
 	if self.BufferedAttack == "Charge" then
 		self.BufferedAttack = nil
 	end
@@ -161,6 +166,10 @@ function CombatController:_primary_ended()
 			self.AnimationController:Resume(track)
 		end
 
+		return
+	end
+
+	if press_consumed then
 		return
 	end
 
@@ -464,6 +473,7 @@ function CombatController:Reset()
 	self.Attacking = false
 	self.Charging = false
 	self.ChargeReleased = false
+	self.PrimaryPressConsumed = false
 end
 
 function CombatController:Destroy()
