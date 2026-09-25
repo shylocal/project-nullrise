@@ -77,10 +77,7 @@ function CombatController:_primary_began()
 	self.PrimaryToken += 1
 
 	if self.Attacking then
-		if not self.Charging then
-			self:_queue_buffered_attack(self.PrimaryToken)
-		end
-
+		self:_queue_buffered_attack(self.PrimaryToken)
 		return
 	end
 
