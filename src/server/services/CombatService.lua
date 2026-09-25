@@ -140,7 +140,6 @@ function CombatService:_create_active(player, attack_key, attack, wielded, chara
 
 	self.ActiveAttacks[player] = active
 
-
 	if attack_key ~= "Charge" then
 		task.delay(ATTACK_TIMEOUT, function()
 			if self.ActiveAttacks[player] == active then
@@ -204,10 +203,6 @@ function CombatService:_charge(player)
 		return
 	end
 
-	if self.ActiveAttacks[player] then
-		return
-	end
-
 	local charge = weapon.Charge
 	if not charge then
 		return
@@ -236,7 +231,6 @@ end
 
 function CombatService:_hit_start(player, attack_key)
 	local active = self.ActiveAttacks[player]
-
 
 	if not active or active.AttackIndex ~= attack_key or active.HitActive then
 		return
