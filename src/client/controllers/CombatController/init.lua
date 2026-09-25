@@ -296,6 +296,12 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	self.MovementController:SetSprintBlocked(false)
 
 	if self.BufferedAttack then
+		local weapon = self.WeaponController.Equipped
+
+		if self.BufferedAttack == "Attack" and self.PrimaryHeld and weapon and weapon.Charge then
+			return
+		end
+
 		task.defer(function()
 			self:_resolve_buffered_attack()
 		end)
