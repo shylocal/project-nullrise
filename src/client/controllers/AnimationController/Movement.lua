@@ -11,10 +11,6 @@ function Movement.new(animation_controller)
 		SprintTrack = nil,
 	}, Movement)
 
-	animation_controller.AnimatorChanged:Connect(function()
-		self:_load()
-	end)
-
 	return self
 end
 
