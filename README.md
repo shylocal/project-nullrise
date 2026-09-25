@@ -58,7 +58,8 @@ src/
     ├── input/
     │   └── Actions.lua
     └── weapons/
-        └── Fists.lua
+        ├── Fists.lua
+        └── Katana.lua
 
 default.project.json
 ```
