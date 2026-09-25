@@ -92,9 +92,20 @@ function Movement:Update()
 end
 
 function Movement:Clear()
-	self.Weapon = nil
+	local idle_track = self.IdleTrack
+	local sprint_track = self.SprintTrack
+
 	self.IdleTrack = nil
 	self.SprintTrack = nil
+	self.Weapon = nil
+
+	if idle_track then
+		idle_track:Stop(0)
+	end
+
+	if sprint_track then
+		sprint_track:Stop(0)
+	end
 end
 
 
