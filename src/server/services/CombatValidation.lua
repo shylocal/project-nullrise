@@ -32,7 +32,7 @@ function CombatValidation.ValidateHit(
 	end
 
 	local wielded = weapon_service:GetWielded(player, active.Attack.Hitbox)
-	if wielded ~= active.Wielded or wielded.Parent ~= active.Character then
+	if wielded ~= active.Wielded or not wielded:IsDescendantOf(active.Character) then
 		return nil
 	end
 
