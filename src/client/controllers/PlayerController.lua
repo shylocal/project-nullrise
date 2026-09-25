@@ -1,10 +1,14 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local CharacterControllerModule = require(script.Parent.CharacterController)
+
+local Actions = require(ReplicatedStorage.shared.input.Actions)
+local InventoryRemote = ReplicatedStorage.remotes.Inventory
 
 local PlayerController = {}
 PlayerController.__index = PlayerController
@@ -42,9 +46,13 @@ function PlayerController:_start()
 	)
 
 	self.Trove:Connect(
-		self.WeaponMenu.SelectionChanged,
-		function(weapon_id)
-			self:_set_weapon(weapon_id)
+		self.InputController.ActionBegan,
+		function(action)
+			if action == Actions.Slot1 then
+				InventoryRemote:FireServer("SelectSlot", 1)
+			elseif action == Actions.Slot2 then
+				InventoryRemote:FireServer("SelectSlot", 2)
+			end
 		end
 	)
 
@@ -79,19 +87,12 @@ function PlayerController:_set_character(character)
 	local controller = CharacterControllerModule.new(
 		character,
 		self.InputController,
-		self.WeaponMenu.SelectedWeapon
+		"Fists"
 	)
 
 	self.CharacterController = controller
 	self.Trove:Add(controller)
 	self.UIController:BindCharacter(controller)
-end
-
-function PlayerController:_set_weapon(weapon_id)
-	local controller = self.CharacterController
-	if controller then
-		controller:SetWeapon(weapon_id)
-	end
 end
 
 function PlayerController:_clear_character()
