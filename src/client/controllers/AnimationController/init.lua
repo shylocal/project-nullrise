@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
+local Signal = require(Packages.Signal)
 
 local Movement = require(script.Movement)
 local Weapon = require(script.Weapon)
