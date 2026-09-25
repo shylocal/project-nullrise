@@ -164,6 +164,8 @@ function CombatController:_primary_ended()
 	if self.Attacking then
 		return
 	end
+
+	self:Attack()
 end
 
 function CombatController:Attack()
