@@ -8,7 +8,6 @@ local CombatService = {}
 CombatService.__index = CombatService
 
 local ATTACK_REQUEST_INTERVAL = 0.1
-local HIT_DISTANCE_MARGIN = 4
 local ATTACK_TIMEOUT = 2
 
 function CombatService.new(player_service, weapon_service, remote)
@@ -163,10 +162,6 @@ function CombatService:_attack(player, attack_index)
 		return
 	end
 
-	if self.ActiveAttacks[player] then
-		return
-	end
-
 	local attack = weapon.Attacks and weapon.Attacks[attack_index]
 	if not attack then
 		return
@@ -224,7 +219,7 @@ function CombatService:_charge(player)
 	end
 
 	local wielded = self.WeaponService:GetWielded(player, charge.Hitbox)
-	if not wielded or wielded.Parent ~= character then
+	if not wielded or not wielded:IsDescendantOf(character) then
 		return
 	end
 
