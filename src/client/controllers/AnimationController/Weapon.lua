@@ -30,16 +30,18 @@ function Weapon:_load()
 
 	local weapon = self.Weapon
 	if not weapon then
-		return
+		return nil
 	end
 
 	self.EquipTrack = self.Controller:Load(
 		weapon.Animations and weapon.Animations.Equip
 	)
+
+	return self.EquipTrack
 end
 
 function Weapon:PlayEquip()
-	local track = self.EquipTrack
+	local track = self.EquipTrack or self:_load()
 	if not track then
 		return nil
 	end
