@@ -34,10 +34,8 @@ function CombatController.new(
 		ChargeReady = false,
 
 		BufferedAttack = nil,
-		AttackToken = 0,
 		AttackReadyAt = 0,
 
-		Attacking = false,
 		Charging = false,
 		PrimaryHeld = false,
 		PrimaryPressId = 0,
@@ -232,12 +230,8 @@ function CombatController:_can_begin_attack()
 end
 
 function CombatController:_begin_attack(attack_key, attack, track, remote_action)
-	self.AttackToken += 1
-	local attack_token = self.AttackToken
-
 	self:_clear_attack_lifecycle()
 
-	self.Attacking = true
 	self.Charging = attack_key == "Charge"
 	self.ChargeReady = false
 	self.CurrentAttackKey = attack_key
@@ -289,10 +283,6 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 	end)
 
 	task.delay(cooldown, function()
-		if self.AttackToken ~= attack_token then
-			return
-		end
-
 		if self.BufferedAttack and self.PrimaryHeld then
 			self:_resolve_buffered_attack()
 		end
@@ -310,7 +300,6 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	self.AttackTrove = nil
 	self.Trove:Remove(attack_trove)
 
-	self.Attacking = false
 	self.Charging = false
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
@@ -430,7 +419,6 @@ function CombatController:Reset()
 	self.PrimaryHeld = false
 	self.PrimaryPressId += 1
 	self.PrimaryPressAttackPending = false
-	self.AttackToken += 1
 	self.BufferedAttack = nil
 
 	local attack_key = self.CurrentAttackKey
