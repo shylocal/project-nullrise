@@ -63,14 +63,20 @@ function AnimationController:_set_humanoid(humanoid)
 
 	self.Humanoid = humanoid
 
+	self.Trove:Connect(
+		humanoid.ChildAdded,
+		function(child)
+			if child:IsA("Animator") then
+				self:_set_animator(child)
+			end
+		end
+	)
+
 	local animator = humanoid:FindFirstChildOfClass("Animator")
 
-	if not animator then
-		animator = Instance.new("Animator")
-		animator.Parent = humanoid
+	if animator then
+		self:_set_animator(animator)
 	end
-
-	self:_set_animator(animator)
 end
 
 function AnimationController:_set_animator(animator)
