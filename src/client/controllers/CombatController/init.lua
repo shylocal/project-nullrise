@@ -326,7 +326,7 @@ function CombatController:_queue_buffered_attack(token)
 			return
 		end
 
-		if not self.Attacking or self.Charging or self.CurrentTrack ~= track then
+		if not self.Attacking or self.CurrentTrack ~= track then
 			return
 		end
 
