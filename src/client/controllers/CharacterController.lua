@@ -51,11 +51,10 @@ function CharacterController.new(character, input_controller, weapon_id)
 
 	trove:Connect(
 		humanoid.Died,
-			function()
-				combat_controller:Reset()
-			end
-		)
-	end
+		function()
+			combat_controller:Reset()
+		end
+	)
 
 	local equipped = weapon_controller:EquipById(weapon_id or "Fists")
 	if not equipped then
