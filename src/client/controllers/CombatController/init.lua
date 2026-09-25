@@ -441,7 +441,6 @@ function CombatController:Reset()
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
 	self.ChargeReady = false
-	self.Attacking = false
 	self.Charging = false
 end
 
