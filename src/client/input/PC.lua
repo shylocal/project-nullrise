@@ -13,6 +13,9 @@ local Bindings = {
 
 	[Enum.KeyCode.LeftShift] = Actions.Sprint,
 	[Enum.KeyCode.RightShift] = Actions.Sprint,
+
+	[Enum.KeyCode.One] = Actions.Slot1,
+	[Enum.KeyCode.Two] = Actions.Slot2,
 }
 
 function PCInput.new(on_began, on_ended)
