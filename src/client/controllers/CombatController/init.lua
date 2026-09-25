@@ -137,6 +137,10 @@ function CombatController:_primary_ended()
 	self.PrimaryHeld = false
 	self.PrimaryToken += 1
 
+	if self.BufferedAttack == "Charge" then
+		self.BufferedAttack = nil
+	end
+
 	if self.Charging then
 		local track = self.CurrentTrack
 
