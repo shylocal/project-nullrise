@@ -156,12 +156,8 @@ function CombatController:_primary_ended()
 		self.AnimationController:Resume(track)
 	end
 
-	-- Releasing before HitStart cancels the pending charge. The charge's
-	-- cooldown still governs when another attack may begin; it must not be
-	-- extended to the end of the animation.
-	if not charge_ready and self:_can_begin_attack() then
-		self:Attack()
-	end
+	-- Releasing after the charge phase has begun but before HitStart cancels
+	-- the charge. It must not fall through into a regular attack.
 end
 
 function CombatController:Attack()
