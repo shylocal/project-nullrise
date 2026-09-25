@@ -150,8 +150,8 @@ function CombatController:_primary_ended()
 
 			if charge then
 				self.ChargeReady = false
-				self:_start_hitbox("Charge", charge)
 				CombatRemote:FireServer("HitStart", "Charge")
+				self:_start_hitbox("Charge", charge)
 			end
 		end
 
@@ -278,12 +278,12 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 end
 
 function CombatController:_finish_attack(attack_key, attack_trove)
-	self:_stop_hitbox()
-	CombatRemote:FireServer("HitStop", attack_key)
-
 	if self.AttackTrove ~= attack_trove then
 		return
 	end
+
+	self:_stop_hitbox()
+	CombatRemote:FireServer("HitStop", attack_key)
 
 	self.AttackTrove = nil
 	self.Trove:Remove(attack_trove)
