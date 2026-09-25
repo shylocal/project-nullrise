@@ -137,21 +137,19 @@ function WeaponService:_attach_weapon(player, character, weapon, character_trove
 		return
 	end
 
-	for wield_name, character_part_name in pairs(weapon.Wield or {}) do
-		local source = model:FindFirstChild(wield_name)
-		local target = character:FindFirstChild(character_part_name, true)
+	local clone = WeaponAttachment.Attach(model, weapon.Wield, character)
+	if not clone then
+		return
+	end
 
-		if not source or not target or not target:IsA("BasePart") then
-			continue
+	character_trove:Add(clone)
+
+	for wield_name in pairs(weapon.Wield or {}) do
+		local wielded = clone:FindFirstChild(wield_name, true)
+
+		if wielded then
+			self.Wielded[player][wield_name] = wielded
 		end
-
-		local clone = WeaponAttachment.Attach(source, target, character)
-		if not clone then
-			continue
-		end
-
-		character_trove:Add(clone)
-		self.Wielded[player][wield_name] = clone
 	end
 end
 
