@@ -39,6 +39,7 @@ function CombatController.new(
 
 		Attacking = false,
 		Charging = false,
+		ChargeReleased = false,
 		PrimaryHeld = false,
 		PrimaryToken = 0,
 
@@ -73,6 +74,7 @@ end
 
 function CombatController:_primary_began()
 	local was_charging = self.Charging
+	local was_charge_released = self.ChargeReleased
 
 	self.PrimaryHeld = true
 	self.PrimaryToken += 1
@@ -83,7 +85,10 @@ function CombatController:_primary_began()
 	if self.Attacking then
 		-- A released charge is still animating until its track ends, but it
 		-- must not block the next attack once its cooldown has elapsed.
-		if was_charging and self:_can_begin_attack() then
+		if was_charging and not was_charge_released then
+			-- Holding during an active charge buffers the next charge rather than
+			-- converting the held input into a regular attack.
+		elseif was_charging and was_charge_released and self:_can_begin_attack() then
 			self:Attack()
 			return
 		end
@@ -138,6 +143,7 @@ function CombatController:_primary_ended()
 	end
 
 	if self.Charging then
+		self.ChargeReleased = true
 		local track = self.CurrentTrack
 
 		if self.ChargeReady then
@@ -240,6 +246,7 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 
 	self.Attacking = true
 	self.Charging = attack_key == "Charge"
+	self.ChargeReleased = false
 	self.ChargeReady = false
 	self.CurrentAttackKey = attack_key
 	self.CurrentTrack = track
@@ -313,6 +320,7 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 
 	self.Attacking = false
 	self.Charging = false
+	self.ChargeReleased = false
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
 	self.ChargeReady = false
@@ -455,6 +463,7 @@ function CombatController:Reset()
 	self.ChargeReady = false
 	self.Attacking = false
 	self.Charging = false
+	self.ChargeReleased = false
 end
 
 function CombatController:Destroy()
