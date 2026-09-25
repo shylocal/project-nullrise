@@ -71,6 +71,7 @@ Katana.Charge = {
 	Animation = Katana.Animations.Charge,
 	Hitbox = "Mesh",
 	Damage = 30,
+	AttackDuration = 0.1,
 	Range = 10,
 	HoldTime = 0.15,
 }
