@@ -2,7 +2,7 @@ local Movement = {}
 Movement.__index = Movement
 
 function Movement.new(animation_controller)
-	local self = setmetatable({
+	return setmetatable({
 		Controller = animation_controller,
 		Weapon = nil,
 		Sprinting = false,
@@ -10,12 +10,6 @@ function Movement.new(animation_controller)
 		IdleTrack = nil,
 		SprintTrack = nil,
 	}, Movement)
-
-	animation_controller.AnimatorChanged:Connect(function()
-		self:_load()
-	end)
-
-	return self
 end
 
 function Movement:SetWeapon(weapon)
@@ -53,41 +47,31 @@ function Movement:_load()
 end
 
 function Movement:Update()
-	if self.Controller:IsActionPlaying() then
+	local idle_track = self.IdleTrack
+
+	if idle_track and not idle_track.IsPlaying then
+		local definition = self.Weapon
+			and self.Weapon.Animations
+			and self.Weapon.Animations.Idle
+
+		idle_track:Play(definition and definition.TransitionTime or 0)
+	end
+
+	local sprint_track = self.SprintTrack
+	if not sprint_track then
 		return
 	end
 
-	local track
-
-	if self.Sprinting and self.SprintTrack then
-		track = self.SprintTrack
-	else
-		track = self.IdleTrack
-	end
-
-	if not track then
-		return
-	end
-
-	local other = track == self.SprintTrack and self.IdleTrack or self.SprintTrack
-	if other then
-		other:Stop()
-	end
-
-	if not track.IsPlaying then
-		local definition
-
-		if track == self.SprintTrack then
-			definition = self.Weapon
+	if self.Sprinting then
+		if not sprint_track.IsPlaying then
+			local definition = self.Weapon
 				and self.Weapon.Animations
 				and self.Weapon.Animations.Sprint
-		else
-			definition = self.Weapon
-				and self.Weapon.Animations
-				and self.Weapon.Animations.Idle
-		end
 
-		track:Play(definition and definition.TransitionTime or 0)
+			sprint_track:Play(definition and definition.TransitionTime or 0)
+		end
+	elseif sprint_track.IsPlaying then
+		sprint_track:Stop()
 	end
 end
 
@@ -107,6 +91,5 @@ function Movement:Clear()
 		sprint_track:Stop(0)
 	end
 end
-
 
 return Movement
