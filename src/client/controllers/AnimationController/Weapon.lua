@@ -10,10 +10,6 @@ function Weapon.new(animation_controller)
 
 	animation_controller.AnimatorChanged:Connect(function()
 		self:_load()
-
-		if self.Weapon then
-			self:PlayEquip()
-		end
 	end)
 
 	return self
@@ -22,7 +18,6 @@ end
 function Weapon:SetWeapon(weapon)
 	self.Weapon = weapon
 	self:_load()
-	self:PlayEquip()
 end
 
 function Weapon:_load()
