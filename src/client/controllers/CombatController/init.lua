@@ -116,6 +116,10 @@ function CombatController:_buffer_charge(press_id, charge)
 			return
 		end
 
+		-- Once the hold threshold is crossed, this press has become a
+		-- charge intent. Releasing it must never fall back to Light Attack,
+		-- even if the charge is still waiting for cooldown.
+		self.PrimaryPressAttackPending = false
 		self.BufferedAttack = "Charge"
 		self:_resolve_buffered_attack()
 	end)
