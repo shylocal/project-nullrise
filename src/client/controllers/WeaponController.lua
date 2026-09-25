@@ -53,7 +53,5 @@ function WeaponController:Equip(weapon)
 	return true
 end
 
-function WeaponController:Destroy()
-end
 
 return WeaponController
