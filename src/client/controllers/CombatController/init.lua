@@ -263,6 +263,7 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 end
 
 function CombatController:_resolve_buffered_attack()
+	self.BufferedAttack = false
 
 	local weapon = self.WeaponController.Equipped
 	local charge = weapon and weapon.Charge
