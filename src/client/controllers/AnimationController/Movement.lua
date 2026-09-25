@@ -97,8 +97,5 @@ function Movement:Clear()
 	self.SprintTrack = nil
 end
 
-function Movement:Destroy()
-	self:Clear()
-end
 
 return Movement
