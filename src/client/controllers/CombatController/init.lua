@@ -12,6 +12,8 @@ local CombatRemote = ReplicatedStorage.remotes.Combat
 local CombatController = {}
 CombatController.__index = CombatController
 
+local ATTACK_BUFFER_WINDOW = 0.1
+
 function CombatController.new(
 	weapon_controller,
 	animation_controller,
@@ -32,11 +34,15 @@ function CombatController.new(
 		CurrentTrack = nil,
 		ChargeReady = false,
 
+		BufferedAttack = false,
+		BufferedAt = 0,
+
 		Attacking = false,
 		Charging = false,
 		PrimaryHeld = false,
-		BufferedAttack = false,
+		PrimaryBeganAt = 0,
 		PrimaryToken = 0,
+		BufferedToken = 0,
 
 		Hit = Signal.new(),
 	}, CombatController)
@@ -69,11 +75,14 @@ end
 
 function CombatController:_primary_began()
 	self.PrimaryHeld = true
+	self.PrimaryBeganAt = os.clock()
 	self.PrimaryToken += 1
 
 	if self.Attacking then
-		if not self.Charging then
+		if not self.Charging and self:_can_buffer_attack() then
 			self.BufferedAttack = true
+			self.BufferedAt = self.PrimaryBeganAt
+			self.BufferedToken = self.PrimaryToken
 		end
 
 		return
@@ -261,12 +270,45 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 
 	if self.BufferedAttack then
 		self.BufferedAttack = false
-		task.defer(function()
-			if not self.Attacking then
-				self:Attack()
+
+		local token = self.BufferedToken
+		local buffered_at = self.BufferedAt
+		local weapon = self.WeaponController.Equipped
+		local charge = weapon and weapon.Charge
+
+		if self.PrimaryHeld and charge then
+			local hold_time = charge.HoldTime or 0.15
+			local remaining = hold_time - (os.clock() - buffered_at)
+
+			if remaining <= 0 then
+				self:Charge()
+			else
+				task.delay(remaining, function()
+					if self.PrimaryToken ~= token or not self.PrimaryHeld or self.Attacking then
+						return
+					end
+
+					self:Charge()
+				end)
 			end
-		end)
+		else
+			self:Attack()
+		end
 	end
+end
+
+function CombatController:_can_buffer_attack()
+	local track = self.CurrentTrack
+	if not track then
+		return false
+	end
+
+	local time_length = track.Length
+	if time_length <= 0 then
+		return false
+	end
+
+	return time_length - track.TimePosition <= ATTACK_BUFFER_WINDOW
 end
 
 function CombatController:_can_sprint_while_attacking(attack)
@@ -334,6 +376,7 @@ end
 
 function CombatController:Reset()
 	self.PrimaryHeld = false
+	self.PrimaryBeganAt = 0
 	self.PrimaryToken += 1
 
 	local attack_key = self.CurrentAttackKey
@@ -355,6 +398,9 @@ function CombatController:Reset()
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
 	self.ChargeReady = false
+	self.BufferedAttack = false
+	self.BufferedAt = 0
+	self.BufferedToken = 0
 	self.Attacking = false
 	self.Charging = false
 	self.BufferedAttack = false
