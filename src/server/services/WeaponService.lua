@@ -14,10 +14,11 @@ local WeaponAttachment = require(script.Parent.WeaponAttachment)
 local WeaponService = {}
 WeaponService.__index = WeaponService
 
-function WeaponService.new(player_service)
+function WeaponService.new(player_service, inventory_service)
 	local self = setmetatable({
 		Trove = Trove.new(),
 		PlayerService = player_service,
+		InventoryService = inventory_service,
 
 		Equipped = {},
 		CharacterTroves = {},
@@ -39,7 +40,16 @@ function WeaponService:_start()
 		function(player, action, weapon_id)
 			if action == "Equip" then
 				self:Equip(player, weapon_id)
+			elseif action == "Select" then
+				self.InventoryService:SelectSlot(player, weapon_id)
 			end
+		end
+	)
+
+	self.Trove:Connect(
+		self.InventoryService.Changed,
+		function(player, weapon_id)
+			self:Equip(player, weapon_id)
 		end
 	)
 
