@@ -195,7 +195,7 @@ function CombatController:Attack()
 
 	self.NextAttack = attack_index == #weapon.Attacks and 1 or attack_index + 1
 
-	self:_begin_attack(attack_index, attack, track, "Attack")
+	self:_begin_attack(attack_index, attack, track)
 end
 
 function CombatController:Charge()
@@ -219,10 +219,10 @@ function CombatController:Charge()
 		return
 	end
 
-	self:_begin_attack("Charge", charge, track, "Charge")
+	self:_begin_attack("Charge", charge, track)
 end
 
-function CombatController:_begin_attack(attack_key, attack, track, remote_action)
+function CombatController:_begin_attack(attack_key, attack, track)
 	self.Attacking = true
 	self.Charging = attack_key == "Charge"
 	self.BufferedAttack = nil
@@ -260,7 +260,7 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 		end
 	)
 
-	CombatRemote:FireServer(remote_action, attack_key)
+	CombatRemote:FireServer(attack_key, attack_key)
 
 	self.AnimationController.Combat:Play(
 		track,
