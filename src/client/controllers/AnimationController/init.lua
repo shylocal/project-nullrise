@@ -88,6 +88,10 @@ function AnimationController:_set_animator(animator)
 
 	self.Animator = animator
 	self.AnimatorChanged:Fire(animator)
+
+	if self.Weapon.Weapon then
+		self.Weapon:PlayEquip()
+	end
 end
 
 function AnimationController:Load(definition)
@@ -192,6 +196,10 @@ function AnimationController:SetWeapon(weapon)
 	self.Weapon:SetWeapon(weapon)
 	self.Movement:SetWeapon(weapon)
 	self.Combat:SetWeapon(weapon)
+
+	if self.Animator then
+		self.Weapon:PlayEquip()
+	end
 end
 
 function AnimationController:SetSprinting(sprinting)
