@@ -50,6 +50,7 @@ Fists.Attacks = {
 
 		Hitbox = "RightFist",
 		Damage = 10,
+		AttackDuration = 0.1,
 		Range = 8,
 	},
 
@@ -62,6 +63,7 @@ Fists.Attacks = {
 
 		Hitbox = "LeftFist",
 		Damage = 10,
+		AttackDuration = 0.1,
 		Range = 8,
 	},
 }
