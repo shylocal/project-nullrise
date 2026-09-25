@@ -179,8 +179,8 @@ function CombatController:Attack()
 		return
 	end
 
-	local attack_duration = attack.AttackDuration
-	if typeof(attack_duration) ~= "number" or attack_duration <= 0 then
+	local cooldown = attack.Cooldown or attack.AttackDuration
+	if typeof(cooldown) ~= "number" or not math.isfinite(cooldown) or cooldown <= 0 then
 		return
 	end
 
@@ -210,8 +210,8 @@ function CombatController:Charge()
 		return
 	end
 
-	local attack_duration = charge.AttackDuration
-	if typeof(attack_duration) ~= "number" or attack_duration <= 0 then
+	local cooldown = charge.Cooldown or charge.AttackDuration
+	if typeof(cooldown) ~= "number" or not math.isfinite(cooldown) or cooldown <= 0 then
 		return
 	end
 
@@ -276,14 +276,15 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 		attack.Animation.TransitionTime or 0
 	)
 
-	self.AttackReadyAt = os.clock() + attack.AttackDuration
+	local cooldown = attack.Cooldown or attack.AttackDuration
+	self.AttackReadyAt = os.clock() + cooldown
 
 	task.spawn(function()
 		track.Ended:Wait()
 		self:_finish_attack(attack_key, attack_trove)
 	end)
 
-	task.delay(attack.AttackDuration, function()
+	task.delay(cooldown, function()
 		if self.AttackToken ~= attack_token then
 			return
 		end
