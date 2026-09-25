@@ -72,6 +72,8 @@ function CombatController:_start(input_controller)
 end
 
 function CombatController:_primary_began()
+	local was_charging = self.Charging
+
 	self.PrimaryHeld = true
 	self.PrimaryToken += 1
 
@@ -79,6 +81,13 @@ function CombatController:_primary_began()
 	local weapon = self.WeaponController.Equipped
 
 	if self.Attacking then
+		-- A released charge is still animating until its track ends, but it
+		-- must not block the next attack once its cooldown has elapsed.
+		if was_charging and self:_can_begin_attack() then
+			self:Attack()
+			return
+		end
+
 		local charge = weapon and weapon.Charge
 		if not charge then
 			return
