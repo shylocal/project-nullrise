@@ -71,6 +71,9 @@ end
 
 function CombatController:_primary_began()
 	self.PrimaryHeld = true
+	self.PrimaryToken += 1
+
+	local token = self.PrimaryToken
 	local weapon = self.WeaponController.Equipped
 
 	if self.Attacking then
@@ -119,6 +122,7 @@ end
 
 function CombatController:_primary_ended()
 	self.PrimaryHeld = false
+	self.PrimaryToken += 1
 
 	if self.Charging then
 		local track = self.CurrentTrack
