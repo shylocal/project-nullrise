@@ -14,7 +14,17 @@ function WeaponController.new(character)
 end
 
 function WeaponController:GetWielded(wield_name)
-	return self.Character:FindFirstChild(wield_name, true)
+	local weapon = self.Equipped
+	if not weapon then
+		return nil
+	end
+
+	local model = self.Character:FindFirstChild(weapon.Model)
+	if not model then
+		return nil
+	end
+
+	return model:FindFirstChild(wield_name, true)
 end
 
 function WeaponController:EquipById(weapon_id)

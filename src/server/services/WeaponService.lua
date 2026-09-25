@@ -198,7 +198,6 @@ function WeaponService:Equip(player, weapon_id)
 
 	local current = self.Equipped[player]
 	if current == weapon then
-		WeaponRemote:FireClient(player, "Equipped", weapon_id)
 		return true
 	end
 
