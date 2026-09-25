@@ -1,6 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local WeaponsFolder = ReplicatedStorage.shared.weapons
+local FISTS_ID = "Fists"
 
 local WeaponController = {}
 WeaponController.__index = WeaponController
@@ -17,6 +18,8 @@ function WeaponController:GetWielded(wield_name)
 end
 
 function WeaponController:EquipById(weapon_id)
+	weapon_id = weapon_id or FISTS_ID
+
 	local weapon_module = WeaponsFolder:FindFirstChild(weapon_id)
 	if not weapon_module or not weapon_module:IsA("ModuleScript") then
 		return false
