@@ -165,12 +165,15 @@ function CombatService:_get_attack_timing(attack, is_charge)
 
 		local max_hold_time = attack.MaxHoldTime or 2
 		local active_time = attack.ActiveTime or attack.AttackDuration
+		local cooldown = attack.Cooldown or attack.AttackDuration
 
 		if not is_valid_duration(ready_time)
 			or not is_valid_duration(max_hold_time)
 			or not is_valid_duration(active_time)
+			or not is_valid_duration(cooldown)
 			or max_hold_time <= 0
-			or active_time <= 0 then
+			or active_time <= 0
+			or cooldown <= 0 then
 			return nil
 		end
 
@@ -178,7 +181,7 @@ function CombatService:_get_attack_timing(attack, is_charge)
 			ReadyTime = ready_time,
 			ActiveTime = active_time,
 			Lifetime = max_hold_time + active_time,
-			Cooldown = attack.Cooldown or attack.AttackDuration,
+			Cooldown = cooldown,
 		}
 	end
 
@@ -380,6 +383,11 @@ function CombatService:_hit(player, attack_key, hit_character, segment_instance,
 		return
 	end
 
+	local damage = active.Attack.Damage
+	if typeof(damage) ~= "number" or not math.isfinite(damage) or damage < 0 then
+		return
+	end
+
 	local hit_humanoid = CombatValidation.ValidateHit(
 		self.WeaponService,
 		player,
@@ -394,7 +402,7 @@ function CombatService:_hit(player, attack_key, hit_character, segment_instance,
 	end
 
 	active.HitTargets[hit_character] = true
-	hit_humanoid:TakeDamage(active.Attack.Damage or 0)
+	hit_humanoid:TakeDamage(damage)
 end
 
 function CombatService:_hit_stop(player, attack_key)
