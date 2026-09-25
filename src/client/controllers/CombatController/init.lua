@@ -76,6 +76,7 @@ end
 function CombatController:_primary_began()
 	local was_charging = self.Charging
 	local was_charge_released = self.ChargeReleased
+	local was_charge_attack = self.CurrentAttackKey == "Charge"
 
 	self.PrimaryHeld = true
 	self.PrimaryToken += 1
@@ -89,7 +90,7 @@ function CombatController:_primary_began()
 		if was_charging and not was_charge_released then
 			-- Holding during an active charge buffers the next charge rather than
 			-- converting the held input into a regular attack.
-		elseif was_charging and was_charge_released and self:_can_begin_attack() then
+		elseif was_charge_attack and was_charge_released and self:_can_begin_attack() then
 			self:Attack()
 			self.PrimaryPressConsumed = true
 			return
@@ -156,7 +157,9 @@ function CombatController:_primary_ended()
 
 			if charge then
 				self.ChargeReady = false
+				self.Charging = false
 				self.ChargeReleased = true
+				self.PrimaryPressConsumed = true
 				CombatRemote:FireServer("HitStart", "Charge")
 				self:_start_hitbox("Charge", charge)
 			end
