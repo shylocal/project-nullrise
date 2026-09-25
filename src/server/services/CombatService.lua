@@ -7,7 +7,6 @@ local CombatValidation = require(script.Parent.CombatValidation)
 local CombatService = {}
 CombatService.__index = CombatService
 
-local ATTACK_REQUEST_INTERVAL = 0.1
 local ATTACK_TIMEOUT = 2
 
 function CombatService.new(player_service, weapon_service, remote)
@@ -117,11 +116,17 @@ function CombatService:_get_attack_context(player)
 	return character, weapon
 end
 
-function CombatService:_can_begin_attack(player)
+function CombatService:_can_begin_attack(player, attack)
+	local duration = attack and attack.AttackDuration
+
+	if typeof(duration) ~= "number" or duration <= 0 then
+		return nil
+	end
+
 	local now = os.clock()
 	local last_attack = self.LastAttackAt[player]
 
-	if last_attack and now - last_attack < ATTACK_REQUEST_INTERVAL then
+	if last_attack and now - last_attack < duration then
 		return nil
 	end
 
@@ -166,7 +171,7 @@ function CombatService:_attack(player, attack_index)
 		return
 	end
 
-	local now = self:_can_begin_attack(player)
+	local now = self:_can_begin_attack(player, attack)
 	if not now then
 		return
 	end
@@ -208,7 +213,7 @@ function CombatService:_charge(player)
 		return
 	end
 
-	local now = self:_can_begin_attack(player)
+	local now = self:_can_begin_attack(player, charge)
 	if not now then
 		return
 	end
