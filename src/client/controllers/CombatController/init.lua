@@ -128,10 +128,11 @@ function CombatController:_primary_began()
 	end)
 end
 function CombatController:_primary_ended()
-	self.PrimaryHeld = false
-	self.PrimaryToken += 1
+	local release_token = self.PrimaryToken
 
-	if self.Charging and self.ChargeReady and self.PrimaryToken == self.ChargeToken then
+	self.PrimaryHeld = false
+
+	if self.Charging and self.ChargeReady and release_token == self.ChargeToken then
 		local track = self.CurrentTrack
 		local weapon = self.WeaponController.Equipped
 		local charge = weapon and weapon.Charge
@@ -146,8 +147,11 @@ function CombatController:_primary_ended()
 			self.AnimationController:Resume(track)
 		end
 
+		self.PrimaryToken += 1
 		return
 	end
+
+	self.PrimaryToken += 1
 
 	if self.BufferedAttack == "Attack" then
 		self.BufferToken += 1
