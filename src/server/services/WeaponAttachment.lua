@@ -10,14 +10,6 @@ local function get_root(instance)
 	return instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
 end
 
-local function get_pivot(instance)
-	if instance:IsA("BasePart") then
-		return instance.CFrame
-	end
-
-	return instance:GetPivot()
-end
-
 local function prepare(instance)
 	if instance:IsA("BasePart") then
 		instance.Anchored = false
@@ -44,13 +36,6 @@ local function prepare(instance)
 		descendant.Anchored = false
 		descendant.CanCollide = false
 		descendant.Massless = true
-
-		if descendant ~= root then
-			local weld = Instance.new("WeldConstraint")
-			weld.Part0 = root
-			weld.Part1 = descendant
-			weld.Parent = descendant
-		end
 	end
 
 	return instance
@@ -90,13 +75,10 @@ function WeaponAttachment.Attach(source, wield, character)
 			continue
 		end
 
-		local offset = root.CFrame:ToObjectSpace(get_pivot(wielded))
-		root.CFrame = target.CFrame * offset:Inverse()
-
 		local motor6d = Instance.new("Motor6D")
 		motor6d.Part0 = target
-		motor6d.Part1 = root
-		motor6d.Parent = root
+		motor6d.Part1 = wielded
+		motor6d.Parent = wielded
 	end
 
 	tag_hitpoints(clone)
