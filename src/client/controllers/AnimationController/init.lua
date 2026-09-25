@@ -196,8 +196,8 @@ end
 function AnimationController:SetWeapon(weapon)
 	self:_clear_tracks()
 
-	self.Weapon:SetWeapon(weapon)
 	self.Movement:SetWeapon(weapon)
+	self.Weapon:SetWeapon(weapon)
 	self.Combat:SetWeapon(weapon)
 end
 
