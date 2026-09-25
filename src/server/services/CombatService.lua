@@ -235,7 +235,6 @@ function CombatService:_charge(player)
 		"Charge",
 		charge,
 		wielded,
-		charge.MaxHoldTime or CHARGE_TIMEOUT,
 		character
 	)
 end
