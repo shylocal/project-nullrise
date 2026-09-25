@@ -35,7 +35,6 @@ function CharacterController.new(character, input_controller, weapon_id)
 	}, CharacterController)
 
 	trove:AttachToInstance(self.Character)
-	trove:Add(weapon_controller)
 	trove:Add(animation_controller)
 	trove:Add(movement_controller)
 	trove:Add(combat_controller)
