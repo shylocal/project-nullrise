@@ -7,6 +7,7 @@ local Signal = require(Packages.Signal)
 local WeaponsFolder = ReplicatedStorage.shared.weapons
 local UITemplates = ReplicatedStorage.ui
 local WeaponRemote = ReplicatedStorage.remotes.Weapon
+local InventoryRemote = ReplicatedStorage.remotes.Inventory
 
 local WeaponMenu = {}
 WeaponMenu.__index = WeaponMenu
@@ -58,7 +59,7 @@ function WeaponMenu:_start()
 		self.Trove:Connect(
 			descendant.Activated,
 			function()
-				WeaponRemote:FireServer("Equip", weapon_id)
+				InventoryRemote:FireServer("SelectItem", weapon_id)
 			end
 		)
 	end
