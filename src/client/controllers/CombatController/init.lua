@@ -270,7 +270,6 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 		attack.Animation.TransitionTime or 0
 	)
 
-
 	task.spawn(function()
 		track.Ended:Wait()
 		self:_finish_attack(attack_key, attack_trove)
@@ -296,7 +295,9 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	self.MovementController:SetSprintBlocked(false)
 
 	if self.BufferedAttack then
-		self:_resolve_buffered_attack()
+		task.defer(function()
+			self:_resolve_buffered_attack()
+		end)
 	end
 end
 
