@@ -30,7 +30,6 @@ function CombatController.new(
 		NextAttack = 1,
 		CurrentAttackKey = nil,
 		CurrentTrack = nil,
-		ChargeReady = false,
 		BufferedAttack = nil,
 		BufferToken = 0,
 
@@ -101,19 +100,13 @@ function CombatController:_primary_began()
 	end)
 end
 function CombatController:_primary_ended()
+	local was_attacking = self.Attacking
+
 	self.PrimaryHeld = false
+	self.PrimaryToken += 1
 
-	if self.Charging and self.ChargeReady then
+	if self.Charging then
 		local track = self.CurrentTrack
-		local weapon = self.WeaponController.Equipped
-		local charge = weapon and weapon.Charge
-
-		if charge then
-			self.ChargeReady = false
-			self:_start_hitbox("Charge", charge)
-			CombatRemote:FireServer("HitStart", "Charge")
-		end
-
 		if track then
 			self.AnimationController:Resume(track)
 		end
@@ -121,18 +114,7 @@ function CombatController:_primary_ended()
 		return
 	end
 
-	self.PrimaryToken += 1
-
-	if self.BufferedAttack == "Attack" then
-		self.BufferToken += 1
-	end
-
-	if self.Attacking then
-		return
-	end
-
-	if self.BufferedAttack then
-		self:_resolve_buffered_attack()
+	if was_attacking or self.Attacking then
 		return
 	end
 
@@ -201,7 +183,6 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 	self.BufferedAttack = nil
 	self.CurrentAttackKey = attack_key
 	self.CurrentTrack = track
-	self.ChargeReady = false
 
 	self.MovementController:SetSprintBlocked(
 		not self:_can_sprint_while_attacking(attack)
@@ -215,10 +196,8 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 		track:GetMarkerReachedSignal("HitStart"),
 		function()
 			if attack_key == "Charge" and self.PrimaryHeld then
-				self.ChargeReady = true
 				self.AnimationController.Combat:Pause(track)
 				self:_schedule_buffered_charge()
-				return
 			end
 
 			self:_start_hitbox(attack_key, attack)
@@ -263,7 +242,6 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	self.Charging = false
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
-	self.ChargeReady = false
 	self.MovementController:SetSprintBlocked(false)
 
 	if self.BufferedAttack == "Attack" then
@@ -443,7 +421,6 @@ function CombatController:Reset()
 	self.NextAttack = 1
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
-	self.ChargeReady = false
 	self.BufferedAttack = nil
 	self.BufferToken += 1
 	self.Attacking = false
