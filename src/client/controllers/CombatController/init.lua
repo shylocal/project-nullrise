@@ -39,10 +39,8 @@ function CombatController.new(
 
 		Attacking = false,
 		Charging = false,
-		ChargeReleased = false,
-		PrimaryPressConsumed = false,
 		PrimaryHeld = false,
-		PrimaryToken = 0,
+		PrimaryPressId = 0,
 
 		Hit = Signal.new(),
 	}, CombatController)
@@ -74,44 +72,19 @@ function CombatController:_start(input_controller)
 end
 
 function CombatController:_primary_began()
-	local was_charging = self.Charging
-	local was_charge_released = self.ChargeReleased
-	local was_charge_attack = self.CurrentAttackKey == "Charge"
-
 	self.PrimaryHeld = true
-	self.PrimaryToken += 1
+	self.PrimaryPressId += 1
 
-	local token = self.PrimaryToken
+	local press_id = self.PrimaryPressId
 	local weapon = self.WeaponController.Equipped
 
 	if self.Attacking then
-		-- A released charge is still animating until its track ends, but it
-		-- must not block the next attack once its cooldown has elapsed.
-		if was_charging and not was_charge_released then
-			-- Holding during an active charge buffers the next charge rather than
-			-- converting the held input into a regular attack.
-		elseif was_charge_attack and was_charge_released and self:_can_begin_attack() then
-			self:Attack()
-			self.PrimaryPressConsumed = true
-			return
-		end
-
 		local charge = weapon and weapon.Charge
 		if not charge then
 			return
 		end
 
-		local hold_time = charge.HoldTime or 0.15
-
-		task.delay(hold_time, function()
-			if self.PrimaryToken ~= token or not self.PrimaryHeld then
-				return
-			end
-
-			self.BufferedAttack = "Charge"
-			self:_resolve_buffered_attack()
-		end)
-
+		self:_buffer_charge(press_id, charge)
 		return
 	end
 
@@ -125,10 +98,14 @@ function CombatController:_primary_began()
 		return
 	end
 
+	self:_buffer_charge(press_id, charge)
+end
+
+function CombatController:_buffer_charge(press_id, charge)
 	local hold_time = charge.HoldTime or 0.15
 
 	task.delay(hold_time, function()
-		if self.PrimaryToken ~= token or not self.PrimaryHeld or self.Attacking then
+		if self.PrimaryPressId ~= press_id or not self.PrimaryHeld then
 			return
 		end
 
@@ -139,44 +116,32 @@ end
 
 function CombatController:_primary_ended()
 	self.PrimaryHeld = false
-	self.PrimaryToken += 1
-
-	local press_consumed = self.PrimaryPressConsumed
-	self.PrimaryPressConsumed = false
+	self.PrimaryPressId += 1
 
 	if self.BufferedAttack == "Charge" then
 		self.BufferedAttack = nil
 	end
 
-	if self.Charging then
-		local track = self.CurrentTrack
-
-		if self.ChargeReady then
-			local weapon = self.WeaponController.Equipped
-			local charge = weapon and weapon.Charge
-
-			if charge then
-				self.ChargeReady = false
-				self.Charging = false
-				self.ChargeReleased = true
-				self.PrimaryPressConsumed = true
-				CombatRemote:FireServer("HitStart", "Charge")
-				self:_start_hitbox("Charge", charge)
-			end
-		end
-
-		if track then
-			self.AnimationController:Resume(track)
-		end
-
+	if not self.Charging then
 		return
 	end
 
-	if press_consumed then
-		return
+	local track = self.CurrentTrack
+	if self.ChargeReady then
+		local weapon = self.WeaponController.Equipped
+		local charge = weapon and weapon.Charge
+
+		if charge then
+			self.ChargeReady = false
+			self.Charging = false
+			CombatRemote:FireServer("HitStart", "Charge")
+			self:_start_hitbox("Charge", charge)
+		end
 	end
 
-	self:Attack()
+	if track then
+		self.AnimationController:Resume(track)
+	end
 end
 
 function CombatController:Attack()
@@ -258,7 +223,6 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 
 	self.Attacking = true
 	self.Charging = attack_key == "Charge"
-	self.ChargeReleased = false
 	self.ChargeReady = false
 	self.CurrentAttackKey = attack_key
 	self.CurrentTrack = track
@@ -332,7 +296,6 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 
 	self.Attacking = false
 	self.Charging = false
-	self.ChargeReleased = false
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
 	self.ChargeReady = false
@@ -449,7 +412,7 @@ end
 
 function CombatController:Reset()
 	self.PrimaryHeld = false
-	self.PrimaryToken += 1
+	self.PrimaryPressId += 1
 	self.AttackToken += 1
 	self.BufferedAttack = nil
 
@@ -475,8 +438,6 @@ function CombatController:Reset()
 	self.ChargeReady = false
 	self.Attacking = false
 	self.Charging = false
-	self.ChargeReleased = false
-	self.PrimaryPressConsumed = false
 end
 
 function CombatController:Destroy()
