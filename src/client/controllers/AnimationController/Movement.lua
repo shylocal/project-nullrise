@@ -48,6 +48,8 @@ function Movement:_load()
 	self.SprintTrack = self.Controller:Load(
 		weapon.Animations and weapon.Animations.Sprint
 	)
+
+	self:Update()
 end
 
 function Movement:Update()
