@@ -143,6 +143,7 @@ function WeaponService:_attach_weapon(player, character, weapon, character_trove
 	end
 
 	character_trove:Add(clone)
+	self.Wielded[player].Model = clone
 
 	for wield_name in pairs(weapon.Wield or {}) do
 		local wielded = clone:FindFirstChild(wield_name, true)
@@ -159,7 +160,17 @@ end
 
 function WeaponService:GetWielded(player, wield_name)
 	local wielded = self.Wielded[player]
-	return wielded and wielded[wield_name]
+	if not wielded then
+		return nil
+	end
+
+	local part = wielded[wield_name]
+	if part then
+		return part
+	end
+
+	local model = wielded.Model
+	return model and model:FindFirstChild(wield_name, true)
 end
 
 function WeaponService:Equip(player, weapon_id)
