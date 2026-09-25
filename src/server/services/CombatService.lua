@@ -8,6 +8,7 @@ local CombatService = {}
 CombatService.__index = CombatService
 
 local ATTACK_TIMEOUT = 2
+local CHARGE_TIMEOUT = 10
 local TIMING_TOLERANCE = 0.05
 
 local REMOTE_MIN_INTERVAL = {
@@ -154,57 +155,29 @@ function CombatService:_get_attack_context(player)
 end
 
 function CombatService:_get_attack_timing(attack, is_charge)
-	if is_charge then
-		local ready_time = attack.ChargeReadyTime
-		if ready_time == nil then
-			ready_time = attack.HoldTime
-		end
-		if ready_time == nil then
-			ready_time = 0.15
-		end
+	local cooldown = attack.Cooldown
+	if not is_valid_duration(cooldown) or cooldown <= 0 then
+		return nil
+	end
 
-		local max_hold_time = attack.MaxHoldTime or 2
-		local active_time = attack.ActiveTime or attack.AttackDuration
-		local cooldown = attack.Cooldown or attack.AttackDuration
-
-		if not is_valid_duration(ready_time)
-			or not is_valid_duration(max_hold_time)
-			or not is_valid_duration(active_time)
-			or not is_valid_duration(cooldown)
-			or max_hold_time <= 0
-			or active_time <= 0
-			or cooldown <= 0 then
-			return nil
-		end
-
+	if not is_charge then
 		return {
-			ReadyTime = ready_time,
-			ActiveTime = active_time,
-			Lifetime = max_hold_time + active_time,
 			Cooldown = cooldown,
 		}
 	end
 
-	local startup = attack.Startup or 0
-	local active_time = attack.ActiveTime or attack.AttackDuration
-	local recovery = attack.Recovery or 0
-	local cooldown = attack.Cooldown or attack.AttackDuration
+	local ready_time = attack.HoldTime
+	if ready_time == nil then
+		ready_time = 0.15
+	end
 
-	if not is_valid_duration(startup)
-		or not is_valid_duration(active_time)
-		or not is_valid_duration(recovery)
-		or not is_valid_duration(cooldown)
-		or active_time <= 0
-		or cooldown <= 0 then
+	if not is_valid_duration(ready_time) then
 		return nil
 	end
 
 	return {
-		Startup = startup,
-		ActiveTime = active_time,
-		Recovery = recovery,
-		Lifetime = startup + active_time + recovery,
 		Cooldown = cooldown,
+		ReadyTime = ready_time,
 	}
 end
 
@@ -221,7 +194,7 @@ end
 
 function CombatService:_create_active(player, attack_key, attack, timing, wielded, character)
 	local started_at = os.clock()
-	local lifetime = attack_key == "Charge" and timing.Lifetime or math.max(timing.Lifetime, timing.Cooldown)
+	local lifetime = attack_key == "Charge" and CHARGE_TIMEOUT or timing.Cooldown
 	local expires_at = started_at + lifetime + ATTACK_TIMEOUT
 
 	local active = {
@@ -231,7 +204,6 @@ function CombatService:_create_active(player, attack_key, attack, timing, wielde
 		Timing = timing,
 		Wielded = wielded,
 		HitActive = false,
-		HitEndsAt = nil,
 		HitTargets = {},
 		StartedAt = started_at,
 		ExpiresAt = expires_at,
@@ -341,57 +313,27 @@ function CombatService:_hit_start(player, attack_key)
 	end
 
 	local now = os.clock()
-	local hit_start_at
-	local hit_end_at
-
 	if attack_key == "Charge" then
-		hit_start_at = active.StartedAt + active.Timing.ReadyTime
-	else
-		hit_start_at = active.StartedAt + active.Timing.Startup
-	end
-
-	-- The animation marker tells the client when to begin its local hitbox,
-	-- but it must not define the server's hit duration. Some attack animations
-	-- have markers later than the nominal startup time, so reject only markers
-	-- that arrive before the authoritative startup or after the attack lifetime.
-	if now + TIMING_TOLERANCE < hit_start_at
-		or now > active.ExpiresAt - ATTACK_TIMEOUT + TIMING_TOLERANCE then
-		return
-	end
-
-	-- Once the authoritative startup has elapsed, the server grants a fresh,
-	-- fixed active window beginning at the validated marker time. This keeps
-	-- the server in control of duration while allowing animation timing to
-	-- vary between attacks.
-	hit_end_at = math.min(
-		now + active.Timing.ActiveTime,
-		active.ExpiresAt - ATTACK_TIMEOUT
-	)
-
-	if hit_end_at <= now then
-		return
-	end
-
-	active.HitActive = true
-	active.HitEndsAt = hit_end_at
-
-	task.delay(math.max(0, hit_end_at - now), function()
-		if self.ActiveAttacks[player] == active and active.HitActive then
-			active.HitActive = false
-			active.HitEndsAt = nil
+		local ready_at = active.StartedAt + active.Timing.ReadyTime
+		if now + TIMING_TOLERANCE < ready_at then
+			return
 		end
-	end)
+	elseif now + TIMING_TOLERANCE < active.StartedAt then
+		return
+	end
+
+	if now > active.ExpiresAt - ATTACK_TIMEOUT + TIMING_TOLERANCE then
+		return
+	end
+
+	-- Animation markers define the hitbox window; Cooldown remains the only
+	-- weapon timing that controls when another attack may be initiated.
+	active.HitActive = true
 end
 
 function CombatService:_hit(player, attack_key, hit_character, segment_instance, hit_position)
 	local active = self.ActiveAttacks[player]
 	if not active or active.AttackIndex ~= attack_key or not active.HitActive then
-		return
-	end
-
-	if active.HitEndsAt and os.clock() > active.HitEndsAt + TIMING_TOLERANCE then
-		active.HitActive = false
-		active.HitEndsAt = nil
 		return
 	end
 
