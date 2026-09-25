@@ -47,7 +47,7 @@ Katana.Attacks = {
 			Looped = false,
 		},
 
-		Hitbox = "Handle",
+		Hitbox = "Mesh",
 		Damage = 15,
 		Range = 10,
 	},
@@ -59,7 +59,7 @@ Katana.Attacks = {
 			Looped = false,
 		},
 
-		Hitbox = "Handle",
+		Hitbox = "Mesh",
 		Damage = 15,
 		Range = 10,
 	},
@@ -67,7 +67,7 @@ Katana.Attacks = {
 
 Katana.Charge = {
 	Animation = Katana.Animations.Charge,
-	Hitbox = "Handle",
+	Hitbox = "Mesh",
 	Damage = 30,
 	Range = 10,
 	HoldTime = 0.15,
