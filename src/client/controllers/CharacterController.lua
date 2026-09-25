@@ -14,8 +14,11 @@ CharacterController.__index = CharacterController
 function CharacterController.new(character, input_controller, weapon_id)
 	local trove = Trove.new()
 
+	local humanoid = character:WaitForChild("Humanoid")
+	local animator = humanoid:WaitForChild("Animator")
+
 	local weapon_controller = WeaponControllerModule.new(character)
-	local animation_controller = AnimationControllerModule.new(character)
+	local animation_controller = AnimationControllerModule.new(character, animator)
 	local movement_controller = MovementControllerModule.new(character, input_controller)
 	local combat_controller = CombatControllerModule.new(
 		weapon_controller,
@@ -46,10 +49,8 @@ function CharacterController.new(character, input_controller, weapon_id)
 		end
 	)
 
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		trove:Connect(
-			humanoid.Died,
+	trove:Connect(
+		humanoid.Died,
 			function()
 				combat_controller:Reset()
 			end
