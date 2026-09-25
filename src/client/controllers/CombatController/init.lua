@@ -75,37 +75,47 @@ end
 function CombatController:_primary_began()
 	self.PrimaryHeld = true
 	self.PrimaryPressId += 1
-	self.PrimaryPressAttackPending = true
 
 	local press_id = self.PrimaryPressId
 	local weapon = self.WeaponController.Equipped
-
 	if not weapon then
+		return
+	end
+
+	-- Every new press is classified once, from the attack state that existed
+	-- before the press. A press during an active charge is never converted into
+	-- a light attack; it can only continue/buffer another charge.
+	if self.Charging then
 		self.PrimaryPressAttackPending = false
 		return
 	end
 
-	-- A charge that has already been released is no longer a charging input.
-	-- Once its cooldown has elapsed, a new press may immediately begin the
-	-- next light attack even though the old charge animation is still playing.
-	if self.Attacking and not self.Charging and self.CurrentAttackKey == "Charge" then
+	-- A released charge is still allowed to finish its animation, but its
+	-- cooldown is the only thing that can prevent a new light attack.
+	if self.Attacking and self.CurrentAttackKey == "Charge" then
 		if self:_can_begin_attack() then
 			self.PrimaryPressAttackPending = false
 			self:Attack()
 			return
 		end
-	end
 
-	local charge = weapon.Charge
-	if not charge then
-		if self:_can_begin_attack() then
-			self.PrimaryPressAttackPending = false
-			self:Attack()
+		self.PrimaryPressAttackPending = true
+		local charge = weapon.Charge
+		if charge then
+			self:_buffer_charge(press_id, charge)
 		end
 		return
 	end
 
-	self:_buffer_charge(press_id, charge)
+	local charge = weapon.Charge
+	if charge then
+		self.PrimaryPressAttackPending = true
+		self:_buffer_charge(press_id, charge)
+		return
+	end
+
+	self.PrimaryPressAttackPending = false
+	self:Attack()
 end
 
 function CombatController:_buffer_charge(press_id, charge)
