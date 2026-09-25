@@ -7,8 +7,6 @@ local CombatValidation = require(script.Parent.CombatValidation)
 local CombatService = {}
 CombatService.__index = CombatService
 
-local ATTACK_REQUEST_INTERVAL = 0.1
-local ATTACK_TIMEOUT = 2
 
 function CombatService.new(player_service, weapon_service, remote)
 	local self = setmetatable({
@@ -19,7 +17,6 @@ function CombatService.new(player_service, weapon_service, remote)
 
 		ActiveAttacks = {},
 		NextAttack = {},
-		LastAttackAt = {},
 		PlayerTroves = {},
 	}, CombatService)
 
@@ -94,8 +91,18 @@ function CombatService:_watch_player(player)
 end
 
 function CombatService:_get_attack_context(player)
-	if self.ActiveAttacks[player] then
-		return nil
+	local active = self.ActiveAttacks[player]
+
+	if active then
+		local duration = active.Attack.AttackDuration
+
+		if typeof(duration) == "number"
+			and os.clock() - active.StartedAt >= duration
+		then
+			self:_clear_attack(player)
+		else
+			return nil
+		end
 	end
 
 	local session = self.PlayerService:Get(player)
@@ -117,17 +124,6 @@ function CombatService:_get_attack_context(player)
 	return character, weapon
 end
 
-function CombatService:_can_begin_attack(player)
-	local now = os.clock()
-	local last_attack = self.LastAttackAt[player]
-
-	if last_attack and now - last_attack < ATTACK_REQUEST_INTERVAL then
-		return nil
-	end
-
-	return now
-end
-
 function CombatService:_create_active(player, attack_key, attack, wielded, character)
 	local active = {
 		AttackIndex = attack_key,
@@ -136,12 +132,13 @@ function CombatService:_create_active(player, attack_key, attack, wielded, chara
 		Wielded = wielded,
 		HitActive = false,
 		HitTargets = {},
+		StartedAt = os.clock(),
 	}
 
 	self.ActiveAttacks[player] = active
 
-	if attack_key ~= "Charge" then
-		task.delay(ATTACK_TIMEOUT, function()
+	if attack.AttackDuration then
+		task.delay(attack.AttackDuration, function()
 			if self.ActiveAttacks[player] == active then
 				self:_clear_attack(player)
 			end
@@ -166,12 +163,12 @@ function CombatService:_attack(player, attack_index)
 		return
 	end
 
-	local now = self:_can_begin_attack(player)
-	if not now then
+	local attack_duration = attack.AttackDuration
+	if typeof(attack_duration) ~= "number" or attack_duration <= 0 then
 		return
 	end
 
-	if not self.LastAttackAt[player] then
+	if not self.NextAttack[player] then
 		self.NextAttack[player] = 1
 	end
 
@@ -185,7 +182,6 @@ function CombatService:_attack(player, attack_index)
 		return
 	end
 
-	self.LastAttackAt[player] = now
 	self.NextAttack[player] = attack_index == #weapon.Attacks and 1 or attack_index + 1
 
 	self:_create_active(
@@ -208,17 +204,10 @@ function CombatService:_charge(player)
 		return
 	end
 
-	local now = self:_can_begin_attack(player)
-	if not now then
-		return
-	end
-
 	local wielded = self.WeaponService:GetWielded(player, charge.Hitbox)
 	if not wielded or not wielded:IsDescendantOf(character) then
 		return
 	end
-
-	self.LastAttackAt[player] = now
 
 	self:_create_active(
 		player,
@@ -302,7 +291,6 @@ end
 function CombatService:_reset_player(player)
 	self:_clear_attack(player)
 	self.NextAttack[player] = 1
-	self.LastAttackAt[player] = nil
 end
 
 function CombatService:_player_removing(player)
@@ -323,7 +311,6 @@ function CombatService:Destroy()
 	table.clear(self.PlayerTroves)
 	table.clear(self.ActiveAttacks)
 	table.clear(self.NextAttack)
-	table.clear(self.LastAttackAt)
 
 	self.Trove:Destroy()
 end
