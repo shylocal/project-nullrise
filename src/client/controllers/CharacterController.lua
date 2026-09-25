@@ -13,6 +13,7 @@ CharacterController.__index = CharacterController
 
 function CharacterController.new(character, input_controller, weapon_id)
 	local trove = Trove.new()
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
 
 	local weapon_controller = WeaponControllerModule.new(character)
 	local animation_controller = AnimationControllerModule.new(character)
@@ -46,12 +47,14 @@ function CharacterController.new(character, input_controller, weapon_id)
 		end
 	)
 
-	trove:Connect(
-		humanoid.Died,
+	if humanoid then
+		trove:Connect(
+			humanoid.Died,
 		function()
 			combat_controller:Reset()
 		end
-	)
+		)
+	end
 
 	local equipped = weapon_controller:EquipById(weapon_id or "Fists")
 	if not equipped then
