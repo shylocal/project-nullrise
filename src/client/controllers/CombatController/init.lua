@@ -31,7 +31,6 @@ function CombatController.new(
 		CurrentAttackKey = nil,
 		CurrentTrack = nil,
 		ChargeReady = false,
-		ChargeToken = 0,
 		BufferedAttack = nil,
 		BufferToken = 0,
 
@@ -128,11 +127,9 @@ function CombatController:_primary_began()
 	end)
 end
 function CombatController:_primary_ended()
-	local release_token = self.PrimaryToken
-
 	self.PrimaryHeld = false
 
-	if self.Charging and self.ChargeReady and release_token == self.ChargeToken then
+	if self.Charging and self.ChargeReady then
 		local track = self.CurrentTrack
 		local weapon = self.WeaponController.Equipped
 		local charge = weapon and weapon.Charge
@@ -147,7 +144,6 @@ function CombatController:_primary_ended()
 			self.AnimationController:Resume(track)
 		end
 
-		self.PrimaryToken += 1
 		return
 	end
 
@@ -228,7 +224,6 @@ end
 function CombatController:_begin_attack(attack_key, attack, track, remote_action)
 	self.Attacking = true
 	self.Charging = attack_key == "Charge"
-	self.ChargeToken = attack_key == "Charge" and self.PrimaryToken or 0
 	self.BufferedAttack = nil
 	self.CurrentAttackKey = attack_key
 	self.CurrentTrack = track
@@ -245,9 +240,7 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 	attack_trove:Connect(
 		track:GetMarkerReachedSignal("HitStart"),
 		function()
-			if attack_key == "Charge"
-				and self.PrimaryHeld
-				and self.PrimaryToken == self.ChargeToken then
+			if attack_key == "Charge" and self.PrimaryHeld then
 				self.ChargeReady = true
 				self.AnimationController.Combat:Pause(track)
 				return
@@ -295,7 +288,6 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
 	self.ChargeReady = false
-	self.ChargeToken = 0
 	self.MovementController:SetSprintBlocked(false)
 
 	if self.BufferedAttack == "Attack" then
@@ -409,7 +401,6 @@ function CombatController:Reset()
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
 	self.ChargeReady = false
-	self.ChargeToken = 0
 	self.BufferedAttack = nil
 	self.BufferToken += 1
 	self.Attacking = false
