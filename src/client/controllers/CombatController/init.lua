@@ -36,6 +36,7 @@ function CombatController.new(
 		Attacking = false,
 		Charging = false,
 		PrimaryHeld = false,
+		PrimaryStartedDuringAttack = false,
 		PrimaryToken = 0,
 
 		Hit = Signal.new(),
@@ -70,6 +71,7 @@ end
 function CombatController:_primary_began()
 	self.PrimaryHeld = true
 	self.PrimaryToken += 1
+	self.PrimaryStartedDuringAttack = self.Attacking
 
 	if self.Attacking then
 		return
@@ -101,6 +103,11 @@ end
 function CombatController:_primary_ended()
 	self.PrimaryHeld = false
 	self.PrimaryToken += 1
+
+	if self.PrimaryStartedDuringAttack then
+		self.PrimaryStartedDuringAttack = false
+		return
+	end
 
 	if self.Charging then
 		local track = self.CurrentTrack
@@ -322,6 +329,7 @@ end
 function CombatController:Reset()
 	self.PrimaryHeld = false
 	self.PrimaryToken += 1
+	self.PrimaryStartedDuringAttack = false
 
 	local attack_key = self.CurrentAttackKey
 	if attack_key then
