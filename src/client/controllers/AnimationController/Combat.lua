@@ -2,13 +2,19 @@ local Combat = {}
 Combat.__index = Combat
 
 function Combat.new(animation_controller)
-	return setmetatable({
+	local self = setmetatable({
 		Controller = animation_controller,
 		Weapon = nil,
 
 		AttackTracks = {},
 		ChargeTrack = nil,
 	}, Combat)
+
+	animation_controller.AnimatorChanged:Connect(function()
+		self:_load()
+	end)
+
+	return self
 end
 
 function Combat:SetWeapon(weapon)
