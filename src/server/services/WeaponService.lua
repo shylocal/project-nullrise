@@ -83,8 +83,6 @@ function WeaponService:_player_added(player)
 		end
 	)
 
-	self:Equip(player, self.InventoryService:GetSelectedId(player))
-
 	player_trove:Connect(
 		session.CharacterRemoving,
 		function(character)
@@ -95,6 +93,8 @@ function WeaponService:_player_added(player)
 	if session.Character then
 		self:_character_added(player, session.Character)
 	end
+
+	self:Equip(player, self.InventoryService:GetSelectedId(player))
 end
 
 function WeaponService:_character_added(player, character)
