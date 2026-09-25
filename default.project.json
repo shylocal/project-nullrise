@@ -23,6 +23,10 @@
 
         "Weapon": {
           "$className": "RemoteEvent"
+        },
+
+        "Inventory": {
+          "$className": "RemoteEvent"
         }
       }
     },
