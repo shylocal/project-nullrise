@@ -7,7 +7,6 @@ local CombatValidation = require(script.Parent.CombatValidation)
 local CombatService = {}
 CombatService.__index = CombatService
 
-local ATTACK_REQUEST_INTERVAL = 0.1
 local ATTACK_TIMEOUT = 2
 
 function CombatService.new(player_service, weapon_service, remote)
@@ -19,7 +18,7 @@ function CombatService.new(player_service, weapon_service, remote)
 
 		ActiveAttacks = {},
 		NextAttack = {},
-		LastAttackAt = {},
+		NextAttackAt = {},
 		PlayerTroves = {},
 	}, CombatService)
 
@@ -94,10 +93,6 @@ function CombatService:_watch_player(player)
 end
 
 function CombatService:_get_attack_context(player)
-	if self.ActiveAttacks[player] then
-		return nil
-	end
-
 	local session = self.PlayerService:Get(player)
 	if not session or not session.Character then
 		return nil
@@ -118,10 +113,16 @@ function CombatService:_get_attack_context(player)
 end
 
 function CombatService:_can_begin_attack(player)
-	local now = os.clock()
-	local last_attack = self.LastAttackAt[player]
+	if self.ActiveAttacks[player]
+		and self.ActiveAttacks[player].AttackIndex == "Charge"
+	then
+		return nil
+	end
 
-	if last_attack and now - last_attack < ATTACK_REQUEST_INTERVAL then
+	local now = os.clock()
+	local next_attack_at = self.NextAttackAt[player]
+
+	if next_attack_at and now < next_attack_at then
 		return nil
 	end
 
@@ -166,12 +167,17 @@ function CombatService:_attack(player, attack_index)
 		return
 	end
 
+	local attack_duration = attack.AttackDuration
+	if typeof(attack_duration) ~= "number" or attack_duration <= 0 then
+		return
+	end
+
 	local now = self:_can_begin_attack(player)
 	if not now then
 		return
 	end
 
-	if not self.LastAttackAt[player] then
+	if not self.NextAttack[player] then
 		self.NextAttack[player] = 1
 	end
 
@@ -185,8 +191,10 @@ function CombatService:_attack(player, attack_index)
 		return
 	end
 
-	self.LastAttackAt[player] = now
+	self:_clear_attack(player)
+
 	self.NextAttack[player] = attack_index == #weapon.Attacks and 1 or attack_index + 1
+	self.NextAttackAt[player] = now + attack_duration
 
 	self:_create_active(
 		player,
@@ -218,7 +226,7 @@ function CombatService:_charge(player)
 		return
 	end
 
-	self.LastAttackAt[player] = now
+	self:_clear_attack(player)
 
 	self:_create_active(
 		player,
@@ -302,7 +310,7 @@ end
 function CombatService:_reset_player(player)
 	self:_clear_attack(player)
 	self.NextAttack[player] = 1
-	self.LastAttackAt[player] = nil
+	self.NextAttackAt[player] = nil
 end
 
 function CombatService:_player_removing(player)
@@ -323,7 +331,7 @@ function CombatService:Destroy()
 	table.clear(self.PlayerTroves)
 	table.clear(self.ActiveAttacks)
 	table.clear(self.NextAttack)
-	table.clear(self.LastAttackAt)
+	table.clear(self.NextAttackAt)
 
 	self.Trove:Destroy()
 end
