@@ -79,31 +79,16 @@ function CombatController:_primary_began()
 	local press_id = self.PrimaryPressId
 	local weapon = self.WeaponController.Equipped
 	if not weapon then
-		return
-	end
-
-	-- Every new press is classified once, from the attack state that existed
-	-- before the press. A press during an active charge is never converted into
-	-- a light attack; it can only continue/buffer another charge.
-	if self.Charging then
 		self.PrimaryPressAttackPending = false
 		return
 	end
 
-	-- A released charge is still allowed to finish its animation, but its
-	-- cooldown is the only thing that can prevent a new light attack.
-	if self.Attacking and self.CurrentAttackKey == "Charge" then
-		if self:_can_begin_attack() then
-			self.PrimaryPressAttackPending = false
-			self:Attack()
-			return
-		end
-
-		self.PrimaryPressAttackPending = true
-		local charge = weapon.Charge
-		if charge then
-			self:_buffer_charge(press_id, charge)
-		end
+	-- A new mouse press always starts a new input decision. It does not
+	-- immediately become a light attack just because the previous attack was
+	-- a released charge. Holding past HoldTime turns this press into charge;
+	-- releasing before then turns it into light attack.
+	if self.Charging then
+		self.PrimaryPressAttackPending = false
 		return
 	end
 
