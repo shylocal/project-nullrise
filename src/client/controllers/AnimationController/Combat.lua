@@ -10,10 +10,6 @@ function Combat.new(animation_controller)
 		ChargeTrack = nil,
 	}, Combat)
 
-	animation_controller.AnimatorChanged:Connect(function()
-		self:_load()
-	end)
-
 	return self
 end
 
