@@ -63,7 +63,12 @@ function CharacterController.new(character, input_controller, weapon_id)
 
 	animation_controller:SetWeapon(weapon_controller.Equipped)
 	animation_controller:SetSprinting(movement_controller:IsSprinting())
-	animation_controller:PlayEquip()
+
+	task.defer(function()
+		if self.Trove then
+			animation_controller:PlayEquip()
+		end
+	end)
 
 	return self
 end
