@@ -338,7 +338,7 @@ function CombatController:_queue_buffered_attack(token)
 		end
 
 		self.BufferedAttack = true
-		self.BufferedAt = os.clock()
+		self.BufferedAt = buffered_at
 		self.BufferedToken = token
 	end)
 end
