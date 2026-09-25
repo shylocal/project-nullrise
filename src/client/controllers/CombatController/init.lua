@@ -41,6 +41,7 @@ function CombatController.new(
 		Charging = false,
 		PrimaryHeld = false,
 		PrimaryPressId = 0,
+		PrimaryPressAttackPending = false,
 
 		Hit = Signal.new(),
 	}, CombatController)
@@ -74,6 +75,7 @@ end
 function CombatController:_primary_began()
 	self.PrimaryHeld = true
 	self.PrimaryPressId += 1
+	self.PrimaryPressAttackPending = not self.Attacking
 
 	local press_id = self.PrimaryPressId
 	local weapon = self.WeaponController.Equipped
@@ -123,6 +125,10 @@ function CombatController:_primary_ended()
 	end
 
 	if not self.Charging then
+		if self.PrimaryPressAttackPending then
+			self.PrimaryPressAttackPending = false
+			self:Attack()
+		end
 		return
 	end
 
@@ -413,6 +419,7 @@ end
 function CombatController:Reset()
 	self.PrimaryHeld = false
 	self.PrimaryPressId += 1
+	self.PrimaryPressAttackPending = false
 	self.AttackToken += 1
 	self.BufferedAttack = nil
 
