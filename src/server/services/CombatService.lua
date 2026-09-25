@@ -260,6 +260,16 @@ end
 
 function CombatService:_hit(player, attack_key, hit_character, segment_instance, hit_position)
 	local active = self.ActiveAttacks[player]
+
+	print(
+		"[CombatService] Hit",
+		player.Name,
+		"active =", active ~= nil,
+		"active_key =", active and active.AttackIndex,
+		"received_key =", attack_key,
+		"hit_active =", active and active.HitActive
+	)
+
 	if not active or active.AttackIndex ~= attack_key or not active.HitActive then
 		return
 	end
