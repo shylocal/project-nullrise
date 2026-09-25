@@ -346,13 +346,29 @@ function CombatService:_hit_start(player, attack_key)
 
 	if attack_key == "Charge" then
 		hit_start_at = active.StartedAt + active.Timing.ReadyTime
-		hit_end_at = now + active.Timing.ActiveTime
 	else
 		hit_start_at = active.StartedAt + active.Timing.Startup
-		hit_end_at = hit_start_at + active.Timing.ActiveTime
 	end
 
-	if now + TIMING_TOLERANCE < hit_start_at or now > hit_end_at + TIMING_TOLERANCE then
+	-- The animation marker tells the client when to begin its local hitbox,
+	-- but it must not define the server's hit duration. Some attack animations
+	-- have markers later than the nominal startup time, so reject only markers
+	-- that arrive before the authoritative startup or after the attack lifetime.
+	if now + TIMING_TOLERANCE < hit_start_at
+		or now > active.ExpiresAt - ATTACK_TIMEOUT + TIMING_TOLERANCE then
+		return
+	end
+
+	-- Once the authoritative startup has elapsed, the server grants a fresh,
+	-- fixed active window beginning at the validated marker time. This keeps
+	-- the server in control of duration while allowing animation timing to
+	-- vary between attacks.
+	hit_end_at = math.min(
+		now + active.Timing.ActiveTime,
+		active.ExpiresAt - ATTACK_TIMEOUT
+	)
+
+	if hit_end_at <= now then
 		return
 	end
 
