@@ -49,6 +49,7 @@ src/
 │   ├── services/
 │   │   ├── CombatService.lua
 │   │   ├── CombatValidation.lua
+│   │   ├── InventoryService.lua
 │   │   ├── PlayerService.lua
 │   │   ├── PlayerSession.lua
 │   │   ├── WeaponAttachment.lua
