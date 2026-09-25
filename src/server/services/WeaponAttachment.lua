@@ -89,10 +89,10 @@ function WeaponAttachment.Attach(source, wield, character)
 			root.CFrame = target.CFrame
 		end
 
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = target
-		weld.Part1 = root
-		weld.Parent = root
+		local motor6d = Instance.new("Motor6D")
+		motor6d.Part0 = target
+		motor6d.Part1 = root
+		motor6d.Parent = root
 	end
 
 	tag_hitpoints(clone)
