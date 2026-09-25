@@ -113,12 +113,6 @@ function CombatService:_get_attack_context(player)
 end
 
 function CombatService:_can_begin_attack(player)
-	if self.ActiveAttacks[player]
-		and self.ActiveAttacks[player].AttackIndex == "Charge"
-	then
-		return nil
-	end
-
 	local now = os.clock()
 	local next_attack_at = self.NextAttackAt[player]
 
@@ -223,6 +217,8 @@ function CombatService:_charge(player)
 	end
 
 	self:_clear_attack(player)
+
+	self.NextAttackAt[player] = now + attack_duration
 
 	self:_create_active(
 		player,
