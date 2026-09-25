@@ -266,32 +266,42 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	self.MovementController:SetSprintBlocked(false)
 
 	if self.BufferedAttack then
-		self.BufferedAttack = false
-
-		local token = self.BufferedToken
-		local buffered_at = self.BufferedAt
-		local weapon = self.WeaponController.Equipped
-		local charge = weapon and weapon.Charge
-
-		if self.PrimaryHeld and charge then
-			local hold_time = charge.HoldTime or 0.15
-			local remaining = hold_time - (os.clock() - buffered_at)
-
-			if remaining <= 0 then
-				self:Charge()
-			else
-				task.delay(remaining, function()
-					if self.PrimaryToken ~= token or not self.PrimaryHeld or self.Attacking then
-						return
-					end
-
-					self:Charge()
-				end)
-			end
-		else
-			self:Attack()
-		end
+		self:_resolve_buffered_attack()
 	end
+end
+
+function CombatController:_resolve_buffered_attack()
+	self.BufferedAttack = false
+
+	local token = self.BufferedToken
+	local buffered_at = self.BufferedAt
+	local weapon = self.WeaponController.Equipped
+	local charge = weapon and weapon.Charge
+
+	self.BufferedAt = 0
+	self.BufferedToken = 0
+
+	if self.PrimaryHeld and charge then
+		local hold_time = charge.HoldTime or 0.15
+		local remaining = hold_time - (os.clock() - buffered_at)
+
+		if remaining <= 0 then
+			self:Charge()
+			return
+		end
+
+		task.delay(remaining, function()
+			if self.PrimaryToken ~= token or not self.PrimaryHeld or self.Attacking then
+				return
+			end
+
+			self:Charge()
+		end)
+
+		return
+	end
+
+	self:Attack()
 end
 
 function CombatController:_can_buffer_attack()
@@ -399,7 +409,6 @@ function CombatController:Reset()
 	self.BufferedToken = 0
 	self.Attacking = false
 	self.Charging = false
-	self.BufferedAttack = false
 end
 
 function CombatController:Destroy()
