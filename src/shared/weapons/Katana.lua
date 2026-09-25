@@ -68,6 +68,11 @@ Katana.Attacks = {
 		Hitbox = "Mesh",
 		Damage = 15,
 		AttackDuration = 0.1,
+		Cooldown = 0.1,
+		Startup = 0.05,
+		ActiveTime = 0.15,
+		Recovery = 0.1,
+		NetworkTolerance = 3,
 		Range = 10,
 	},
 }
