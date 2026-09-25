@@ -72,6 +72,7 @@ Fists.Charge = {
 	Animation = Fists.Animations.Charge,
 	Hitbox = "RightFist",
 	Damage = 20,
+	AttackDuration = 0.1,
 	Range = 8,
 	HoldTime = 0.15,
 }
