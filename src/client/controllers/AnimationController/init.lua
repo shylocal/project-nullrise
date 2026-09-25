@@ -31,8 +31,8 @@ function AnimationController.new(character)
 
 	self.Trove:Add(self.AnimatorChanged)
 
-	self.Weapon = Weapon.new(self)
 	self.Movement = Movement.new(self)
+	self.Weapon = Weapon.new(self)
 	self.Combat = Combat.new(self)
 
 	self:_start()
