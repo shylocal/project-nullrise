@@ -8,6 +8,9 @@ local WeaponsFolder = ReplicatedStorage.shared.weapons
 local InventoryRemote = ReplicatedStorage.remotes.Inventory
 
 local FISTS_ID = "Fists"
+local TEMPORARY_SLOTS = {
+	[2] = "Katana",
+}
 
 local InventoryService = {}
 InventoryService.__index = InventoryService
@@ -28,6 +31,17 @@ function InventoryService.new(player_service)
 end
 
 function InventoryService:_start()
+	self.Trove:Connect(
+		InventoryRemote.OnServerEvent,
+		function(player, action, value)
+			if action == "SelectSlot" then
+				self:SelectSlot(player, value)
+			elseif action == "SelectItem" then
+				self:SelectItem(player, value)
+			end
+		end
+	)
+
 	self.Trove:Connect(
 		self.PlayerService.PlayerAdded,
 		function(player)
@@ -52,8 +66,14 @@ function InventoryService:_player_added(player)
 		return
 	end
 
+	local slots = {}
+
+	for slot, weapon_id in pairs(TEMPORARY_SLOTS) do
+		slots[slot] = weapon_id
+	end
+
 	self.Inventories[player] = {
-		Slots = {},
+		Slots = slots,
 		SelectedSlot = nil,
 	}
 
@@ -195,6 +215,29 @@ function InventoryService:SelectSlot(player, slot)
 	self:_sync(player)
 
 	return true
+end
+
+function InventoryService:SelectItem(player, weapon_id)
+	if typeof(weapon_id) ~= "string" then
+		return false
+	end
+
+	if weapon_id == FISTS_ID then
+		return self:SelectSlot(player, nil)
+	end
+
+	local inventory = self:_get(player)
+	if not inventory then
+		return false
+	end
+
+	for slot, item_id in pairs(inventory.Slots) do
+		if item_id == weapon_id then
+			return self:SelectSlot(player, slot)
+		end
+	end
+
+	return false
 end
 
 function InventoryService:Give(player, weapon_id, slot)

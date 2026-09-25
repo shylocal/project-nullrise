@@ -36,17 +36,6 @@ end
 
 function WeaponService:_start()
 	self.Trove:Connect(
-		WeaponRemote.OnServerEvent,
-		function(player, action, weapon_id)
-			if action == "Equip" then
-				self:Equip(player, weapon_id)
-			elseif action == "Select" then
-				self.InventoryService:SelectSlot(player, weapon_id)
-			end
-		end
-	)
-
-	self.Trove:Connect(
 		self.InventoryService.Changed,
 		function(player, weapon_id)
 			self:Equip(player, weapon_id)
@@ -86,7 +75,6 @@ function WeaponService:_player_added(player)
 	self.PlayerTroves[player] = player_trove
 
 	self.Equipped[player] = Fists
-	WeaponRemote:FireClient(player, "Equipped", "Fists")
 
 	player_trove:Connect(
 		session.CharacterAdded,
@@ -94,6 +82,8 @@ function WeaponService:_player_added(player)
 			self:_character_added(player, character)
 		end
 	)
+
+	self:Equip(player, self.InventoryService:GetSelectedId(player))
 
 	player_trove:Connect(
 		session.CharacterRemoving,
