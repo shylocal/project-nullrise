@@ -141,6 +141,8 @@ function CombatService:_create_active(player, attack_key, attack, wielded, chara
 
 	self.ActiveAttacks[player] = active
 
+	print("[CombatService] Active created", player.Name, attack_key)
+
 	if attack_key ~= "Charge" then
 		task.delay(ATTACK_TIMEOUT, function()
 			if self.ActiveAttacks[player] == active then
@@ -240,6 +242,15 @@ end
 
 function CombatService:_hit_start(player, attack_key)
 	local active = self.ActiveAttacks[player]
+
+	print(
+		"[CombatService] HitStart",
+		player.Name,
+		"active =", active ~= nil,
+		"active_key =", active and active.AttackIndex,
+		"received_key =", attack_key
+	)
+
 	if not active or active.AttackIndex ~= attack_key or active.HitActive then
 		return
 	end
@@ -306,6 +317,12 @@ end
 
 function CombatService:_clear_attack(player)
 	local active = self.ActiveAttacks[player]
+
+	print(
+		"[CombatService] Clear",
+		player.Name,
+		"active_key =", active and active.AttackIndex
+	)
 
 	if active then
 		table.clear(active.HitTargets)
