@@ -47,7 +47,6 @@ local function tag_hitpoints(instance)
 			continue
 		end
 
-		CollectionService:AddTag(descendant, "DmgPoint")
 		CollectionService:AddTag(descendant, "Hitpoint")
 	end
 end
