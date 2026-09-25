@@ -36,7 +36,6 @@ function CombatController.new(
 		ChargeReady = false,
 
 		BufferedAttack = nil,
-		BufferToken = 0,
 
 		Attacking = false,
 		Charging = false,
@@ -81,7 +80,6 @@ function CombatController:_primary_began()
 
 	if self.Attacking then
 		self.BufferedAttack = nil
-		self.BufferToken += 1
 
 		local track = self.CurrentTrack
 		if track and track.Length > 0 then
@@ -97,11 +95,10 @@ function CombatController:_primary_began()
 			return
 		end
 
-		local buffer_token = self.BufferToken
 		local hold_time = charge.HoldTime or 0.15
 
 		task.delay(hold_time, function()
-			if self.BufferToken ~= buffer_token or not self.PrimaryHeld then
+			if self.PrimaryToken ~= token or not self.PrimaryHeld then
 				return
 			end
 
@@ -303,9 +300,7 @@ end
 
 function CombatController:_resolve_buffered_attack()
 	local buffered_attack = self.BufferedAttack
-
 	self.BufferedAttack = nil
-	self.BufferToken += 1
 
 	if buffered_attack == "Attack" then
 		self:Attack()
@@ -381,7 +376,6 @@ function CombatController:Reset()
 	self.PrimaryHeld = false
 	self.PrimaryToken += 1
 	self.BufferedAttack = nil
-	self.BufferToken += 1
 
 	local attack_key = self.CurrentAttackKey
 	if attack_key then
