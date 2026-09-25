@@ -164,7 +164,7 @@ function CombatController:Attack()
 	self:_begin_attack(attack_index, attack, track, "Attack")
 end
 
-function CombatController:Charge()
+function CombatController:Charge(auto_release)
 	if self.Attacking then
 		return
 	end
@@ -185,13 +185,14 @@ function CombatController:Charge()
 		return
 	end
 
-	self:_begin_attack("Charge", charge, track, "Charge")
+	self:_begin_attack("Charge", charge, track, "Charge", auto_release)
 end
 
-function CombatController:_begin_attack(attack_key, attack, track, remote_action)
+function CombatController:_begin_attack(attack_key, attack, track, remote_action, auto_release)
 	self.Attacking = true
 	self.Charging = attack_key == "Charge"
 	self.BufferedAttack = false
+	self.AutoReleaseCharge = attack_key == "Charge" and auto_release == true
 	self.CurrentAttackKey = attack_key
 	self.CurrentTrack = track
 	self.ChargeReady = false
@@ -207,7 +208,7 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 	attack_trove:Connect(
 		track:GetMarkerReachedSignal("HitStart"),
 		function()
-			if attack_key == "Charge" and self.PrimaryHeld then
+			if attack_key == "Charge" and self.PrimaryHeld and not self.AutoReleaseCharge then
 				self.ChargeReady = true
 				self.AnimationController.Combat:Pause(track)
 				return
@@ -270,7 +271,7 @@ function CombatController:_resolve_buffered_attack()
 
 
 	if self.PrimaryHeld and charge then
-		self:Charge()
+		self:Charge(true)
 		return
 	end
 
@@ -414,6 +415,7 @@ function CombatController:Reset()
 	self.CurrentTrack = nil
 	self.ChargeReady = false
 	self.BufferedAttack = false
+	self.AutoReleaseCharge = false
 	self.Attacking = false
 	self.Charging = false
 end
