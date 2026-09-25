@@ -85,8 +85,5 @@ function Combat:Clear()
 	self.ChargeTrack = nil
 end
 
-function Combat:Destroy()
-	self:Clear()
-end
 
 return Combat
