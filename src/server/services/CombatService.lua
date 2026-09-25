@@ -194,8 +194,8 @@ end
 
 function CombatService:_create_active(player, attack_key, attack, timing, wielded, character)
 	local started_at = os.clock()
-	local lifetime = attack_key == "Charge" and CHARGE_TIMEOUT or timing.Cooldown
-	local expires_at = started_at + lifetime + ATTACK_TIMEOUT
+	local lifetime = attack_key == "Charge" and CHARGE_TIMEOUT or ATTACK_TIMEOUT
+	local expires_at = started_at + lifetime
 
 	local active = {
 		AttackIndex = attack_key,
@@ -322,7 +322,8 @@ function CombatService:_hit_start(player, attack_key)
 		return
 	end
 
-	if now > active.ExpiresAt - ATTACK_TIMEOUT + TIMING_TOLERANCE then
+	if now > active.ExpiresAt then
+		self:_clear_attack(player)
 		return
 	end
 
