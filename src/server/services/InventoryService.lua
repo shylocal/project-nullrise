@@ -211,6 +211,10 @@ function InventoryService:SelectSlot(player, slot)
 		return false
 	end
 
+	if inventory.SelectedSlot == slot then
+		slot = nil
+	end
+
 	inventory.SelectedSlot = slot
 	self:_sync(player)
 
