@@ -39,6 +39,7 @@ function CombatController.new(
 		Attacking = false,
 		Charging = false,
 		PrimaryHeld = false,
+		PrimaryToken = 0,
 
 		Hit = Signal.new(),
 	}, CombatController)
