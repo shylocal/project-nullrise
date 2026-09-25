@@ -76,33 +76,7 @@ function CombatController:_primary_began()
 	local weapon = self.WeaponController.Equipped
 
 	if self.Attacking then
-		self.BufferedAttack = "Attack"
-		self.BufferToken += 1
-
-		local charge = weapon and weapon.Charge
-		if not charge then
-			return
-		end
-
-		local buffer_token = self.BufferToken
-		local hold_time = charge.HoldTime or 0.15
-
-		task.delay(hold_time, function()
-			if self.BufferToken ~= buffer_token or not self.PrimaryHeld then
-				return
-			end
-
-			if self.BufferedAttack ~= "Attack" then
-				return
-			end
-
-			self.BufferedAttack = "Charge"
-
-			if not self.Attacking then
-				self:_resolve_buffered_attack()
-			end
-		end)
-
+		self:_queue_buffered_attack()
 		return
 	end
 
@@ -266,6 +240,10 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 		attack.Animation.TransitionTime or 0
 	)
 
+	if self.PrimaryHeld then
+		self:_queue_buffered_attack()
+	end
+
 	task.spawn(function()
 		track.Ended:Wait()
 		self:_finish_attack(attack_key, attack_trove)
@@ -301,6 +279,40 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	if self.BufferedAttack then
 		self:_resolve_buffered_attack()
 	end
+end
+
+function CombatController:_queue_buffered_attack()
+	if self.BufferedAttack then
+		return
+	end
+
+	self.BufferedAttack = "Attack"
+	self.BufferToken += 1
+
+	local weapon = self.WeaponController.Equipped
+	local charge = weapon and weapon.Charge
+	if not charge then
+		return
+	end
+
+	local buffer_token = self.BufferToken
+	local hold_time = charge.HoldTime or 0.15
+
+	task.delay(hold_time, function()
+		if self.BufferToken ~= buffer_token or not self.PrimaryHeld then
+			return
+		end
+
+		if self.BufferedAttack ~= "Attack" then
+			return
+		end
+
+		self.BufferedAttack = "Charge"
+
+		if not self.Attacking then
+			self:_resolve_buffered_attack()
+		end
+	end)
 end
 
 function CombatController:_resolve_buffered_attack()
