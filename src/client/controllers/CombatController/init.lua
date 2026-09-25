@@ -137,7 +137,10 @@ function CombatController:_primary_ended()
 	end
 
 	local track = self.CurrentTrack
-	if self.ChargeReady then
+	local charge_ready = self.ChargeReady
+	self.Charging = false
+
+	if charge_ready then
 		local weapon = self.WeaponController.Equipped
 		local charge = weapon and weapon.Charge
 
@@ -151,6 +154,13 @@ function CombatController:_primary_ended()
 
 	if track then
 		self.AnimationController:Resume(track)
+	end
+
+	-- Releasing before HitStart cancels the pending charge. The charge's
+	-- cooldown still governs when another attack may begin; it must not be
+	-- extended to the end of the animation.
+	if not charge_ready and self:_can_begin_attack() then
+		self:Attack()
 	end
 end
 
