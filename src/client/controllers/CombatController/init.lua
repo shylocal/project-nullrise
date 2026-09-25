@@ -81,7 +81,7 @@ function CombatController:_primary_began()
 
 	if self.Attacking then
 		self.BufferedAttack = nil
-	self.BufferToken += 1
+		self.BufferToken += 1
 
 		local track = self.CurrentTrack
 		if track and track.Length > 0 then
