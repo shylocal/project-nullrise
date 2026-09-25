@@ -196,10 +196,6 @@ function AnimationController:SetWeapon(weapon)
 	self.Weapon:SetWeapon(weapon)
 	self.Movement:SetWeapon(weapon)
 	self.Combat:SetWeapon(weapon)
-
-	if self.Animator then
-		self.Weapon:PlayEquip()
-	end
 end
 
 function AnimationController:SetSprinting(sprinting)
