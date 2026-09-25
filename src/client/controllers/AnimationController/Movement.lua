@@ -2,7 +2,7 @@ local Movement = {}
 Movement.__index = Movement
 
 function Movement.new(animation_controller)
-	return setmetatable({
+	local self = setmetatable({
 		Controller = animation_controller,
 		Weapon = nil,
 		Sprinting = false,
@@ -10,6 +10,12 @@ function Movement.new(animation_controller)
 		IdleTrack = nil,
 		SprintTrack = nil,
 	}, Movement)
+
+	animation_controller.AnimatorChanged:Connect(function()
+		self:_load()
+	end)
+
+	return self
 end
 
 function Movement:SetWeapon(weapon)
