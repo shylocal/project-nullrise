@@ -8,13 +8,6 @@ function Weapon.new(animation_controller)
 		EquipTrack = nil,
 	}, Weapon)
 
-	animation_controller.AnimatorChanged:Connect(function()
-		if self.Weapon then
-			self:_load()
-			self:PlayEquip()
-		end
-	end)
-
 	return self
 end
 
