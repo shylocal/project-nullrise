@@ -82,14 +82,21 @@ function CombatController:_primary_began()
 			return
 		end
 
+		local attack_track = self.CurrentTrack
 		local hold_time = charge.HoldTime or 0.15
 
 		task.delay(hold_time, function()
-			if self.PrimaryToken ~= token or not self.PrimaryHeld or not self.Attacking then
+			if self.PrimaryToken ~= token or not self.PrimaryHeld then
 				return
 			end
 
-			self.BufferedAttack = "Charge"
+			if not self.Attacking or self.CurrentTrack ~= attack_track then
+				return
+			end
+
+			if self.BufferedAttack == "Attack" then
+				self.BufferedAttack = "Charge"
+			end
 		end)
 
 		return
@@ -180,7 +187,7 @@ function CombatController:Attack()
 	self:_begin_attack(attack_index, attack, track, "Attack")
 end
 
-function CombatController:Charge(auto_release)
+function CombatController:Charge()
 	if self.Attacking then
 		return
 	end
@@ -201,14 +208,13 @@ function CombatController:Charge(auto_release)
 		return
 	end
 
-	self:_begin_attack("Charge", charge, track, "Charge", auto_release)
+	self:_begin_attack("Charge", charge, track, "Charge")
 end
 
-function CombatController:_begin_attack(attack_key, attack, track, remote_action, auto_release)
+function CombatController:_begin_attack(attack_key, attack, track, remote_action)
 	self.Attacking = true
 	self.Charging = attack_key == "Charge"
 	self.BufferedAttack = nil
-	self.AutoReleaseCharge = attack_key == "Charge" and auto_release == true
 	self.CurrentAttackKey = attack_key
 	self.CurrentTrack = track
 	self.ChargeReady = false
@@ -224,7 +230,7 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 	attack_trove:Connect(
 		track:GetMarkerReachedSignal("HitStart"),
 		function()
-			if attack_key == "Charge" and self.PrimaryHeld and not self.AutoReleaseCharge then
+			if attack_key == "Charge" and self.PrimaryHeld then
 				self.ChargeReady = true
 				self.AnimationController.Combat:Pause(track)
 				return
@@ -284,7 +290,7 @@ function CombatController:_resolve_buffered_attack()
 	self.BufferedAttack = nil
 
 	if buffered_attack == "Charge" then
-		self:Charge(true)
+		self:Charge()
 	elseif buffered_attack == "Attack" then
 		self:Attack()
 	end
@@ -376,7 +382,6 @@ function CombatController:Reset()
 	self.CurrentTrack = nil
 	self.ChargeReady = false
 	self.BufferedAttack = nil
-	self.AutoReleaseCharge = false
 	self.Attacking = false
 	self.Charging = false
 end
