@@ -35,6 +35,7 @@ function CombatController.new(
 
 		BufferedAttack = nil,
 		AttackToken = 0,
+		AttackReadyAt = 0,
 
 		Attacking = false,
 		Charging = false,
@@ -77,6 +78,10 @@ function CombatController:_primary_began()
 	local token = self.PrimaryToken
 	local weapon = self.WeaponController.Equipped
 
+	if self.Charging then
+		return
+	end
+
 	if self.Attacking then
 		local charge = weapon and weapon.Charge
 		if not charge then
@@ -91,10 +96,7 @@ function CombatController:_primary_began()
 			end
 
 			self.BufferedAttack = "Charge"
-
-			if not self.Attacking then
-				self:_resolve_buffered_attack()
-			end
+			self:_resolve_buffered_attack()
 		end)
 
 		return
@@ -125,6 +127,10 @@ function CombatController:_primary_ended()
 	self.PrimaryHeld = false
 	self.PrimaryToken += 1
 
+	if self.BufferedAttack == "Charge" then
+		self.BufferedAttack = nil
+	end
+
 	if self.Charging then
 		local track = self.CurrentTrack
 
@@ -146,15 +152,11 @@ function CombatController:_primary_ended()
 		return
 	end
 
-	if self.Attacking then
-		return
-	end
-
 	self:Attack()
 end
 
 function CombatController:Attack()
-	if self.Attacking then
+	if not self:_can_begin_attack() then
 		return
 	end
 
@@ -192,7 +194,7 @@ function CombatController:Attack()
 end
 
 function CombatController:Charge()
-	if self.Attacking then
+	if not self:_can_begin_attack() then
 		return
 	end
 
@@ -207,12 +209,21 @@ function CombatController:Charge()
 		return
 	end
 
+	local attack_duration = charge.AttackDuration
+	if typeof(attack_duration) ~= "number" or attack_duration <= 0 then
+		return
+	end
+
 	local track = self.AnimationController.Combat:BeginCharge()
 	if not track then
 		return
 	end
 
 	self:_begin_attack("Charge", charge, track, "Charge")
+end
+
+function CombatController:_can_begin_attack()
+	return os.clock() >= self.AttackReadyAt
 end
 
 function CombatController:_begin_attack(attack_key, attack, track, remote_action)
@@ -264,27 +275,22 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 		attack.Animation.TransitionTime or 0
 	)
 
+	self.AttackReadyAt = os.clock() + attack.AttackDuration
+
 	task.spawn(function()
 		track.Ended:Wait()
 		self:_finish_attack(attack_key, attack_trove)
 	end)
 
-	if attack_key ~= "Charge" then
-		task.delay(attack.AttackDuration, function()
-			if self.AttackToken ~= attack_token then
-				return
-			end
+	task.delay(attack.AttackDuration, function()
+		if self.AttackToken ~= attack_token then
+			return
+		end
 
-			self.Attacking = false
-			self.MovementController:SetSprintBlocked(false)
-
-			if self.BufferedAttack then
-				task.defer(function()
-					self:_resolve_buffered_attack()
-				end)
-			end
-		end)
-	end
+		if self.BufferedAttack and self.PrimaryHeld then
+			self:_resolve_buffered_attack()
+		end
+	end)
 end
 
 function CombatController:_finish_attack(attack_key, attack_trove)
@@ -339,12 +345,21 @@ function CombatController:_clear_attack_lifecycle()
 end
 
 function CombatController:_resolve_buffered_attack()
-	local buffered_attack = self.BufferedAttack
-	self.BufferedAttack = nil
-
-	if buffered_attack == "Charge" then
-		self:Charge()
+	if self.BufferedAttack ~= "Charge" then
+		return
 	end
+
+	if not self.PrimaryHeld then
+		self.BufferedAttack = nil
+		return
+	end
+
+	if not self:_can_begin_attack() then
+		return
+	end
+
+	self.BufferedAttack = nil
+	self:Charge()
 end
 
 function CombatController:_can_sprint_while_attacking(attack)
@@ -432,6 +447,7 @@ function CombatController:Reset()
 	self.MovementController:SetSprintBlocked(false)
 
 	self.NextAttack = 1
+	self.AttackReadyAt = 0
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
 	self.ChargeReady = false
