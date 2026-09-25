@@ -247,7 +247,6 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 			if attack_key == "Charge" and self.PrimaryHeld then
 				self.ChargeReady = true
 				self.AnimationController.Combat:Pause(track)
-				self:_schedule_charge_buffer()
 				return
 			end
 
@@ -270,6 +269,10 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 		track,
 		attack.Animation.TransitionTime or 0
 	)
+
+	if attack_key == "Charge" and self.PrimaryHeld then
+		self:_schedule_charge_buffer()
+	end
 
 	task.spawn(function()
 		track.Ended:Wait()
