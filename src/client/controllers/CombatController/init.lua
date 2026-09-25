@@ -217,7 +217,7 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 			if attack_key == "Charge" and self.PrimaryHeld then
 				self.ChargeReady = true
 				self.AnimationController.Combat:Pause(track)
-				self:_queue_buffered_attack()
+				self:_schedule_buffered_charge()
 				return
 			end
 
@@ -302,6 +302,39 @@ function CombatController:_queue_buffered_attack()
 		end
 
 		if self.BufferedAttack ~= "Attack" then
+			return
+		end
+
+		self.BufferedAttack = "Charge"
+
+		if not self.Attacking then
+			self:_resolve_buffered_attack()
+		end
+	end)
+end
+
+function CombatController:_schedule_buffered_charge()
+	if self.BufferedAttack then
+		return
+	end
+
+	self.BufferToken += 1
+
+	local buffer_token = self.BufferToken
+	local weapon = self.WeaponController.Equipped
+	local charge = weapon and weapon.Charge
+	if not charge then
+		return
+	end
+
+	local hold_time = charge.HoldTime or 0.15
+
+	task.delay(hold_time, function()
+		if self.BufferToken ~= buffer_token or not self.PrimaryHeld then
+			return
+		end
+
+		if self.BufferedAttack then
 			return
 		end
 
