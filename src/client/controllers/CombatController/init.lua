@@ -115,11 +115,12 @@ function CombatController:_primary_began()
 	local hold_time = charge.HoldTime or 0.15
 
 	task.delay(hold_time, function()
-		if not self.PrimaryHeld or self.Attacking then
+		if self.PrimaryToken ~= token or not self.PrimaryHeld or self.Attacking then
 			return
 		end
 
-		self:Charge()
+		self.BufferedAttack = "Charge"
+		self:_resolve_buffered_attack()
 	end)
 end
 
