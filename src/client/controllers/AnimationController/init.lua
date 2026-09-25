@@ -30,8 +30,8 @@ function AnimationController.new(character)
 
 	self.Trove:Add(self.AnimatorChanged)
 
-	self.Movement = Movement.new(self)
 	self.Weapon = Weapon.new(self)
+	self.Movement = Movement.new(self)
 	self.Combat = Combat.new(self)
 
 	self:_start()
@@ -216,9 +216,6 @@ end
 
 function AnimationController:Destroy()
 	self:_clear_tracks()
-	self.Weapon:Destroy()
-	self.Movement:Destroy()
-	self.Combat:Destroy()
 	self.Trove:Destroy()
 end
 
