@@ -270,38 +270,10 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 		attack.Animation.TransitionTime or 0
 	)
 
-	if attack_key == "Charge" and self.PrimaryHeld then
-		self:_schedule_charge_buffer()
-	end
 
 	task.spawn(function()
 		track.Ended:Wait()
 		self:_finish_attack(attack_key, attack_trove)
-	end)
-end
-
-function CombatController:_schedule_charge_buffer()
-	self.BufferToken += 1
-
-	local buffer_token = self.BufferToken
-	local weapon = self.WeaponController.Equipped
-	local charge = weapon and weapon.Charge
-	if not charge then
-		return
-	end
-
-	local hold_time = charge.HoldTime or 0.15
-
-	task.delay(hold_time, function()
-		if self.BufferToken ~= buffer_token or not self.PrimaryHeld then
-			return
-		end
-
-		self.BufferedAttack = "Charge"
-
-		if not self.Attacking then
-			self:_resolve_buffered_attack()
-		end
 	end)
 end
 
