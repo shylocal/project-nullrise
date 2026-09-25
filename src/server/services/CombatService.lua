@@ -11,7 +11,6 @@ CombatService.__index = CombatService
 local ATTACK_REQUEST_INTERVAL = 0.1
 local HIT_DISTANCE_MARGIN = 4
 local ATTACK_TIMEOUT = 2
-local CHARGE_TIMEOUT = 10
 
 function CombatService.new(player_service, weapon_service, remote)
 	local self = setmetatable({
@@ -131,7 +130,7 @@ function CombatService:_can_begin_attack(player)
 	return now
 end
 
-function CombatService:_create_active(player, attack_key, attack, wielded, timeout, character)
+function CombatService:_create_active(player, attack_key, attack, wielded, character)
 	local active = {
 		AttackIndex = attack_key,
 		Character = character,
@@ -143,11 +142,13 @@ function CombatService:_create_active(player, attack_key, attack, wielded, timeo
 
 	self.ActiveAttacks[player] = active
 
-	task.delay(timeout, function()
-		if self.ActiveAttacks[player] == active then
-			self:_clear_attack(player)
-		end
-	end)
+	if attack_key ~= "Charge" then
+		task.delay(ATTACK_TIMEOUT, function()
+			if self.ActiveAttacks[player] == active then
+				self:_clear_attack(player)
+			end
+		end)
+	end
 
 	return active
 end
@@ -198,7 +199,6 @@ function CombatService:_attack(player, attack_index)
 		attack_index,
 		attack,
 		wielded,
-		ATTACK_TIMEOUT,
 		character
 	)
 end
