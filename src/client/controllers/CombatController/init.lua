@@ -144,7 +144,6 @@ function CombatController:_primary_ended()
 
 		if charge then
 			self.ChargeReady = false
-			self.Charging = false
 			CombatRemote:FireServer("HitStart", "Charge")
 			self:_start_hitbox("Charge", charge)
 		end
@@ -154,8 +153,6 @@ function CombatController:_primary_ended()
 		self.AnimationController:Resume(track)
 	end
 
-	-- Releasing after the charge phase has begun but before HitStart cancels
-	-- the charge. It must not fall through into a regular attack.
 end
 
 function CombatController:Attack()
