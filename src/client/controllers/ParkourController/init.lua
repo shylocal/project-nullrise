@@ -456,6 +456,11 @@ function ParkourController:_step(dt)
 				if facing.Magnitude > 0.05 and top_hop.LaunchForward.Magnitude > 0.05 then
 					facing_dot = facing.Unit:Dot(top_hop.LaunchForward.Unit)
 				end
+				local input_direction = flatten(humanoid.MoveDirection)
+				local facing_dot_to_move = 0
+				if facing.Magnitude > 0.05 and input_direction.Magnitude > 0.05 then
+					facing_dot_to_move = facing.Unit:Dot(input_direction.Unit)
+				end
 				vault_debug("TOP HOP SAMPLE", "t=", math.floor(elapsed * 100) / 100,
 					"parkour=", self.State, "humanoid=", humanoid:GetState().Name,
 					"floor=", humanoid.FloorMaterial.Name, "sawAir=", top_hop.SawAir,
@@ -463,6 +468,7 @@ function ParkourController:_step(dt)
 					"velocity=", root.AssemblyLinearVelocity,
 					"moveDirection=", humanoid.MoveDirection, "look=", root.CFrame.LookVector,
 					"facingDotToLaunch=", math.floor(facing_dot * 1000) / 1000,
+					"facingDotToMove=", math.floor(facing_dot_to_move * 1000) / 1000,
 					"AutoRotate=", humanoid.AutoRotate, "PlatformStand=", humanoid.PlatformStand,
 					"Jump=", humanoid.Jump,
 					"jumpingEnabled=", humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping),
