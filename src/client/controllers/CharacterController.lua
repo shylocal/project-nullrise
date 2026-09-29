@@ -6,6 +6,7 @@ local Trove = require(Packages.Trove)
 local AnimationControllerModule = require(script.Parent.AnimationController)
 local WeaponControllerModule = require(script.Parent.WeaponController)
 local MovementControllerModule = require(script.Parent.MovementController)
+local ParkourControllerModule = require(script.Parent.ParkourController)
 local CombatControllerModule = require(script.Parent.CombatController)
 
 local CharacterController = {}
@@ -14,10 +15,10 @@ CharacterController.__index = CharacterController
 function CharacterController.new(character, input_controller, weapon_id)
 	local trove = Trove.new()
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
-
 	local weapon_controller = WeaponControllerModule.new(character)
 	local animation_controller = AnimationControllerModule.new(character)
 	local movement_controller = MovementControllerModule.new(character, input_controller)
+	local parkour_controller = ParkourControllerModule.new(character, input_controller, movement_controller)
 	local combat_controller = CombatControllerModule.new(
 		weapon_controller,
 		animation_controller,
@@ -31,50 +32,36 @@ function CharacterController.new(character, input_controller, weapon_id)
 		WeaponController = weapon_controller,
 		AnimationController = animation_controller,
 		MovementController = movement_controller,
+		ParkourController = parkour_controller,
 		CombatController = combat_controller,
 	}, CharacterController)
 
 	trove:AttachToInstance(self.Character)
 	trove:Add(animation_controller)
 	trove:Add(movement_controller)
+	trove:Add(parkour_controller)
 	trove:Add(combat_controller)
-
-	trove:Connect(
-		movement_controller.SprintingChanged,
-		function(sprinting)
-			animation_controller:SetSprinting(sprinting)
-		end
-	)
+	trove:Connect(movement_controller.SprintingChanged, function(sprinting)
+		animation_controller:SetSprinting(sprinting)
+	end)
 
 	if humanoid then
-		trove:Connect(
-			humanoid.Died,
-		function()
+		trove:Connect(humanoid.Died, function()
 			combat_controller:Reset()
-		end
-		)
+		end)
 	end
 
 	local equipped = weapon_controller:EquipById(weapon_id or "Fists")
-	if not equipped then
-		weapon_controller:EquipById("Fists")
-	end
-
+	if not equipped then weapon_controller:EquipById("Fists") end
 	animation_controller:SetWeapon(weapon_controller.Equipped)
 	animation_controller:SetSprinting(movement_controller:IsSprinting())
-
 	return self
 end
 
 function CharacterController:SetWeapon(weapon_id)
 	self.CombatController:Reset()
-
-	if not self.WeaponController:EquipById(weapon_id) then
-		return false
-	end
-
+	if not self.WeaponController:EquipById(weapon_id) then return false end
 	self.AnimationController:SetWeapon(self.WeaponController.Equipped)
-
 	return true
 end
 
