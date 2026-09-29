@@ -698,28 +698,37 @@ function ParkourController:_try_vault()
 
 	local target_position = nil
 	local hop_distance = far_edge_distance + Config.VaultLandingGap
-	if hop_distance <= Config.VaultMaxHopDistance then
-		local landing_xz = root.Position + forward * hop_distance
-		local landing_origin_y = math.max(root.Position.Y, top.Position.Y)
-			+ standing_height + Config.VaultMaxHeight + 2
-		local landing_ground = self:_cast(
-			Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
-			Vector3.new(0, -(standing_height + Config.VaultMaxHeight + 5), 0),
-			true
-		)
-		if landing_ground and landing_ground.Normal.Y >= 0.5
-			and math.abs(landing_ground.Position.Y - current_ground_y) <= Config.VaultLandingHeightTolerance
-			and landing_ground.Instance ~= obstacle then
-			target_position = Vector3.new(
-				landing_ground.Position.X,
-				landing_ground.Position.Y + standing_height - 0.05,
-				landing_ground.Position.Z
+	local landing_origin_y = math.max(root.Position.Y, top.Position.Y)
+		+ standing_height + Config.VaultMaxHeight + 2
+	local landing_ray = Vector3.new(0, -(standing_height + Config.VaultMaxHeight + 5), 0)
+
+	-- Prefer clearing the far edge. A single sample can still land on the
+	-- obstacle when bounds or an angled approach put the projected edge close
+	-- to its footprint, so test a few progressively farther landing points.
+	for _, extra_distance in ipairs({ 0, 0.65, 1.3, 2 }) do
+		local landing_distance = hop_distance + extra_distance
+		if landing_distance <= Config.VaultMaxHopDistance then
+			local landing_xz = root.Position + forward * landing_distance
+			local landing_ground = self:_cast(
+				Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
+				landing_ray,
+				true
 			)
+			if landing_ground and landing_ground.Normal.Y >= 0.5
+				and math.abs(landing_ground.Position.Y - current_ground_y) <= Config.VaultLandingHeightTolerance
+				and landing_ground.Instance ~= obstacle then
+				target_position = Vector3.new(
+					landing_ground.Position.X,
+					landing_ground.Position.Y + standing_height - 0.05,
+					landing_ground.Position.Z
+				)
+				break
+			end
 		end
 	end
 
-	-- If the far side is too distant or has no safe floor, land on the
-	-- walkable top we sampled just beyond the obstacle's near edge.
+	-- Retain a top landing only when a validated far-side floor cannot be
+	-- reached within the configured hop range.
 	if not target_position then
 		target_position = Vector3.new(
 			top.Position.X,
