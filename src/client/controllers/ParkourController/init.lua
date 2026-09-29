@@ -800,47 +800,44 @@ function ParkourController:_try_vault()
 			top.Position.Y + standing_height - 0.05,
 			top.Position.Z
 		)
-		local horizontal_velocity = flatten(root.AssemblyLinearVelocity)
-		local forward_speed = horizontal_velocity:Dot(forward)
-		local sprint_speed = math.max(0, humanoid.WalkSpeed)
-		local forward_boost = math.max(0, Config.VaultForwardBoostSpeed or 0)
-		local hop_forward_speed = math.max(forward_speed, sprint_speed) + forward_boost
-		local lateral_velocity = horizontal_velocity - forward * forward_speed
-		local target_distance = math.max(
-			0.5,
-			flatten(top_target - root.Position):Dot(forward)
-		)
-		local estimated_flight_time = math.clamp(
-			target_distance / math.max(hop_forward_speed, 1),
-			0.18,
-			0.6
-		)
+		-- Let the Humanoid's normal sprint movement provide horizontal
+		-- travel. Previously forcing a large X/Z velocity here could tunnel
+		-- through broad collidable parts instead of letting physics resolve
+		-- contact with their side. Only raise vertical speed when the sampled
+		-- top requires more jump height than the character's configured jump.
 		local gravity = math.max(Workspace.Gravity, 1)
-		local target_rise = top_target.Y - root.Position.Y + 0.4
-		local required_vertical_speed = target_rise / estimated_flight_time
-			+ 0.5 * gravity * estimated_flight_time
+		local target_rise = math.max(0, top_target.Y - root.Position.Y + 0.25)
+		local required_vertical_speed = math.sqrt(2 * gravity * target_rise)
 		local configured_jump_speed
 		if humanoid.UseJumpPower then
 			configured_jump_speed = humanoid.JumpPower
 		else
 			configured_jump_speed = math.sqrt(2 * gravity * math.max(0, humanoid.JumpHeight))
 		end
-		local hop_vertical_speed = math.max(configured_jump_speed, required_vertical_speed)
+		local current_velocity = root.AssemblyLinearVelocity
+		local hop_vertical_speed = math.max(
+			0,
+			current_velocity.Y,
+			configured_jump_speed,
+			required_vertical_speed
+		)
 
 		self.NextVaultAt = now + Config.VaultCooldown
 		self.GrabBlockedUntilJumpReleased = self.InputController:IsDown(Actions.Jump)
 		humanoid.Jump = true
 		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+		-- Preserve existing horizontal momentum without adding the vault boost.
+		-- Collision handling remains with the normal Humanoid/physics solver.
 		root.AssemblyLinearVelocity = Vector3.new(
-			lateral_velocity.X + forward.X * hop_forward_speed,
+			current_velocity.X,
 			hop_vertical_speed,
-			lateral_velocity.Z + forward.Z * hop_forward_speed
+			current_velocity.Z
 		)
-		vault_debug("LONG OBSTACLE: PHYSICS HOP TO TOP",
+		vault_debug("LONG OBSTACLE: COLLISION-RESPECTING PHYSICS HOP TO TOP",
 			"part=", obstacle:GetFullName(), "horizontalLength=", obstacle_length,
 			"threshold=", long_obstacle_threshold, "height=", obstacle_height,
-			"topTarget=", top_target, "estimatedFlightTime=", estimated_flight_time,
-			"horizontalSpeed=", hop_forward_speed, "verticalSpeed=", hop_vertical_speed,
+			"topTarget=", top_target, "horizontalVelocityPreserved=", Vector3.new(current_velocity.X, 0, current_velocity.Z),
+			"verticalSpeed=", hop_vertical_speed, "requiredVerticalSpeed=", required_vertical_speed,
 			"customVaultAnimation=", false)
 		return true
 	end
