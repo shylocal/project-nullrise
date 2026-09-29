@@ -107,6 +107,19 @@ function ParkourController:_is_climbable(instance)
 	return false
 end
 
+function ParkourController:_cast_top_surface(wall_position, wall_normal, root_position)
+	-- Start above the maximum reachable ledge, then sample just inside the wall
+	-- footprint. Starting outside the footprint can miss narrow tops; starting
+	-- below the top can leave the ray origin inside the wall and miss it.
+	local top_origin = Vector3.new(
+		wall_position.X,
+		root_position.Y + MAX_GRAB_HEIGHT + 0.25,
+		wall_position.Z
+	) - wall_normal * 0.1
+	local scan_depth = MAX_GRAB_HEIGHT * 2 + 1
+	return self:_cast(top_origin, Vector3.new(0, -scan_depth, 0))
+end
+
 function ParkourController:_detect_surface()
 	local root = self.Root
 	if not root then return nil end
@@ -119,9 +132,9 @@ function ParkourController:_detect_surface()
 	local wall = self:_cast(origin, direction * WALL_REACH)
 	if not wall or not self:_is_climbable(wall.Instance) then return nil end
 
-	local top_origin = wall.Position + Vector3.new(0, TOP_SCAN_HEIGHT, 0) + wall.Normal * 0.2
-	local top = self:_cast(top_origin, Vector3.new(0, -(TOP_SCAN_HEIGHT + MAX_GRAB_HEIGHT), 0))
-	if not top or not self:_is_climbable(top.Instance) then return nil end
+	local top = self:_cast_top_surface(wall.Position, wall.Normal, root.Position)
+	if not top then return nil end
+	if not self:_is_climbable(top.Instance) then return nil end
 
 	local height_delta = root.Position.Y - top.Position.Y
 	if height_delta < -0.75 or height_delta > MAX_GRAB_HEIGHT then return nil end
@@ -202,8 +215,7 @@ function ParkourController:_traverse(dt)
 		local probe_origin = root.Position + delta + Vector3.new(0, 1.1, 0) + self.Normal * 0.3
 		local probe = self:_cast(probe_origin, -self.Normal * (WALL_GAP + SURFACE_PROBE))
 		if probe and self:_is_climbable(probe.Instance) then
-			local top_origin = probe.Position + Vector3.new(0, TOP_SCAN_HEIGHT, 0)
-			local top = self:_cast(top_origin, Vector3.new(0, -(TOP_SCAN_HEIGHT + MAX_GRAB_HEIGHT), 0))
+			local top = self:_cast_top_surface(probe.Position, probe.Normal, root.Position)
 			if top and self:_is_climbable(top.Instance) then
 				self.Surface = probe.Instance
 				self.Normal = probe.Normal
