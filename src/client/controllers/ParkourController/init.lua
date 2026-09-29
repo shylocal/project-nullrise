@@ -486,13 +486,22 @@ function ParkourController:_try_vault()
 		return false
 	end
 
-	-- Vault in the player's actual movement direction, so the activation
-	-- works while strafing or approaching a low wall from any side.
+	-- Follow actual movement when available, falling back to facing for the
+	-- Space-press frame before Humanoid.MoveDirection has updated.
 	local forward = flatten(humanoid.MoveDirection)
+	local facing = flatten(root.CFrame.LookVector)
+	if forward.Magnitude < 0.05 then
+		forward = facing
+	end
 	if forward.Magnitude < 0.05 then
 		return false
 	end
 	forward = forward.Unit
+	if facing.Magnitude >= 0.05 then
+		facing = facing.Unit
+	else
+		facing = forward
+	end
 
 	local standing_height = self:_standing_height()
 	local current_ground = self:_cast(
@@ -509,31 +518,54 @@ function ParkourController:_try_vault()
 		current_ground.Position.Y + Config.VaultDetectionHeight,
 		root.Position.Z
 	)
-	local right = forward:Cross(Vector3.yAxis)
-	if right.Magnitude < 0.05 then
-		return false
-	end
-	right = right.Unit
-	local half_width = math.max(0, Config.VaultDetectionHalfWidth or root.Size.X)
-	-- A five-point cross widens the activation footprint around the character
-	-- and checks both low and higher portions of short walls. This helps catch
-	-- long, thin obstacles even when the center ray would pass beside them.
-	local probe_offsets = {
-		Vector3.zero,
-		right * half_width,
-		-right * half_width,
-		Vector3.new(0, -0.2, 0),
-		Vector3.new(0, 0.45, 0),
-	}
-	local obstacle_hit = nil
-	for _, probe_offset in ipairs(probe_offsets) do
-		local hit = self:_cast(
-			detection_origin + probe_offset,
-			forward * Config.VaultDetectionDistance,
+	local half_width = math.max(0, math.min(
+		Config.VaultDetectionHalfWidth or root.Size.X * 0.5,
+		math.max(root.Size.X * 0.75, 0.75)
+	))
+	local function probe_obstacle(direction)
+		local right = direction:Cross(Vector3.yAxis)
+		if right.Magnitude < 0.05 then
+			return nil
+		end
+		right = right.Unit
+		-- Prefer the center ray: side probes are fallback coverage only, so a
+		-- nearby unrelated prop cannot mask the wall directly in front.
+		local center_hit = self:_cast(
+			detection_origin,
+			direction * Config.VaultDetectionDistance,
 			true
 		)
-		if hit and (not obstacle_hit or hit.Distance < obstacle_hit.Distance) then
-			obstacle_hit = hit
+		if center_hit then
+			return center_hit
+		end
+		local offsets = {
+			right * half_width,
+			-right * half_width,
+			Vector3.new(0, -0.2, 0),
+			Vector3.new(0, 0.45, 0),
+		}
+		local best_hit = nil
+		for _, offset in ipairs(offsets) do
+			local hit = self:_cast(
+				detection_origin + offset,
+				direction * Config.VaultDetectionDistance,
+				true
+			)
+			if hit and (not best_hit or hit.Distance < best_hit.Distance) then
+				best_hit = hit
+			end
+		end
+		return best_hit
+	end
+	local obstacle_hit = probe_obstacle(forward)
+	-- If movement is diagonal to the body's facing and its ray misses, also
+	-- check the facing axis. Keep the movement vector for the vault trajectory
+	-- whenever that primary probe successfully finds the obstacle.
+	if not obstacle_hit and (facing - forward).Magnitude > 0.15 then
+		local facing_hit = probe_obstacle(facing)
+		if facing_hit then
+			obstacle_hit = facing_hit
+			forward = facing
 		end
 	end
 	if not obstacle_hit then
@@ -574,7 +606,7 @@ function ParkourController:_try_vault()
 	local top_sample_distance = near_edge_distance + top_inset
 	local hit_relative = obstacle_hit.Position - root.Position
 	local lateral_offset = hit_relative - forward * hit_relative:Dot(forward)
-	local top_sample = root.Position + forward * top_sample_distance + lateral_offset
+	local projected_top_sample = root.Position + forward * top_sample_distance + lateral_offset
 
 	local top_params = self._vaultTopParams or RaycastParams.new()
 	self._vaultTopParams = top_params
@@ -583,17 +615,33 @@ function ParkourController:_try_vault()
 	top_params.IgnoreWater = true
 	top_params.RespectCanCollide = true
 
-	local top_origin = Vector3.new(
-		top_sample.X,
-		obstacle.Position.Y + obstacle.Size.Magnitude + 4,
-		top_sample.Z
-	)
-	local top = Workspace:Raycast(
-		top_origin,
-		Vector3.new(0, -(obstacle.Size.Magnitude * 2 + 8), 0),
-		top_params
-	)
-	if not top or top.Normal.Y < 0.5 then
+	-- At oblique approaches, a wall-face hit can be near a side edge. Try
+	-- vertical samples progressively inside from that exact impact point before
+	-- using the projected near-edge sample; this avoids missing the top surface.
+	local top_samples = {
+		obstacle_hit.Position + forward * 0.25,
+		obstacle_hit.Position + forward * 0.55,
+		obstacle_hit.Position + forward * 0.9,
+		projected_top_sample,
+	}
+	local top = nil
+	for _, sample in ipairs(top_samples) do
+		local top_origin = Vector3.new(
+			sample.X,
+			obstacle.Position.Y + obstacle.Size.Magnitude + 4,
+			sample.Z
+		)
+		local candidate = Workspace:Raycast(
+			top_origin,
+			Vector3.new(0, -(obstacle.Size.Magnitude * 2 + 8), 0),
+			top_params
+		)
+		if candidate and candidate.Normal.Y >= 0.5 then
+			top = candidate
+			break
+		end
+	end
+	if not top then
 		return false
 	end
 
