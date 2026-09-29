@@ -10,7 +10,7 @@ local ParkourController = {}
 ParkourController.__index = ParkourController
 
 -- Keep verbose parkour diagnostics off during normal play; re-enable only when debugging.
-local DEBUG_PARKOUR = true
+local DEBUG_PARKOUR = false
 
 local CLIMBABLE_TAG = "Climbable"
 local WALL_REACH = 3.25
@@ -22,6 +22,8 @@ local SURFACE_PROBE = 1.4
 local MAX_TOP_SURFACE_HITS = 16
 -- Max ledge-to-ledge rise; root-to-top range also accounts for the hang drop below the ledge.
 local MANTLE_MAX_RISE = 12.5
+-- Ordinary-ground mantles are intentionally lower than ledge-to-ledge transfers.
+local GROUND_MANTLE_MAX_RISE = 3.5
 local MANTLE_MAX_INWARD = 8
 local MANTLE_MAX_OUTWARD = 2
 local MANTLE_MAX_LATERAL = 5
@@ -1247,8 +1249,8 @@ function ParkourController:_try_ground_mantle(current_top, normal, tangent)
 	local lateral_step = math.max(root.Size.X * 0.45, 0.4)
 	local inward_offsets = { 0.5, 1, 1.75, 2.75, 4, 5.5, 7 }
 	local lateral_factors = { 0, -1, 1 }
-	local ray_origin_y = current_top.Y + MANTLE_MAX_RISE + standing_height + 2
-	local ray_length = MANTLE_MAX_RISE + standing_height + 4
+	local ray_origin_y = current_top.Y + GROUND_MANTLE_MAX_RISE + standing_height + 2
+	local ray_length = GROUND_MANTLE_MAX_RISE + standing_height + 4
 	local best_ground = nil
 	local best_score = math.huge
 
@@ -1272,11 +1274,11 @@ function ParkourController:_try_ground_mantle(current_top, normal, tangent)
 				local lateral_distance = math.abs(flatten(relative):Dot(sideways))
 				local root_to_floor = root.Position.Y - ground.Position.Y
 				local reachable = rise > MANTLE_MIN_RISE
-					and rise <= MANTLE_MAX_RISE
+					and rise <= GROUND_MANTLE_MAX_RISE
 					and inward_distance >= 0.25
 					and inward_distance <= MANTLE_MAX_INWARD
 					and lateral_distance <= MANTLE_MAX_LATERAL
-					and root_to_floor <= MANTLE_MAX_RISE + HANG_DROP
+					and root_to_floor <= GROUND_MANTLE_MAX_RISE + HANG_DROP
 
 				if reachable then
 					local score = inward_distance * inward_distance
