@@ -137,7 +137,7 @@ function ParkourController:_detect_surface()
 	if not self:_is_climbable(top.Instance) then return nil end
 
 	local height_delta = root.Position.Y - top.Position.Y
-	if height_delta < -0.75 or height_delta > MAX_GRAB_HEIGHT then return nil end
+	if height_delta < -MAX_GRAB_HEIGHT or height_delta > MAX_GRAB_HEIGHT then return nil end
 
 	local hang_position = top.Position - wall.Normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
 	local body_clearance = self:_cast(
