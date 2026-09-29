@@ -6,6 +6,7 @@ local Signal = require(Packages.Signal)
 local Hitbox = require(script.Hitbox)
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
+local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
 local CombatRemote = ReplicatedStorage.remotes.Combat
 
@@ -144,7 +145,7 @@ function CombatController:_primary_ended()
 
 		if charge then
 			self.ChargeReady = false
-			CombatRemote:FireServer("HitStart", "Charge")
+			CombatRemote:FireServer(Protocol.Combat.HitStart, "Charge")
 			self:_start_hitbox("Charge", charge)
 		end
 	end
@@ -190,7 +191,7 @@ function CombatController:Attack()
 
 	self.NextAttack = attack_index == #weapon.Attacks and 1 or attack_index + 1
 
-	self:_begin_attack(attack_index, attack, track, "Attack")
+	self:_begin_attack(attack_index, attack, track, Protocol.Combat.Attack)
 end
 
 function CombatController:Charge()
@@ -219,7 +220,7 @@ function CombatController:Charge()
 		return
 	end
 
-	self:_begin_attack("Charge", charge, track, "Charge")
+	self:_begin_attack("Charge", charge, track, Protocol.Combat.Charge)
 end
 
 function CombatController:_can_begin_attack()
@@ -251,7 +252,7 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 				return
 			end
 
-			CombatRemote:FireServer("HitStart", attack_key)
+			CombatRemote:FireServer(Protocol.Combat.HitStart, attack_key)
 			self:_start_hitbox(attack_key, attack)
 		end
 	)
@@ -260,7 +261,7 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 		track:GetMarkerReachedSignal("HitStop"),
 		function()
 			self:_stop_hitbox()
-			CombatRemote:FireServer("HitStop", attack_key)
+			CombatRemote:FireServer(Protocol.Combat.HitStop, attack_key)
 		end
 	)
 
@@ -292,7 +293,7 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	end
 
 	self:_stop_hitbox()
-	CombatRemote:FireServer("HitStop", attack_key)
+	CombatRemote:FireServer(Protocol.Combat.HitStop, attack_key)
 
 	self.AttackTrove = nil
 	self.Trove:Remove(attack_trove)
@@ -313,7 +314,7 @@ end
 function CombatController:_clear_attack_lifecycle()
 	local attack_key = self.CurrentAttackKey
 	if attack_key then
-		CombatRemote:FireServer("HitStop", attack_key)
+		CombatRemote:FireServer(Protocol.Combat.HitStop, attack_key)
 	end
 
 	self:_stop_hitbox()
@@ -381,7 +382,7 @@ function CombatController:_start_hitbox(attack_key, attack)
 			self.Hit:Fire(hit_character, raycast_result)
 
 			CombatRemote:FireServer(
-				"Hit",
+				Protocol.Combat.Hit,
 				attack_key,
 				hit_character,
 				segment_instance,
@@ -420,7 +421,7 @@ function CombatController:Reset()
 
 	local attack_key = self.CurrentAttackKey
 	if attack_key then
-		CombatRemote:FireServer("HitStop", attack_key)
+		CombatRemote:FireServer(Protocol.Combat.HitStop, attack_key)
 	end
 
 	self:_stop_hitbox()
