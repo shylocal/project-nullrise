@@ -137,6 +137,16 @@ function Queries.detect_surface(self)
 		return nil
 	end
 
+	-- A held jump alone must not latch the character after they have stopped
+	-- approaching the wall. Require current movement intent to have a component
+	-- into the detected face; this still permits diagonal approaches.
+	local approach = Vector.flatten(humanoid.MoveDirection)
+	local toward_wall = Vector.flatten(-wall.Normal)
+	if approach.Magnitude < 0.05 or toward_wall.Magnitude < 0.05
+		or approach.Unit:Dot(toward_wall.Unit) < 0.15 then
+		return nil
+	end
+
 	local top = Queries.cast_reachable_grab_top(
 		self,
 		wall.Position,
