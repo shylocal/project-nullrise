@@ -4,7 +4,7 @@ local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local Signal = require(Packages.Signal)
 
-local WeaponsFolder = ReplicatedStorage.shared.weapons
+local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local InventoryRemote = ReplicatedStorage.remotes.Inventory
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
@@ -168,13 +168,7 @@ function InventoryService:SetSlot(player, slot, weapon_id)
 			return false
 		end
 
-		local weapon_module = WeaponsFolder:FindFirstChild(weapon_id)
-		if not weapon_module or not weapon_module:IsA("ModuleScript") then
-			return false
-		end
-
-		local weapon = require(weapon_module)
-		if weapon.Type ~= "Melee" then
+		if not Catalog.Get(weapon_id) then
 			return false
 		end
 	end
