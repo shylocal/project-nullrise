@@ -940,8 +940,11 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 		- Vector3.new(0, Config.HangDrop, 0)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
-	self:_position_hanging()
 
+	-- Resolve the destination wall contact before moving the character. The
+	-- sampled top can be laterally offset from the actual wall face; placing
+	-- the root at this provisional pose first causes a visible/physical nudge
+	-- into the ledge during simultaneous sideways and vertical input.
 	local refreshed = self:_refresh_hang_contact(target_guide, top.Position.Y)
 	if not refreshed then
 		self:_restore_hang_pose(pose_snapshot)
