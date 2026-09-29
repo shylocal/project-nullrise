@@ -683,13 +683,26 @@ function ParkourController:_try_lower_ledge()
 	-- best_top is already the actual exposed lower surface hit at the
 	-- selected column. Do not replace it with _get_guide_top here: that returns
 	-- the highest surface in a stacked Model and can undo the lower selection.
+	local target_normal = self:_get_ledge_outward_normal(best_top, root.Position)
+	if target_normal then
+		self:_debug(
+			"lower ledge outward face resolved; guide=%s normal=%s",
+			best_top.Guide:GetFullName(),
+			tostring(target_normal)
+		)
+	else
+		-- Preserve the existing face if the destination has no detectable
+		-- climbable side surface at the character's hang height.
+		target_normal = normal
+		self:_debug("lower ledge outward face not found; retaining current normal")
+	end
 	self:_debug(
 		"lower ledge selected; guide=%s drop=%.2f horizontal_distance=%.2f",
 		best_top.Guide:GetFullName(),
 		best_drop,
 		best_distance
 	)
-	self:_transfer_hang_to_ledge(best_top)
+	self:_transfer_hang_to_ledge(best_top, target_normal)
 end
 
 function ParkourController:_standing_height()
@@ -779,25 +792,100 @@ function ParkourController:_refresh_hang_contact(expected_guide, expected_top_y)
 	return true
 end
 
-function ParkourController:_transfer_hang_to_ledge(top)
+function ParkourController:_get_ledge_outward_normal(top, reference_position)
+	if not top or not top.Instance or not top.Instance:IsA("BasePart") then
+		return nil
+	end
+
+	local part = top.Instance
+	local guide = top.Guide or self:_get_climbable_guide(part)
+	if not guide then return nil end
+
+	-- The top surface normal is vertical and cannot tell us which vertical
+	-- face the destination ledge presents. Probe outward from the actual
+	-- sampled part along its local horizontal face axes and world axes; the
+	-- raycast's side normal identifies the face that is exposed to the player.
+	local axes = {}
+	local function add_axis(axis)
+		local horizontal = flatten(axis)
+		if horizontal.Magnitude < 0.05 then return end
+		horizontal = horizontal.Unit
+		for _, existing in ipairs(axes) do
+			if math.abs(existing:Dot(horizontal)) > 0.98 then
+				return
+			end
+		end
+		table.insert(axes, horizontal)
+		table.insert(axes, -horizontal)
+	end
+
+	add_axis(part.CFrame.RightVector)
+	add_axis(part.CFrame.UpVector)
+	add_axis(part.CFrame.LookVector)
+	add_axis(Vector3.xAxis)
+	add_axis(Vector3.zAxis)
+
+	local probe_length = WALL_GAP + SURFACE_PROBE + 2
+	local probe_y = top.Position.Y - HANG_DROP + 1.5
+	local best_normal = nil
+	local best_score = math.huge
+	for _, outward in ipairs(axes) do
+		local origin = Vector3.new(top.Position.X, probe_y, top.Position.Z)
+			+ outward * probe_length
+		local hit = self:_cast_climbable_side(origin, -outward * probe_length)
+		if hit and self:_get_climbable_guide(hit.Instance) == guide then
+			local face_normal = flatten(hit.Normal)
+			if face_normal.Magnitude >= 0.05 then
+				face_normal = face_normal.Unit
+				local face_alignment = face_normal:Dot(outward)
+				if face_alignment >= 0.5 then
+					local toward_player = flatten(reference_position - hit.Position)
+					local player_alignment = 0
+					if toward_player.Magnitude >= 0.05 then
+						player_alignment = math.max(0, face_normal:Dot(toward_player.Unit))
+					end
+					local distance = flatten(reference_position - hit.Position).Magnitude
+					local score = distance + (1 - player_alignment) * 1.5
+					if score < best_score then
+						best_score = score
+						best_normal = face_normal
+					end
+				end
+			end
+		end
+	end
+
+	return best_normal
+end
+
+
+function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 	local root = self.Root
 	local normal = self.Normal
 	if not root or not top or not normal then return false end
+
+	local destination_normal = flatten(target_normal or normal)
+	if destination_normal.Magnitude < 0.05 then return false end
+	destination_normal = destination_normal.Unit
 
 	-- W/S change ledge height. Begin with the cached hang transform, then
 	-- immediately resolve the destination's actual side/top contact using the
 	-- same probe that has been correcting the position during A/D traversal.
 	local depth_offset = self.HangDepthOffset
-	if not depth_offset or flatten(depth_offset).Magnitude < 0.05 then
-		local flat_normal = flatten(normal)
-		if flat_normal.Magnitude < 0.05 then return false end
-		depth_offset = flat_normal.Unit * WALL_GAP
+	if target_normal then
+		-- A downward transfer may land on a ledge whose wall faces another
+		-- direction. Use that detected destination normal for both facing and
+		-- stand-off depth instead of carrying the source wall's cached offset.
+		depth_offset = destination_normal * WALL_GAP
+	elseif not depth_offset or flatten(depth_offset).Magnitude < 0.05 then
+		depth_offset = destination_normal * WALL_GAP
 	end
 	local target_guide = top.Guide or self:_get_climbable_guide(top.Instance)
 	if not target_guide then return false end
 
 	self.State = "Hanging"
 	self.CurrentClimbable = target_guide
+	self.Normal = destination_normal
 	self.HangDepthOffset = depth_offset
 	self.HangPosition = top.Position
 		+ depth_offset
