@@ -785,7 +785,18 @@ function ParkourController:_try_vault()
 	local hop_distance = far_edge_distance + Config.VaultLandingGap
 	local landing_origin_y = math.max(root.Position.Y, top.Position.Y)
 		+ standing_height + Config.VaultMaxHeight + 2
-	local landing_ray = Vector3.new(0, -(standing_height + Config.VaultMaxHeight + 5), 0)
+	-- The origin rises with the obstacle top. A fixed ray length can therefore
+	-- stop at (or above) the starting floor for taller walls, making every
+	-- far-side probe miss otherwise valid ground. Extend below the known floor
+	-- by the landing-height tolerance plus a safety margin.
+	local landing_ray = Vector3.new(
+		0,
+		-(landing_origin_y - current_ground_y + Config.VaultLandingHeightTolerance + 1),
+		0
+	)
+	vault_debug("landing ray range", "originY=", landing_origin_y,
+		"length=", -landing_ray.Y, "knownGroundY=", current_ground_y,
+		"rayEndY=", landing_origin_y + landing_ray.Y)
 	local hit_relative = obstacle_hit.Position - root.Position
 	-- Continue along the exact lane that detected the obstacle. Side probes
 	-- can hit a wall away from the character's centerline, so dropping this
