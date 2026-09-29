@@ -364,6 +364,31 @@ function ParkourController:_step(dt)
 			return
 		end
 		self:_traverse(dt)
+	elseif self.State == "Mantling" then
+		local root = self.Root
+		self._mantleElapsed = math.min((self._mantleElapsed or 0) + math.max(dt, 0), self._mantleDuration)
+		local linear = self._mantleElapsed / self._mantleDuration
+		local alpha = linear * linear * (3 - 2 * linear)
+		if root and self._mantleStart and self._mantleTarget then
+			root.CFrame = self._mantleStart:Lerp(self._mantleTarget, alpha)
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
+		if linear >= 1 then
+			self.State = "Grounded"
+			self._mantleStart = nil
+			self._mantleTarget = nil
+			self._mantleElapsed = nil
+			self._mantleDuration = nil
+			if self.Humanoid then
+				if self.AutoRotateBeforeHang ~= nil then self.Humanoid.AutoRotate = self.AutoRotateBeforeHang end
+				if self.PlatformStandBeforeHang ~= nil then self.Humanoid.PlatformStand = self.PlatformStandBeforeHang end
+				self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+			end
+			self.AutoRotateBeforeHang = nil
+			self.PlatformStandBeforeHang = nil
+			if self.MovementController then self.MovementController:SetSprintBlocked(false) end
+		end
 	end
 end
 
@@ -1147,13 +1172,23 @@ function ParkourController:_try_ground_mantle(current_top, normal, tangent)
 		best_ground.Position.Z
 	)
 		self.GrabBlockedUntilJumpReleased = true
-	self:_release()
-	root.CFrame = CFrame.lookAt(grounded_position, grounded_position - outward_normal)
+	local start_cframe = root.CFrame
+	local target_cframe = CFrame.lookAt(grounded_position, grounded_position - outward_normal)
+	-- Keep the hang's movement lock while blending to the floor so the
+	-- Humanoid cannot fight the scripted mantle path.
+	self.State = "Mantling"
+	self.CurrentClimbable = nil
+	self.Normal = nil
+	self.HangDepthOffset = nil
+	self.HangPosition = nil
+	self.CornerLockPosition = nil
+	self.CornerLockInputDirection = nil
+	self._mantleStart = start_cframe
+	self._mantleTarget = target_cframe
+	self._mantleElapsed = 0
+	self._mantleDuration = 0.35
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
-	if self.Humanoid then
-		self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
-	end
 	return true
 end
 
