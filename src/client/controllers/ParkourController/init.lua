@@ -20,6 +20,7 @@ local TRAVERSE_SPEED = 5
 local SURFACE_PROBE = 1.4
 local MANTLE_SAMPLE_STEP = 0.75
 local MANTLE_SAMPLE_COUNT = 4
+local MANTLE_LANDING_OFFSETS = { -0.6, -0.3, 0, 0.3, 0.6, 0.9, 1.2 }
 local LOWER_PROBE_OFFSETS = { 0.15, 0.45, 0.75, 1.05 }
 
 local function flatten(vector)
@@ -478,26 +479,64 @@ function ParkourController:_has_standing_clearance(position, normal)
 	return true, nil
 end
 
-function ParkourController:_complete_mantle(top, normal)
+function ParkourController:_find_mantle_landing_position(top, normal)
 	local root = self.Root
-	if not root or not top then return false end
+	if not root then return nil end
 
-	-- Keep the landing root on the approach side of the ledge. Moving
-	-- inward by a fixed inset can place the standing volume inside a tall
-	-- backing wall, even when the sampled top itself is reachable.
-	local standing_position = top.Position
-		+ normal * WALL_GAP
-		+ Vector3.new(0, self:_standing_height() + 0.05, 0)
-	local clear, blocker = self:_has_standing_clearance(standing_position, normal)
-	if not clear then
-		self:_debug(
-			"mantle blocked by standing clearance; top=%s blocker=%s position=%s",
-			top.Instance:GetFullName(),
-			blocker and blocker:GetFullName() or "unknown",
-			tostring(standing_position)
+	local standing_height = self:_standing_height()
+	for _, inset in ipairs(MANTLE_LANDING_OFFSETS) do
+		-- Positive inset moves toward the platform interior (opposite the
+		-- outward wall normal); choose the first location with both support
+		-- directly below and enough room for the character.
+		local position = top.Position
+			- normal * inset
+			+ Vector3.new(0, standing_height + 0.05, 0)
+
+		local floor = self:_cast(
+			position + Vector3.new(0, 0.15, 0),
+			Vector3.new(0, -(standing_height + 0.65), 0)
 		)
-		return false
+		if not floor or floor.Normal.Y < 0.5 then
+			self:_debug(
+				"landing inset %.2f: no walkable support beneath top=%s",
+				inset,
+				top.Instance:GetFullName()
+			)
+		elseif math.abs(floor.Position.Y - top.Position.Y) > 0.5 then
+			self:_debug(
+				"landing inset %.2f: support %s is at y=%.2f, sampled top y=%.2f",
+				inset,
+				floor.Instance:GetFullName(),
+				floor.Position.Y,
+				top.Position.Y
+			)
+		else
+			local clear, blocker = self:_has_standing_clearance(position, normal)
+			if clear then
+				self:_debug(
+					"landing inset %.2f valid; support=%s top=%s position=%s",
+					inset,
+					floor.Instance:GetFullName(),
+					top.Instance:GetFullName(),
+					tostring(position)
+				)
+				return position
+			end
+			self:_debug(
+				"landing inset %.2f blocked by %s; support=%s",
+				inset,
+				blocker and blocker:GetFullName() or "unknown",
+				floor.Instance:GetFullName()
+			)
+		end
 	end
+
+	return nil
+end
+
+function ParkourController:_complete_mantle(top, normal, standing_position)
+	local root = self.Root
+	if not root or not top or not standing_position then return false end
 
 	self:_debug("mantle completed; top=%s position=%s", top.Instance:GetFullName(), tostring(standing_position))
 	-- Space is commonly still held from the grab. Do not let the grounded
@@ -528,6 +567,7 @@ function ParkourController:_try_mantle()
 	local best_top = nil
 	local best_height = -math.huge
 	local best_offset = math.huge
+	local best_standing_position = nil
 
 	-- Sample from the current lip inward across the platform. This finds the
 	-- current ledge as well as a reachable higher tier behind it.
@@ -563,30 +603,23 @@ function ParkourController:_try_mantle()
 					height_above_lip
 				)
 			else
-				-- Tagged ledges and ordinary visible walkable ground are both valid
-				-- mantle destinations when there is clear standing room.
-				local standing_position = top.Position
-					+ normal * WALL_GAP
-					+ Vector3.new(0, self:_standing_height() + 0.05, 0)
-				local clear, blocker = self:_has_standing_clearance(standing_position, normal)
-				if not clear then
-					self:_debug(
-						"mantle sample %.2f: top=%s blocked by %s",
-						offset,
-						top.Instance:GetFullName(),
-						blocker and blocker:GetFullName() or "unknown"
-					)
-				elseif height_above_lip > best_height
-					or (height_above_lip == best_height and offset < best_offset) then
+				-- A mantle target must have a walkable support surface directly
+				-- beneath the standing root, as well as clear space for the body.
+				local standing_position = self:_find_mantle_landing_position(top, normal)
+				if standing_position
+					and (height_above_lip > best_height
+						or (height_above_lip == best_height and offset < best_offset)) then
 					best_top = top
 					best_height = height_above_lip
 					best_offset = offset
+					best_standing_position = standing_position
 					self:_debug(
-						"mantle candidate at %.2f: top=%s climbable=%s rise=%.2f",
+						"mantle candidate at %.2f: top=%s climbable=%s rise=%.2f landing=%s",
 						offset,
 						top.Instance:GetFullName(),
 						tostring(climbable),
-						height_above_lip
+						height_above_lip,
+						tostring(standing_position)
 					)
 				end
 			end
@@ -600,7 +633,7 @@ function ParkourController:_try_mantle()
 			best_height,
 			best_offset
 		)
-		self:_complete_mantle(best_top, normal)
+		self:_complete_mantle(best_top, normal, best_standing_position)
 	else
 		self:_debug("mantle found no valid standable top surface")
 	end
