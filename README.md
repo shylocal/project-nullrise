@@ -96,6 +96,6 @@ Project-wide defaults belong in focused configuration modules. Per-character mov
 
 Use Signal for internal Lua events. Use Roblox remotes for client/server communication. Keep server validation authoritative and do not trust client-reported combat state without validating it against the current session, equipped weapon, hitbox, and target.
 
-Controllers and services own their connections and disposable instances through Trove and expose `Destroy()`. The client and server entrypoints return runtime tables with deterministic teardown; dependents are destroyed before the services they reference.
+Controllers and services own their connections and disposable instances through Trove and expose `Destroy()`. The client and server entrypoints define deterministic teardown order and invoke it when the entrypoint script is destroyed; dependents are cleaned up before the services they reference.
 
 Keep game-specific concepts close to the gameplay they belong to. Extract a module when it represents a real responsibility or isolates a meaningful implementation detail, not simply to make a file shorter.
