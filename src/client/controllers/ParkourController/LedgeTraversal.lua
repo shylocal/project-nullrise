@@ -440,9 +440,8 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 	local best_ground = nil
 	local best_score = math.huge
 
-	-- W can finish onto ordinary visible floor as well as a tagged guide.
-	-- Probe several nearby columns ahead of the wall; only a real collidable,
-	-- walkable, non-Climbable surface above the current ledge is eligible.
+	-- W can mantle onto any collidable, walkable surface, including untagged
+	-- parts. The Climbable collision group is reserved for query/helper geometry.
 	for _, inward_offset in ipairs(inward_offsets) do
 		for _, lateral_factor in ipairs(lateral_factors) do
 			local sample = current_top
@@ -607,9 +606,8 @@ function LedgeTraversal.try_mantle(self)
 					end
 	end
 
-	-- Sample real surface columns around the current hang point. This avoids
-	-- using a resized parent Model's bounding-box center or footprint as the
-	-- destination, while still finding offset, wide, and multi-part ledges.
+	-- Sample tagged guides for multi-part ledges, while the ground fallback below
+	-- handles ordinary untagged parts.
 	for _, guide in ipairs(CollectionService:GetTagged(Config.ClimbableTag)) do
 		if guide:IsDescendantOf(Workspace) then
 			for _, lateral_offset in ipairs(lateral_samples) do
