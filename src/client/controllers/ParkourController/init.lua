@@ -53,6 +53,10 @@ function ParkourController:_start()
 		if action == Actions.Jump then
 			if self.GrabBlockedUntilJumpReleased then
 				self.GrabBlockedUntilJumpReleased = false
+				if self.Humanoid and self.JumpingEnabledBeforeMantle ~= nil then
+					self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, self.JumpingEnabledBeforeMantle)
+					self.JumpingEnabledBeforeMantle = nil
+				end
 				if self.State == "Grounded" and self.Humanoid then
 					if self.AutoRotateBeforeHang ~= nil then self.Humanoid.AutoRotate = self.AutoRotateBeforeHang end
 					if self.PlatformStandBeforeHang ~= nil then self.Humanoid.PlatformStand = self.PlatformStandBeforeHang end
@@ -1181,6 +1185,11 @@ function ParkourController:_try_ground_mantle(current_top, normal, tangent)
 		best_ground.Position.Z
 	)
 		self.GrabBlockedUntilJumpReleased = true
+	if self.Humanoid then
+		self.JumpingEnabledBeforeMantle = self.Humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping)
+		self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+		self.Humanoid.Jump = false
+	end
 	local start_cframe = root.CFrame
 	local target_cframe = CFrame.lookAt(grounded_position, grounded_position - outward_normal)
 	-- Keep the hang's movement lock while blending to the floor so the
