@@ -32,7 +32,7 @@ function Catalog.Get(weapon_id)
 		return nil
 	end
 
-	if typeof(definition) ~= "table" or definition.Type ~= "Melee" then
+	if typeof(definition) ~= "table" then
 		return nil
 	end
 
