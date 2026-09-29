@@ -12,7 +12,9 @@ ParkourController.__index = ParkourController
 local Config = require(script.Config)
 
 local function vault_debug(...)
-	print("[ParkourVault]", ...)
+	if Config.VaultDebug then
+		print("[ParkourVault]", ...)
+	end
 end
 
 local function flatten(vector)
@@ -998,6 +1000,7 @@ function ParkourController:_try_vault()
 	-- Add airtime only for taller walls; low vaults retain their existing pace.
 	vault_duration += tall_height_factor
 		* math.max(0, Config.VaultTallDurationPerStud or 0)
+	vault_duration *= math.clamp(Config.VaultDurationMultiplier or 1, 0.5, 1.5)
 
 	self.NextVaultAt = now + Config.VaultCooldown
 	self._vaultExitVelocity = horizontal_velocity
