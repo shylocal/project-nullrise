@@ -226,7 +226,9 @@ function Queries.detect_surface(self)
 	-- smallest stand-off that clears the root collision envelope.
 	local edge_gap = Config.WallGap
 	if tall_wall then
-		edge_gap = root.Size.Z * 0.5 + Config.TallWallEdgeClearance
+		-- The top ray samples 0.1 studs inside the wall footprint; compensate
+		-- so the root still stops just outside the physical face.
+		edge_gap = root.Size.Z * 0.5 + Config.TallWallEdgeClearance + 0.1
 	end
 	local hang_position = top.Position + hang_normal * edge_gap - Vector3.new(0, Config.HangDrop, 0)
 	local body_clear = Queries.has_hang_body_clearance(self, hang_position, hang_normal)
