@@ -46,7 +46,11 @@ function CombatController.new(
 	}, CombatController)
 
 	self.Trove:Add(self.Hit)
-	self:_start(input_controller)
+	local ok, err = pcall(self._start, self, input_controller)
+	if not ok then
+		self:Destroy()
+		error(err, 0)
+	end
 
 	return self
 end
