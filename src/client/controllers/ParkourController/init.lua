@@ -944,8 +944,8 @@ function ParkourController:_try_vault()
 		self._topHopActive = { StartedAt = os.clock(), SawAir = false }
 		humanoid.Jump = true
 		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-		-- Preserve existing horizontal momentum without adding the vault boost.
-		-- Collision handling remains with the normal Humanoid/physics solver.
+		-- Apply the calculated forward assist for supported raised surfaces;
+		-- the Humanoid/physics solver still resolves collisions normally.
 		root.AssemblyLinearVelocity = Vector3.new(
 			hop_horizontal_velocity.X,
 			hop_vertical_speed,
