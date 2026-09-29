@@ -298,7 +298,7 @@ function ParkourController:_grab(guide, normal, position)
 	end
 
 	if self.MovementController and self.MovementController.SetSprintBlocked then
-		self.MovementController:SetSprintBlocked(true)
+		self.MovementController:SetSprintBlocked(true, self)
 	end
 	self:_position_hanging()
 end
@@ -420,7 +420,7 @@ function ParkourController:_step(dt)
 			end
 			self.AutoRotateBeforeHang = nil
 			self.PlatformStandBeforeHang = nil
-			if self.MovementController then self.MovementController:SetSprintBlocked(false) end
+			if self.MovementController then self.MovementController:SetSprintBlocked(false, self) end
 		end
 	elseif self.State == "Vaulting" then
 		local root = self.Root
