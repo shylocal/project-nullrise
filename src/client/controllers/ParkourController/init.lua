@@ -478,11 +478,6 @@ function ParkourController:_try_vault()
 	end
 
 	local now = os.clock()
-	if now < (self.NextVaultProbeAt or 0) then
-		return false
-	end
-	self.NextVaultProbeAt = now + Config.VaultProbeInterval
-
 	local root = self.Root
 	local humanoid = self.Humanoid
 	if not root or not humanoid or humanoid.Health <= 0
@@ -535,6 +530,31 @@ function ParkourController:_try_vault()
 		return false
 	end
 
+	-- Project the obstacle's oriented bounds into the travel direction. This
+	-- lets us distinguish a short hop across it from a longer landing onto it.
+	local half_depth = (
+		math.abs(obstacle.CFrame.RightVector:Dot(forward)) * obstacle.Size.X
+		+ math.abs(obstacle.CFrame.UpVector:Dot(forward)) * obstacle.Size.Y
+		+ math.abs(obstacle.CFrame.LookVector:Dot(forward)) * obstacle.Size.Z
+	) * 0.5
+	local center_distance = (obstacle.Position - root.Position):Dot(forward)
+	local near_edge_distance = center_distance - half_depth
+	local far_edge_distance = center_distance + half_depth
+	if far_edge_distance <= 0 then
+		return false
+	end
+
+	-- Sample the top close to the near edge, rather than aiming at the center
+	-- of a long obstacle. This creates a short hop onto broad surfaces.
+	local top_inset = math.min(
+		Config.VaultTopLandingInset,
+		math.max(0.25, half_depth * 0.75)
+	)
+	local top_sample_distance = near_edge_distance + top_inset
+	local hit_relative = obstacle_hit.Position - root.Position
+	local lateral_offset = hit_relative - forward * hit_relative:Dot(forward)
+	local top_sample = root.Position + forward * top_sample_distance + lateral_offset
+
 	local top_params = self._vaultTopParams or RaycastParams.new()
 	self._vaultTopParams = top_params
 	top_params.FilterType = Enum.RaycastFilterType.Include
@@ -542,10 +562,14 @@ function ParkourController:_try_vault()
 	top_params.IgnoreWater = true
 	top_params.RespectCanCollide = true
 
-	local top_origin = obstacle.Position + Vector3.new(0, obstacle.Size.Magnitude + 2, 0)
+	local top_origin = Vector3.new(
+		top_sample.X,
+		obstacle.Position.Y + obstacle.Size.Magnitude + 4,
+		top_sample.Z
+	)
 	local top = Workspace:Raycast(
 		top_origin,
-		Vector3.new(0, -(obstacle.Size.Magnitude * 2 + 4), 0),
+		Vector3.new(0, -(obstacle.Size.Magnitude * 2 + 8), 0),
 		top_params
 	)
 	if not top or top.Normal.Y < 0.5 then
@@ -558,38 +582,38 @@ function ParkourController:_try_vault()
 		return false
 	end
 
-	-- Project the oriented part's half-extents along the travel direction so
-	-- the landing point is beyond its far edge, not merely beyond the ray hit.
-	local half_depth = (
-		math.abs(obstacle.CFrame.RightVector:Dot(forward)) * obstacle.Size.X
-		+ math.abs(obstacle.CFrame.UpVector:Dot(forward)) * obstacle.Size.Y
-		+ math.abs(obstacle.CFrame.LookVector:Dot(forward)) * obstacle.Size.Z
-	) * 0.5
-	local center_distance = (obstacle.Position - root.Position):Dot(forward)
-	local landing_distance = center_distance + half_depth + Config.VaultLandingGap
-	if landing_distance <= 0 then
-		return false
+	local target_position = nil
+	local hop_distance = far_edge_distance + Config.VaultLandingGap
+	if hop_distance <= Config.VaultMaxHopDistance then
+		local landing_xz = root.Position + forward * hop_distance
+		local landing_origin_y = math.max(root.Position.Y, top.Position.Y)
+			+ standing_height + Config.VaultMaxHeight + 2
+		local landing_ground = self:_cast(
+			Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
+			Vector3.new(0, -(standing_height + Config.VaultMaxHeight + 5), 0),
+			true
+		)
+		if landing_ground and landing_ground.Normal.Y >= 0.5
+			and math.abs(landing_ground.Position.Y - current_ground_y) <= Config.VaultLandingHeightTolerance
+			and landing_ground.Instance ~= obstacle then
+			target_position = Vector3.new(
+				landing_ground.Position.X,
+				landing_ground.Position.Y + standing_height - 0.05,
+				landing_ground.Position.Z
+			)
+		end
 	end
 
-	local landing_xz = root.Position + forward * landing_distance
-	local landing_origin_y = math.max(root.Position.Y, top.Position.Y)
-		+ standing_height + Config.VaultMaxHeight + 2
-	local landing_ground = self:_cast(
-		Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
-		Vector3.new(0, -(standing_height + Config.VaultMaxHeight + 5), 0),
-		true
-	)
-	if not landing_ground or landing_ground.Normal.Y < 0.5
-		or math.abs(landing_ground.Position.Y - current_ground_y) > Config.VaultLandingHeightTolerance
-		or landing_ground.Instance == obstacle then
-		return false
+	-- If the far side is too distant or has no safe floor, land on the
+	-- walkable top we sampled just beyond the obstacle's near edge.
+	if not target_position then
+		target_position = Vector3.new(
+			top.Position.X,
+			top.Position.Y + standing_height - 0.05,
+			top.Position.Z
+		)
 	end
 
-	local target_position = Vector3.new(
-		landing_ground.Position.X,
-		landing_ground.Position.Y + standing_height - 0.05,
-		landing_ground.Position.Z
-	)
 	local start_cframe = root.CFrame
 	local target_cframe = CFrame.lookAt(target_position, target_position + forward)
 	local midpoint_y = (start_cframe.Position.Y + target_cframe.Position.Y) * 0.5
@@ -599,9 +623,7 @@ function ParkourController:_try_vault()
 		return false
 	end
 
-	-- Check the swept body envelope at several points, including the landing.
-	-- This rejects low ceilings and blocked destination space before committing
-	-- to the scripted movement.
+	-- Reject low ceilings and blocked landing space before committing.
 	local clearance_size = Vector3.new(
 		root.Size.X + 0.5,
 		math.max(root.Size.Y + 0.25, standing_height * 1.6),
