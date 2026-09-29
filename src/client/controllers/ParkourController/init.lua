@@ -821,14 +821,17 @@ function ParkourController:_try_vault()
 	local support_lateral_offsets = { -0.8, -0.4, 0, 0.4, 0.8 }
 	local support_count = 0
 	local support_total = #support_forward_offsets * #support_lateral_offsets
+	local support_index = 0
 	local support_samples = {}
 	for _, forward_factor in ipairs(support_forward_offsets) do
 		for _, lateral_factor in ipairs(support_lateral_offsets) do
+			support_index += 1
 			local sample_position = obstacle.Position
 				+ forward * (half_depth * forward_factor)
 				+ obstacle_lateral * (lateral_half_depth * lateral_factor)
+			local support_origin = Vector3.new(sample_position.X, support_origin_y, sample_position.Z)
 			local support_hit = Workspace:Raycast(
-				Vector3.new(sample_position.X, support_origin_y, sample_position.Z),
+				support_origin,
 				support_ray,
 				support_params
 			)
@@ -839,18 +842,31 @@ function ParkourController:_try_vault()
 				support_count += 1
 			end
 			table.insert(support_samples, supported)
+			vault_debug("ground-support probe", "index=", support_index, "/", support_total,
+				"sample=", sample_position, "origin=", support_origin,
+				"hit=", support_hit and support_hit.Instance:GetFullName() or "nil",
+				"hitY=", support_hit and support_hit.Position.Y or "nil",
+				"normalY=", support_hit and support_hit.Normal.Y or "nil",
+				"bottomDelta=", support_hit and (support_hit.Position.Y - obstacle_bottom_y) or "nil",
+				"supported=", supported)
 		end
 	end
 	local has_continuous_ground_beneath = support_count == support_total
-	vault_debug("obstacle ground support", "part=", obstacle:GetFullName(),
-		"bottomY=", obstacle_bottom_y, "tolerance=", support_tolerance,
-		"supportHits=", support_count, "/", support_total,
-		"continuous=", has_continuous_ground_beneath)
+	local use_top_hop = obstacle_length >= long_obstacle_threshold or has_continuous_ground_beneath
+	vault_debug("obstacle ground support summary", "part=", obstacle:GetFullName(),
+		"partSize=", obstacle.Size, "lengthAlongTravel=", half_depth * 2,
+		"lengthAcrossTravel=", lateral_half_depth * 2, "classifiedLength=", obstacle_length,
+		"longThreshold=", long_obstacle_threshold, "bottomY=", obstacle_bottom_y,
+		"tolerance=", support_tolerance, "supportHits=", support_count, "/", support_total,
+		"continuous=", has_continuous_ground_beneath, "route=", use_top_hop and "HOP_TO_TOP" or "VAULT_OVER")
 
 	-- Long obstacles still use a physical hop, and any obstacle with continuous
 	-- ground beneath it now prioritizes hopping onto its top instead of vaulting
 	-- through to the far side.
-	if obstacle_length >= long_obstacle_threshold or has_continuous_ground_beneath then
+	if use_top_hop then
+		vault_debug("selected top-hop route", "part=", obstacle:GetFullName(),
+			"reasonLong=", obstacle_length >= long_obstacle_threshold,
+			"reasonContinuousGround=", has_continuous_ground_beneath)
 		local top_target = Vector3.new(
 			top.Position.X,
 			top.Position.Y + standing_height - 0.05,
