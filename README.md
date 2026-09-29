@@ -83,8 +83,14 @@ Prefer plain modules over abstractions.
 
 Use a class-style module when an object has meaningful state and lifecycle. Give objects an explicit `Destroy` method and use Trove when they own connections, instances, threads, or other disposable resources.
 
-Weapon definitions are data modules under `src/shared/weapons`. Client controllers interpret them for presentation; server services remain authoritative over gameplay state.
+Weapon definitions are data modules under `src/shared/weapons`. Resolve them through `Catalog.Get(weapon_id)` so client and server use the same discovery and type checks. A new melee weapon is added as a definition module plus its authored model/assets; avoid duplicating module lookup logic in controllers or services.
 
-Use Signal for internal Lua events. Use Roblox remotes for client/server communication.
+Remote action strings belong in `src/shared/network/Protocol.lua`. Treat those names and argument order as a client/server contract: update both ends together when changing a message.
+
+Project-wide defaults belong in focused configuration modules. Per-character movement modifiers should use `MovementController:SetSpeeds(walk_speed, sprint_speed)` rather than writing directly to the Humanoid, so sprint blocking and the controller's state remain consistent.
+
+Use Signal for internal Lua events. Use Roblox remotes for client/server communication. Keep server validation authoritative and do not trust client-reported combat state without validating it against the current session, equipped weapon, hitbox, and target.
+
+Controllers and services own their connections and disposable instances through Trove and expose `Destroy()`. The client and server entrypoints return runtime tables with deterministic teardown; dependents are destroyed before the services they reference.
 
 Keep game-specific concepts close to the gameplay they belong to. Extract a module when it represents a real responsibility or isolates a meaningful implementation detail, not simply to make a file shorter.
