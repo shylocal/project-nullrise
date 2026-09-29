@@ -64,11 +64,28 @@ function ParkourController:_start()
 		self:_step(dt)
 	end)
 
-	if self.Humanoid then
-		self.Trove:Connect(self.Humanoid.Died, function()
-			self:_release()
-		end)
-	end
+	self:_bind_character_parts()
+	self.Trove:Connect(self.Character.ChildAdded, function(child)
+		if child.Name == "HumanoidRootPart" then
+			self.Root = child
+		elseif child:IsA("Humanoid") then
+			self:_bind_humanoid(child)
+		end
+	end)
+end
+
+function ParkourController:_bind_character_parts()
+	self.Root = self.Character:FindFirstChild("HumanoidRootPart")
+	local humanoid = self.Character:FindFirstChildOfClass("Humanoid")
+	if humanoid then self:_bind_humanoid(humanoid) end
+end
+
+function ParkourController:_bind_humanoid(humanoid)
+	if self.Humanoid == humanoid then return end
+	self.Humanoid = humanoid
+	self.Trove:Connect(humanoid.Died, function()
+		self:_release()
+	end)
 end
 
 function ParkourController:_cast(origin, direction)
