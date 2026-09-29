@@ -425,26 +425,35 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 				Vector3.new(0, -ray_length, 0),
 				true
 			)
-			if ground and ground.Normal.Y >= 0.5 and not ClimbableQuery.is_climbable(ground.Instance) then
-				local rise = ground.Position.Y - current_top.Y
-				local relative = ground.Position - current_top
-				local inward_distance = relative:Dot(-outward_normal)
-				local lateral_distance = math.abs(Vector.flatten(relative):Dot(sideways))
-				local root_to_floor = root.Position.Y - ground.Position.Y
-				local reachable = rise > Config.MantleMinRise
-					and rise <= Config.GroundMantleMaxRise
-					and inward_distance >= 0.25
-					and inward_distance <= Config.MantleMaxInward
-					and lateral_distance <= Config.MantleMaxLateral
-					and root_to_floor <= Config.GroundMantleMaxRise + Config.HangDrop
+			if ground and ground.Normal.Y >= 0.5 then
+				local ground_guide = ClimbableQuery.get_guide(ground.Instance)
+				local is_current_guide = ground_guide ~= nil
+					and ground_guide == self.CurrentClimbable
+				if not ground_guide or is_current_guide then
+					local rise = ground.Position.Y - current_top.Y
+					local relative = ground.Position - current_top
+					local inward_distance = relative:Dot(-outward_normal)
+					local lateral_distance = math.abs(Vector.flatten(relative):Dot(sideways))
+					local root_to_floor = root.Position.Y - ground.Position.Y
+					-- A ledge grab already places the root below the ledge's top.
+					-- Permit landing on that same top, while ordinary ground mantles
+					-- retain the configured minimum rise.
+					local minimum_rise = if is_current_guide then -0.25 else Config.MantleMinRise
+					local reachable = rise >= minimum_rise
+						and rise <= Config.GroundMantleMaxRise
+						and inward_distance >= 0.25
+						and inward_distance <= Config.MantleMaxInward
+						and lateral_distance <= Config.MantleMaxLateral
+						and root_to_floor <= Config.GroundMantleMaxRise + Config.HangDrop
 
-				if reachable then
-					local score = inward_distance * inward_distance
-						+ lateral_distance * lateral_distance
-						+ rise * rise * 0.15
-					if score < best_score then
-						best_ground = ground
-						best_score = score
+					if reachable then
+						local score = inward_distance * inward_distance
+							+ lateral_distance * lateral_distance
+							+ rise * rise * 0.15
+						if score < best_score then
+							best_ground = ground
+							best_score = score
+						end
 					end
 				end
 			end
