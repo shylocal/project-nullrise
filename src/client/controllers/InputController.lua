@@ -32,6 +32,10 @@ function InputController.new()
 end
 
 function InputController:_start()
+	self.Trove:Connect(UserInputService.WindowFocusReleased, function()
+		self:_release_all()
+	end)
+
 	local began = function(action)
 		self:_began(action)
 	end
@@ -63,6 +67,19 @@ function InputController:_ended(action)
 
 	self.Down[action] = nil
 	self.ActionEnded:Fire(action)
+end
+
+-- Release every held action when Roblox loses window focus. InputEnded is not
+-- guaranteed to arrive after an application switch or an overlay transition.
+function InputController:_release_all()
+	local held_actions = {}
+	for action in pairs(self.Down) do
+		table.insert(held_actions, action)
+	end
+
+	for _, action in ipairs(held_actions) do
+		self:_ended(action)
+	end
 end
 
 function InputController:IsDown(action)
