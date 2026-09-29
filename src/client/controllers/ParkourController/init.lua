@@ -1053,7 +1053,14 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 	-- one segment of a wider wall, so a fixed six-stud search can stop before
 	-- reaching the actual far side and incorrectly reject every tall-wall vault.
 	local landing_extra_distances = { 0, 0.75, 1.5, 2.5, 4, 6 }
-	local max_landing_extra = math.max(0, Config.VaultMaxHopDistance - hop_distance)
+	-- Keep scripted vaults from traversing an entire long obstacle when
+	-- approached along its side. This cap applies to the root-to-landing
+	-- displacement; the broader general hop limit remains a hard upper bound.
+	local max_vault_distance = math.min(
+		Config.VaultMaxHopDistance,
+		Config.VaultMaxOverDistance or Config.VaultMaxHopDistance
+	)
+	local max_landing_extra = math.max(0, max_vault_distance - hop_distance)
 	local next_landing_extra = 6.75
 	while next_landing_extra < max_landing_extra do
 		table.insert(landing_extra_distances, next_landing_extra)
@@ -1074,7 +1081,7 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 	local last_landing_hit = nil
 	for _, extra_distance in ipairs(landing_extra_distances) do
 		local landing_distance = hop_distance + extra_distance
-		if landing_distance <= Config.VaultMaxHopDistance then
+		if landing_distance <= max_vault_distance then
 			for _, lateral_adjustment in ipairs({ 0, -0.75, 0.75 }) do
 				local side = forward:Cross(Vector3.yAxis)
 				local landing_xz = root.Position + forward * landing_distance + landing_lateral
@@ -1084,7 +1091,7 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 				-- Enforce the cap on the real horizontal displacement too;
 				-- the lateral fan otherwise adds a small amount beyond 24 studs.
 				local actual_hop_distance = flatten(landing_xz - root.Position).Magnitude
-				if actual_hop_distance <= Config.VaultMaxHopDistance + 1e-4 then
+				if actual_hop_distance <= max_vault_distance + 1e-4 then
 					landing_stats.probes += 1
 					local landing_ground = self:_cast(
 						Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
@@ -1128,7 +1135,8 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 		vault_debug("REJECT: tall obstacle has no validated far-side landing",
 			"height=", obstacle_height, "threshold=", Config.VaultFarSideOnlyHeight,
 			"farEdge=", far_edge_distance, "landingGap=", Config.VaultLandingGap,
-			"initialHopDistance=", hop_distance, "maxHop=", Config.VaultMaxHopDistance,
+			"initialHopDistance=", hop_distance, "maxHop=", max_vault_distance,
+			"configuredVaultCap=", Config.VaultMaxOverDistance or Config.VaultMaxHopDistance,
 			"landingProbeCount=", landing_stats.probes,
 			"overRange=", landing_stats.overRange, "noHit=", landing_stats.noHit,
 			"steep=", landing_stats.steep, "wrongHeight=", landing_stats.wrongHeight,
