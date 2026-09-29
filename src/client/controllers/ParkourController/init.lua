@@ -18,7 +18,6 @@ local HANG_DROP = 2.35
 local WALL_GAP = 0.8
 local TRAVERSE_SPEED = 5
 local SURFACE_PROBE = 1.4
-local MANTLE_LANDING_OFFSETS = { -0.6, -0.3, 0, 0.3, 0.6, 0.9, 1.2 }
 local LOWER_PROBE_OFFSETS = { 0.15, 0.45, 0.75, 1.05 }
 local MAX_TOP_SURFACE_HITS = 16
 -- Max ledge-to-ledge rise; root-to-top range also accounts for the hang drop below the ledge.
@@ -510,132 +509,13 @@ function ParkourController:_standing_height()
 	return hip_height + root.Size.Y * 0.5
 end
 
-function ParkourController:_has_standing_clearance(position, normal)
-	local root = self.Root
-	if not root then return false end
-
-	-- Check the character-sized volume above the candidate floor. Keep a small
-	-- gap at the bottom so the supporting ledge itself is not counted as an
-	-- obstruction.
-	local standing_height = self:_standing_height()
-	local box_size = Vector3.new(
-		root.Size.X * 1.35,
-		math.max(1, standing_height * 2 - 0.2),
-		root.Size.Z * 1.35
-	)
-	local params = OverlapParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { self.Character }
-
-	local facing = normal and -normal or root.CFrame.LookVector
-	local bounds = Workspace:GetPartBoundsInBox(
-		CFrame.lookAt(position, position + facing),
-		box_size,
-		params
-	)
-	for _, part in ipairs(bounds) do
-		if part.CanCollide then
-			return false, part
-		end
-	end
-	return true, nil
-end
-
 function ParkourController:_find_mantle_landing_position(top, normal)
-	local root = self.Root
-	if not root then return nil end
-
 	local standing_height = self:_standing_height()
-	for _, inset in ipairs(MANTLE_LANDING_OFFSETS) do
-		-- Positive inset moves toward the platform interior (opposite the
-		-- outward wall normal); choose the first location with both support
-		-- directly below and enough room for the character.
-		local position = top.Position
-			- normal * inset
-			+ Vector3.new(0, standing_height + 0.05, 0)
-
-		-- Only accept physically collidable support. Tagged climb volumes can
-		-- be queryable but non-collidable, which looks like a valid floor to a
-		-- normal raycast yet cannot hold the character after the mantle.
-		-- Start above the full reachable vertical span to avoid ray origins
-		-- inside tall backing geometry; still test the exact proposed root X/Z.
-		local support_origin = Vector3.new(
-			position.X,
-			top.Position.Y + MAX_GRAB_HEIGHT + standing_height + 2,
-			position.Z
-		)
-		local support_direction = Vector3.new(
-			0,
-			-(MAX_GRAB_HEIGHT + standing_height + 3),
-			0
-		)
-		local floor = self:_cast(support_origin, support_direction, true)
-		if not floor then
-			-- Compare the collidable-only ray with a normal query ray to identify
-			-- non-collidable climb markers versus a bad probe location.
-			local query_floor = self:_cast(support_origin, support_direction)
-			if query_floor then
-				self:_debug(
-					"landing inset %.2f: collidable ray missed; query hit=%s CanCollide=%s CanQuery=%s normal=%s top=%s topCanCollide=%s",
-					inset,
-					query_floor.Instance:GetFullName(),
-					tostring(query_floor.Instance.CanCollide),
-					tostring(query_floor.Instance.CanQuery),
-					tostring(query_floor.Normal),
-					top.Instance:GetFullName(),
-					tostring(top.Instance.CanCollide)
-				)
-			else
-				self:_debug(
-					"landing inset %.2f: both support rays missed; origin=%s direction=%s top=%s topCanCollide=%s topCanQuery=%s",
-					inset,
-					tostring(support_origin),
-					tostring(support_direction),
-					top.Instance:GetFullName(),
-					tostring(top.Instance.CanCollide),
-					tostring(top.Instance.CanQuery)
-				)
-			end
-		elseif floor.Normal.Y < 0.5 then
-			self:_debug(
-				"landing inset %.2f: collidable hit=%s CanCollide=%s normal=%s (not walkable); top=%s",
-				inset,
-				floor.Instance:GetFullName(),
-				tostring(floor.Instance.CanCollide),
-				tostring(floor.Normal),
-				top.Instance:GetFullName()
-			)
-		elseif math.abs(floor.Position.Y - top.Position.Y) > 0.5 then
-			self:_debug(
-				"landing inset %.2f: support %s is at y=%.2f, sampled top y=%.2f",
-				inset,
-				floor.Instance:GetFullName(),
-				floor.Position.Y,
-				top.Position.Y
-			)
-		else
-			local clear, blocker = self:_has_standing_clearance(position, normal)
-			if clear then
-				self:_debug(
-					"landing inset %.2f valid; support=%s collidable=%s top=%s position=%s",
-					inset,
-					floor.Instance:GetFullName(),
-					tostring(floor.Instance.CanCollide),
-					top.Instance:GetFullName(),
-					tostring(position)
-				)
-				return position
-			end
-			self:_debug(
-				"landing inset %.2f blocked by %s; support=%s",
-				inset,
-				blocker and blocker:GetFullName() or "unknown",
-				floor.Instance:GetFullName()
-			)
-		end
-	end
-
-	return nil
+	-- The tagged guide is the ledge: land directly on its top, offset outward
+	-- from the wall. Do not require a separate collidable floor beneath it.
+	return top.Position
+		+ normal * WALL_GAP
+		+ Vector3.new(0, standing_height + 0.05, 0)
 end
 
 function ParkourController:_complete_mantle(top, normal, standing_position)
@@ -646,6 +526,7 @@ function ParkourController:_complete_mantle(top, normal, standing_position)
 	-- Space is commonly still held from the grab. Do not let the grounded
 	-- detector immediately latch onto the ledge we just climbed past.
 	self.GrabBlockedUntilJumpReleased = true
+	self:_enable_guide_collision(top.Guide or top.Instance)
 	self:_release()
 	root.CFrame = CFrame.lookAt(standing_position, standing_position - normal)
 	root.AssemblyLinearVelocity = Vector3.zero
@@ -688,9 +569,32 @@ function ParkourController:_get_guide_top(guide)
 	-- Model ancestor still makes the guide climbable.
 	return {
 		Instance = hit_instance,
+		Guide = guide,
 		Position = box_cframe.Position + up * (box_size.Y * 0.5),
 		Normal = up,
 	}
+end
+
+function ParkourController:_enable_guide_collision(guide)
+	-- Guides are authored as non-collidable markers, but once used as a
+	-- mantle destination they must physically support the character.
+	local enabled = 0
+	if guide:IsA("BasePart") then
+		if not guide.CanCollide then
+			guide.CanCollide = true
+			enabled += 1
+		end
+	elseif guide:IsA("Model") then
+		for _, descendant in ipairs(guide:GetDescendants()) do
+			if descendant:IsA("BasePart") and not descendant.CanCollide then
+				descendant.CanCollide = true
+				enabled += 1
+			end
+		end
+	end
+	if enabled > 0 then
+		self:_debug("enabled collision on %d part(s) in mantle guide %s", enabled, guide:GetFullName())
+	end
 end
 
 function ParkourController:_try_mantle()
