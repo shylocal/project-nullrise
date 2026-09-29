@@ -629,14 +629,26 @@ function ParkourController:_try_vault()
 		return false
 	end
 
-	-- Project the obstacle's oriented bounds into the travel direction. This
-	-- lets us distinguish a short hop across it from a longer landing onto it.
+	-- Project the full wall Model bounds when the ray hits one part of a
+	-- multi-part wall. Otherwise the far edge may be calculated from only a
+	-- small sub-part, placing the landing target back on top of its siblings.
+	local bounds_cframe = obstacle.CFrame
+	local bounds_size = obstacle.Size
+	if obstacle_model then
+		local bounds_ok, model_cframe, model_size = pcall(function()
+			return obstacle_model:GetBoundingBox()
+		end)
+		if bounds_ok and model_cframe and model_size then
+			bounds_cframe = model_cframe
+			bounds_size = model_size
+		end
+	end
 	local half_depth = (
-		math.abs(obstacle.CFrame.RightVector:Dot(forward)) * obstacle.Size.X
-		+ math.abs(obstacle.CFrame.UpVector:Dot(forward)) * obstacle.Size.Y
-		+ math.abs(obstacle.CFrame.LookVector:Dot(forward)) * obstacle.Size.Z
+		math.abs(bounds_cframe.RightVector:Dot(forward)) * bounds_size.X
+		+ math.abs(bounds_cframe.UpVector:Dot(forward)) * bounds_size.Y
+		+ math.abs(bounds_cframe.LookVector:Dot(forward)) * bounds_size.Z
 	) * 0.5
-	local center_distance = (obstacle.Position - root.Position):Dot(forward)
+	local center_distance = (bounds_cframe.Position - root.Position):Dot(forward)
 	local near_edge_distance = center_distance - half_depth
 	local far_edge_distance = center_distance + half_depth
 	if far_edge_distance <= 0 then
@@ -746,8 +758,16 @@ function ParkourController:_try_vault()
 		end
 	end
 
-	-- Retain a top landing only when no safe far-side floor is found within
-	-- the extended range.
+	-- Taller walls should be cleared rather than converted into a hop onto
+	-- their top. If safe far-side ground is unavailable, decline that vault
+	-- instead of silently changing its destination.
+	if not target_position
+		and obstacle_height >= (Config.VaultFarSideOnlyHeight or math.huge) then
+		return false
+	end
+
+	-- Preserve the short top landing for lower, broad obstacles when no
+	-- validated far-side floor is available.
 	if not target_position then
 		target_position = Vector3.new(
 			top.Position.X,
@@ -765,10 +785,15 @@ function ParkourController:_try_vault()
 	)
 	-- Place the apex above the obstacle's center, even when the vault begins
 	-- several studs before it because of the longer detection range.
-	local arc_peak_progress = math.clamp(center_distance / horizontal_vault_distance, 0.2, 0.92)
-	-- Taller walls receive additional vertical margin so the root collider
-	-- clears them rather than scraping their face and losing forward motion.
-	local tall_obstacle_clearance = math.max(0, obstacle_height - 2)
+	local tall_height_factor = math.clamp(obstacle_height - 2, 0, 2)
+	local arc_peak_progress = math.clamp(
+		center_distance / horizontal_vault_distance - tall_height_factor * 0.06,
+		0.2,
+		0.92
+	)
+	-- Taller walls get an earlier lift and extra apex clearance so the root
+	-- collider clears the face before the forward trajectory reaches it.
+	local tall_obstacle_clearance = tall_height_factor
 		* math.max(0, Config.VaultTallObstacleClearancePerStud or 0)
 	local required_apex_y = top.Position.Y + root.Size.Y * 0.5
 		+ Config.VaultObstacleClearance + tall_obstacle_clearance
@@ -817,6 +842,9 @@ function ParkourController:_try_vault()
 	if vault_speed > 0.1 then
 		vault_duration = math.max(0.2, vault_distance / vault_speed)
 	end
+	-- Add airtime only for taller walls; low vaults retain their existing pace.
+	vault_duration += tall_height_factor
+		* math.max(0, Config.VaultTallDurationPerStud or 0)
 
 	self.NextVaultAt = now + Config.VaultCooldown
 	self._vaultExitVelocity = horizontal_velocity
