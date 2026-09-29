@@ -102,7 +102,7 @@ function ParkourController:_detect_surface()
 	local wall = self:_cast(origin, direction * WALL_REACH)
 	if not wall or not self:_is_climbable(wall.Instance) then return nil end
 
-	local top_origin = wall.Position + Vector3.new(0, TOP_SCAN_HEIGHT, 0) - wall.Normal * 0.1
+	local top_origin = wall.Position + Vector3.new(0, TOP_SCAN_HEIGHT, 0) + wall.Normal * 0.2
 	local top = self:_cast(top_origin, Vector3.new(0, -(TOP_SCAN_HEIGHT + MAX_GRAB_HEIGHT), 0))
 	if not top or not self:_is_climbable(top.Instance) then return nil end
 
