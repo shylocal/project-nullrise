@@ -629,33 +629,25 @@ function ParkourController:_try_lower_ledge()
 	-- Search nearby columns and every exposed walkable surface on each tagged
 	-- guide. This also supports multi-part tagged models with several stacked
 	-- ledges, where the model's single bounding-box top hides lower surfaces.
-	local lateral_samples = { 0, -1.5, 1.5, -3, 3 }
+	local lateral_samples = { 0, -1.5, 1.5, -3, 3, -4.5, 4.5 }
 	local inward_samples = { 0, 1.5, 3, 5 }
 	local function consider_lower_top(guide, top)
 		if not top or top.Normal.Y < 0.5 then return end
 		local relative = top.Position - current_top
 		local drop = current_top.Y - top.Position.Y
 		local inward = relative:Dot(-normal)
-		local guide_center_lateral = flatten(relative):Dot(tangent)
-		local guide_half_extent = self:_get_guide_half_extent(top, tangent)
-		local player_lateral = flatten(root.Position - current_top):Dot(tangent)
-		local lateral_gap = math.max(
-			0,
-			math.abs(player_lateral - guide_center_lateral) - guide_half_extent
-		)
-		local safe_lateral_extent = math.max(0, guide_half_extent - LEDGE_EDGE_MARGIN)
-		local target_lateral_offset = math.clamp(
-			player_lateral - guide_center_lateral,
-			-safe_lateral_extent,
-			safe_lateral_extent
-		)
+		-- The ray hit proves this exact column is supported. Measure its
+		-- actual offset from the player's ledge instead of subtracting a
+		-- model-wide half extent that changes when another child is resized.
+		local lateral_gap = math.abs(flatten(relative):Dot(tangent))
+		local target_lateral_offset = 0
 		local in_vertical_range = drop >= 0.5 and drop <= MANTLE_MAX_RISE
 		local in_reach = inward >= -MANTLE_MAX_OUTWARD
 			and inward <= MANTLE_MAX_INWARD
 			and lateral_gap <= MANTLE_MAX_LATERAL
 
 		if in_vertical_range and in_reach then
-			local target_top_position = top.Position + tangent * target_lateral_offset
+			local target_top_position = top.Position
 			local horizontal_distance = flatten(target_top_position - current_top).Magnitude
 			if drop < best_drop or (drop == best_drop and horizontal_distance < best_distance) then
 				best_top = top
@@ -1053,84 +1045,79 @@ function ParkourController:_try_mantle()
 	end
 
 	local best_top = nil
-	-- Prefer the nearest higher ledge so stacked guide blocks are climbed
-	-- one at a time instead of teleporting to the highest reachable guide.
+	-- Prefer the nearest higher surface, not the center/top of the tagged
+	-- Model. The model-wide bounding box can shift when an unrelated support
+	-- part is resized, even though the authored ledge marker stays in place.
 	local best_height = math.huge
 	local best_distance = math.huge
-	local best_lateral_offset = 0
 	local considered = 0
 	local rejected = 0
+	local lateral_samples = { 0, -1.5, 1.5, -3, 3, -4.5, 4.5 }
+	local inward_samples = { -1, 0.5, 1.5, 3, 5, 7 }
 
-	-- Tagged guide tops define the ledges directly. W moves the character's
-	-- hang point to the next higher guide without requiring floor support.
+	local function consider_higher_top(guide, top)
+		if not top or top.Normal.Y < 0.5 then return end
+		local relative = top.Position - current_top
+		local inward = relative:Dot(-normal)
+		local lateral = math.abs(flatten(relative):Dot(tangent))
+		local rise = top.Position.Y - current_top.Y
+		local root_height_delta = root.Position.Y - top.Position.Y
+		local in_vertical_range = rise > MANTLE_MIN_RISE
+			and rise <= MANTLE_MAX_RISE
+			and root_height_delta >= -(MANTLE_MAX_RISE + HANG_DROP)
+			and root_height_delta <= MAX_GRAB_HEIGHT
+		local in_reach = inward >= -MANTLE_MAX_OUTWARD
+			and inward <= MANTLE_MAX_INWARD
+			and lateral <= MANTLE_MAX_LATERAL
+
+		if in_vertical_range and in_reach then
+			considered += 1
+			local horizontal_distance = flatten(relative).Magnitude
+			if rise < best_height
+				or (rise == best_height and horizontal_distance < best_distance) then
+				best_top = top
+				best_height = rise
+				best_distance = horizontal_distance
+				self:_debug(
+					"mantle surface candidate; guide=%s rise=%.2f inward=%.2f lateral=%.2f top=%s",
+					guide:GetFullName(),
+					rise,
+					inward,
+					lateral,
+					tostring(top.Position)
+				)
+			end
+		else
+			rejected += 1
+			self:_debug(
+				"mantle surface skipped; guide=%s rise=%.2f root_delta=%.2f inward=%.2f lateral=%.2f vertical_ok=%s reach_ok=%s",
+				guide:GetFullName(),
+				rise,
+				root_height_delta,
+				inward,
+				lateral,
+				tostring(in_vertical_range),
+				tostring(in_reach)
+			)
+		end
+	end
+
+	-- Sample real surface columns around the current hang point. This avoids
+	-- using a resized parent Model's bounding-box center or footprint as the
+	-- destination, while still finding offset, wide, and multi-part ledges.
 	for _, guide in ipairs(CollectionService:GetTagged(CLIMBABLE_TAG)) do
 		if guide:IsDescendantOf(Workspace) then
-			local top = self:_get_guide_top(guide)
-			if top then
-				local relative = top.Position - current_top
-				local inward = relative:Dot(-normal)
-				local player_lateral = flatten(root.Position - current_top):Dot(tangent)
-				local guide_center_lateral = flatten(relative):Dot(tangent)
-				local guide_half_extent = self:_get_guide_half_extent(top, tangent)
-				-- Only the distance beyond the guide's lateral footprint counts
-				-- against reach; being far from its center is fine when still over it.
-				local lateral = math.max(
-					0,
-					math.abs(player_lateral - guide_center_lateral) - guide_half_extent
-				)
-				
-				local safe_lateral_extent = math.max(0, guide_half_extent - LEDGE_EDGE_MARGIN)
-				local target_lateral_offset = math.clamp(
-					player_lateral - guide_center_lateral,
-					-safe_lateral_extent,
-					safe_lateral_extent
-				)
-				local rise = top.Position.Y - current_top.Y
-				local root_height_delta = root.Position.Y - top.Position.Y
-				local in_vertical_range = rise > MANTLE_MIN_RISE
-					and rise <= MANTLE_MAX_RISE
-					and root_height_delta >= -(MANTLE_MAX_RISE + HANG_DROP)
-					and root_height_delta <= MAX_GRAB_HEIGHT
-				local in_reach = inward >= -MANTLE_MAX_OUTWARD
-					and inward <= MANTLE_MAX_INWARD
-					and lateral <= MANTLE_MAX_LATERAL
-
-				if in_vertical_range and in_reach and top.Normal.Y >= 0.5 then
-					considered += 1
-					local hang_position = top.Position
-						+ tangent * target_lateral_offset
-						+ normal * WALL_GAP
-						- Vector3.new(0, HANG_DROP, 0)
-					local target_top_position = top.Position + tangent * target_lateral_offset
-					local horizontal_distance = flatten(target_top_position - current_top).Magnitude
-					if rise < best_height
-						or (rise == best_height and horizontal_distance < best_distance) then
-						best_top = top
-						best_height = rise
-						best_distance = horizontal_distance
-						best_lateral_offset = target_lateral_offset
-						self:_debug(
-							"mantle guide candidate; guide=%s rise=%.2f inward=%.2f lateral=%.2f hang=%s",
-							guide:GetFullName(),
-							rise,
-							inward,
-							lateral,
-							tostring(hang_position)
-						)
+			for _, lateral_offset in ipairs(lateral_samples) do
+				for _, inward_offset in ipairs(inward_samples) do
+					local sample_position = current_top
+						+ tangent * lateral_offset
+						- normal * inward_offset
+					-- One downward surface sample per column is sufficient for
+					-- ascent; avoid rescanning every stacked surface at each column.
+					local top = self:_get_guide_top(guide, sample_position)
+					if top then
+						consider_higher_top(guide, top)
 					end
-				else
-					rejected += 1
-					self:_debug(
-						"mantle guide skipped; guide=%s rise=%.2f root_delta=%.2f inward=%.2f lateral=%.2f vertical_ok=%s reach_ok=%s top_normal=%s",
-						guide:GetFullName(),
-						rise,
-						root_height_delta,
-						inward,
-						lateral,
-						tostring(in_vertical_range),
-						tostring(in_reach),
-						tostring(top.Normal)
-					)
 				end
 			end
 		end
@@ -1145,10 +1132,8 @@ function ParkourController:_try_mantle()
 			considered,
 			rejected
 		)
-		-- Match the top sample to the character's target column to avoid a
-		-- small vertical mismatch when moving onto an offset or curved ledge.
-		local target_sample = best_top.Position + tangent * best_lateral_offset
-		best_top = self:_get_guide_top(best_top.Guide, target_sample) or best_top
+		-- Re-sample exactly at the chosen supported column before transferring.
+		best_top = self:_get_guide_top(best_top.Guide, best_top.Position) or best_top
 		self:_transfer_hang_to_ledge(best_top)
 	else
 		-- No higher tagged guide was found. W may still mantle onto visible
