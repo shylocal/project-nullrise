@@ -103,6 +103,9 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 	local exclusions = { self.Character }
 	local best = nil
 	local best_height_distance = math.huge
+	local first_candidate = nil
+	local first_walkable_surface = nil
+	local candidate_count = 0
 	for hit_index = 1, Config.MaxTopSurfaceHits do
 		params.FilterDescendantsInstances = exclusions
 		local candidate = Workspace:Raycast(origin, direction, params)
@@ -117,6 +120,22 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 		local walkable = candidate.Normal.Y >= 0.5
 		local reachable = height_delta >= -allowed_above_height
 			and height_delta <= Config.MaxGrabHeight
+		candidate_count += 1
+		local candidate_info = {
+			Instance = candidate.Instance,
+			Group = candidate.Instance:IsA("BasePart") and candidate.Instance.CollisionGroup or "nonpart",
+			CanCollide = candidate.Instance:IsA("BasePart") and candidate.Instance.CanCollide or false,
+			Tagged = ClimbableQuery.is_climbable(candidate.Instance),
+			Normal = candidate.Normal,
+			HeightDelta = height_delta,
+			ValidSurface = valid_surface,
+			Walkable = walkable,
+			Reachable = reachable,
+		}
+		if not first_candidate then first_candidate = candidate_info end
+		if valid_surface and walkable and not first_walkable_surface then
+			first_walkable_surface = candidate_info
+		end
 
 		if valid_surface and walkable and reachable and height_distance < best_height_distance then
 			best = candidate
@@ -126,6 +145,26 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 		table.insert(exclusions, candidate.Instance)
 	end
 
+	if not best then
+		local diagnostic = first_walkable_surface or first_candidate
+		debug_log(self, "grab-top-failed", 0.8, "no eligible reachable top",
+			"candidateCount", candidate_count,
+			"wallPosition", wall_position,
+			"wallNormal", wall_normal,
+			"rootY", root_position.Y,
+			"referenceY", reference_y or root_position.Y,
+			"allowedTopAbove", allowed_above_height,
+			"allowedTopBelow", Config.MaxGrabHeight,
+			"sampleCandidate", diagnostic and diagnostic.Instance:GetFullName(),
+			"candidateGroup", diagnostic and diagnostic.Group,
+			"candidateCanCollide", diagnostic and diagnostic.CanCollide,
+			"candidateTagged", diagnostic and diagnostic.Tagged,
+			"candidateNormal", diagnostic and diagnostic.Normal,
+			"candidateHeightDelta", diagnostic and diagnostic.HeightDelta,
+			"candidateValidSurface", diagnostic and diagnostic.ValidSurface,
+			"candidateWalkable", diagnostic and diagnostic.Walkable,
+			"candidateReachable", diagnostic and diagnostic.Reachable)
+	end
 	return best
 end
 function Queries.detect_surface(self)
@@ -178,8 +217,10 @@ function Queries.detect_surface(self)
 	)
 	if not top then
 		debug_log(self, "detect-no-top", 0.8, "no reachable top", "wall", wall.Instance:GetFullName(),
+			"wallGroup", wall.Instance.CollisionGroup, "wallNormal", wall.Normal,
 			"wallPosition", wall.Position, "rootY", root.Position.Y,
-			"nearTopLimit", Config.GrabTopProximity, "maxBelow", Config.MaxGrabHeight)
+			"move", humanoid.MoveDirection, "nearTopLimit", Config.GrabTopProximity,
+			"maxBelow", Config.MaxGrabHeight)
 		return nil
 	end
 
