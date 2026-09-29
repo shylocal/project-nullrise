@@ -14,7 +14,7 @@ return {
 	VaultMinHeight = 0.3,
 	VaultMaxHeight = 4,
 	VaultLandingGap = 0.75,
-	VaultMaxHopDistance = 5.5,
+	VaultMaxHopDistance = 7.5,
 	VaultTopLandingInset = 1,
 	VaultLandingHeightTolerance = 1.1,
 	VaultMinArcHeight = 0.8,
