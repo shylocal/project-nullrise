@@ -345,9 +345,15 @@ end
 
 function ParkourController:_traverse(dt)
 	local root = self.Root
-	local surface = self.CurrentClimbable
+	local climbable = self.CurrentClimbable
 	local normal = self.Normal
-	if not root or not surface or not normal or not surface:IsDescendantOf(Workspace) then
+	if not root or not climbable or not normal or not climbable:IsDescendantOf(Workspace) then
+		self:_release()
+		return
+	end
+
+	local active_top = self:_get_guide_top(climbable)
+	if not active_top then
 		self:_release()
 		return
 	end
@@ -357,9 +363,6 @@ function ParkourController:_traverse(dt)
 	if self.InputController:IsDown(Actions.Left) then direction -= 1 end
 
 	if direction ~= 0 then
-		-- Use the character's local right vector so A/D always match the
-		-- direction the character is facing, then re-sample the surface each
-		-- frame to follow curved walls instead of a fixed world-space axis.
 		local tangent = flatten(root.CFrame.RightVector)
 		if tangent.Magnitude < 0.05 then
 			tangent = flatten(Vector3.yAxis:Cross(normal))
@@ -372,68 +375,66 @@ function ParkourController:_traverse(dt)
 
 		local candidate_position = root.Position
 			+ tangent * direction * TRAVERSE_SPEED * math.max(dt, 0)
-		local probe_origin = candidate_position
-			+ Vector3.new(0, 1.5, 0)
-			+ normal * 0.3
-		local probe = self:_cast(
-			probe_origin,
-			-normal * (WALL_GAP + SURFACE_PROBE)
-		)
+		local guide_half_extent = self:_get_guide_half_extent(active_top, tangent)
+		local lateral_margin = math.max(root.Size.X * 0.5, 0.5)
+		local safe_lateral_extent = math.max(0, guide_half_extent - lateral_margin)
+		local active_lateral_offset = flatten(candidate_position - active_top.Position):Dot(tangent)
 
-		-- The side probe can hit an untagged backing wall. Treat it only as
-		-- a geometric guide; the ledge's top surface is the climbability check.
-		if not probe then
-			self:_debug_traversal("side probe missed")
+		if math.abs(active_lateral_offset) <= safe_lateral_extent then
+			-- Stay anchored to the cached guide while traversing across its
+			-- footprint. Do not reselect a different vertical guide every frame.
+			self.HangPosition = active_top.Position
+				+ tangent * active_lateral_offset
+				+ normal * WALL_GAP
+				- Vector3.new(0, HANG_DROP, 0)
 		else
-			local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position)
-			if not top then
-				self:_debug_traversal("side hit %s; top ray missed", probe.Instance:GetFullName())
-			elseif not self:_is_climbable(top.Instance) then
-				self:_debug_traversal(
-					"side hit %s; top hit %s (not climbable)",
-					probe.Instance:GetFullName(),
-					top.Instance:GetFullName()
-				)
-			else
-				local height_delta = root.Position.Y - top.Position.Y
-				local current_top_y = self.HangPosition.Y + HANG_DROP
-				local ledge_height_delta = top.Position.Y - current_top_y
-				if math.abs(ledge_height_delta) <= TRAVERSE_HEIGHT_TOLERANCE
-					and height_delta >= -MAX_GRAB_HEIGHT
-					and height_delta <= MAX_GRAB_HEIGHT then
-					self.LastTraversalDiagnostic = nil
-					-- Track the tagged top that was validated, not a possibly
-					-- unrelated backing wall hit by the lateral probe.
-					self.CurrentClimbable = top.Instance
+			-- At a guide edge, look for a connected guide at the same height.
+			-- Only this explicit ledge transition is allowed to replace the cache.
+			local probe_origin = candidate_position
+				+ Vector3.new(0, 1.5, 0)
+				+ normal * 0.3
+			local probe = self:_cast(
+				probe_origin,
+				-normal * (WALL_GAP + SURFACE_PROBE)
+			)
+			local next_top = probe
+				and self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position)
+			local next_climbable = next_top
+				and self:_get_climbable_guide(next_top.Instance)
+			local next_guide_top = next_climbable
+				and self:_get_guide_top(next_climbable)
+
+			if next_guide_top
+				and next_climbable ~= climbable
+				and math.abs(next_guide_top.Position.Y - active_top.Position.Y) <= TRAVERSE_HEIGHT_TOLERANCE
+				and next_top.Normal.Y >= 0.5 then
+				local next_half_extent = self:_get_guide_half_extent(next_guide_top, tangent)
+				local next_safe_extent = math.max(0, next_half_extent - lateral_margin)
+				local next_lateral_offset = flatten(candidate_position - next_guide_top.Position):Dot(tangent)
+				if math.abs(next_lateral_offset) <= next_half_extent + lateral_margin then
+					self.CurrentClimbable = next_climbable
 					self.Normal = probe.Normal
-					self.HangPosition = top.Position
-						+ probe.Normal * WALL_GAP
+					self.HangPosition = next_guide_top.Position
+						+ tangent * math.clamp(next_lateral_offset, -next_safe_extent, next_safe_extent)
+						+ self.Normal * WALL_GAP
 						- Vector3.new(0, HANG_DROP, 0)
-					local now = os.clock()
-					if now - self.LastTraversalSuccessLogAt >= 0.75 then
-						self:_debug(
-							"traversal progressing %s; side_hit=%s top=%s hang=%s",
-							direction > 0 and "right" or "left",
-							probe.Instance:GetFullName(),
-							top.Instance:GetFullName(),
-							tostring(self.HangPosition)
-						)
-						self.LastTraversalSuccessLogAt = now
-					end
 				else
-					self:_debug_traversal(
-						"top hit %s; height_delta=%.2f ledge_delta=%.2f out of range",
-						top.Instance:GetFullName(),
-						height_delta,
-						ledge_height_delta
-					)
+					self.HangPosition = active_top.Position
+						+ tangent * math.clamp(active_lateral_offset, -safe_lateral_extent, safe_lateral_extent)
+						+ normal * WALL_GAP
+						- Vector3.new(0, HANG_DROP, 0)
 				end
+			else
+				-- Stop at the current guide's edge rather than snapping to a
+				-- vertically stacked or unrelated guide found by the probe.
+				self.HangPosition = active_top.Position
+					+ tangent * math.clamp(active_lateral_offset, -safe_lateral_extent, safe_lateral_extent)
+					+ normal * WALL_GAP
+					- Vector3.new(0, HANG_DROP, 0)
 			end
 		end
 	end
 
-	-- If the probe reaches the end of a ledge or finds an invalid surface,
-	-- keep the last valid hang transform rather than dropping unexpectedly.
 	self:_position_hanging()
 end
 
