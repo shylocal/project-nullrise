@@ -22,6 +22,7 @@ local MANTLE_SAMPLE_STEP = 0.75
 local MANTLE_SAMPLE_COUNT = 4
 local MANTLE_LANDING_OFFSETS = { -0.6, -0.3, 0, 0.3, 0.6, 0.9, 1.2 }
 local LOWER_PROBE_OFFSETS = { 0.15, 0.45, 0.75, 1.05 }
+local MAX_TOP_SURFACE_HITS = 16
 
 local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
@@ -173,6 +174,76 @@ function ParkourController:_cast_top_surface(wall_position, wall_normal, root_po
 	)
 end
 
+function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, root_position)
+	-- Several climb guides can overlap vertically. A single downward ray hits
+	-- the highest one first, even when that ledge is outside grab range. Walk
+	-- down through successive hits and choose the climbable, walkable top closest
+	-- in height to the character.
+	local standing_height = self:_standing_height()
+	local origin = Vector3.new(
+		wall_position.X,
+		root_position.Y + MAX_GRAB_HEIGHT + standing_height + 2,
+		wall_position.Z
+	) - wall_normal * 0.1
+	local direction = Vector3.new(
+		0,
+		-(MAX_GRAB_HEIGHT * 2 + standing_height + 4),
+		0
+	)
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { self.Character }
+	params.IgnoreWater = true
+	params.RespectCanCollide = false
+
+	local exclusions = { self.Character }
+	local best = nil
+	local best_height_distance = math.huge
+	for hit_index = 1, MAX_TOP_SURFACE_HITS do
+		params.FilterDescendantsInstances = exclusions
+		local candidate = Workspace:Raycast(origin, direction, params)
+		if not candidate then
+			break
+		end
+
+		local height_delta = root_position.Y - candidate.Position.Y
+		local height_distance = math.abs(height_delta)
+		local climbable = self:_is_climbable(candidate.Instance)
+		local walkable = candidate.Normal.Y >= 0.5
+		local reachable = height_delta >= -MAX_GRAB_HEIGHT
+			and height_delta <= MAX_GRAB_HEIGHT
+
+		if climbable and walkable and reachable and height_distance < best_height_distance then
+			best = candidate
+			best_height_distance = height_distance
+		else
+			self:_debug_detection(
+				"grab top scan skipped hit %d: %s climbable=%s walkable=%s height_delta=%.2f",
+				hit_index,
+				candidate.Instance:GetFullName(),
+				tostring(climbable),
+				tostring(walkable),
+				height_delta
+			)
+		end
+
+		table.insert(exclusions, candidate.Instance)
+	end
+
+	if best then
+		self:_debug_detection(
+			"grab top scan selected %s at height_delta=%.2f (searched %d hits)",
+			best.Instance:GetFullName(),
+			root_position.Y - best.Position.Y,
+			#exclusions - 1
+		)
+	else
+		self:_debug_detection("grab top scan found no reachable tagged top (searched %d hits)", #exclusions - 1)
+	end
+	return best
+end
+
 function ParkourController:_detect_surface()
 	local root = self.Root
 	if not root then
@@ -198,7 +269,7 @@ function ParkourController:_detect_surface()
 		return nil
 	end
 
-	local top = self:_cast_top_surface(wall.Position, wall.Normal, root.Position)
+	local top = self:_cast_reachable_grab_top(wall.Position, wall.Normal, root.Position)
 	if not top then
 		self:_debug_detection("top ray missed; wall=%s", wall.Instance:GetFullName())
 		return nil
@@ -317,7 +388,7 @@ function ParkourController:_traverse(dt)
 		if not probe then
 			self:_debug_traversal("side probe missed")
 		else
-			local top = self:_cast_top_surface(probe.Position, probe.Normal, root.Position)
+			local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position)
 			if not top then
 				self:_debug_traversal("side hit %s; top ray missed", probe.Instance:GetFullName())
 			elseif not self:_is_climbable(top.Instance) then
