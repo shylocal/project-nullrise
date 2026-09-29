@@ -10,7 +10,7 @@ local ParkourController = {}
 ParkourController.__index = ParkourController
 
 -- Keep verbose parkour diagnostics off during normal play; re-enable only when debugging.
-local DEBUG_PARKOUR = false
+local DEBUG_PARKOUR = true
 
 local CLIMBABLE_TAG = "Climbable"
 local WALL_REACH = 3.25
