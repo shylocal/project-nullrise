@@ -287,10 +287,10 @@ function ParkourController:_position_hanging()
 	if not root or not position or not normal then return end
 
 	local target = CFrame.lookAt(position, position - normal)
-	local dt = self._stepDelta or 1 / 60
-	local alpha = 1 - math.exp(-Config.ClimbSmoothness * math.max(dt, 0))
-	local current = root.CFrame
-	root.CFrame = current:Lerp(target, alpha)
+	-- Traversal already advances by a frame-scaled distance. Interpolating the
+	-- root here compounds that movement and makes sideways climbing sluggish.
+	-- Keep the validated hang pose authoritative to avoid lagging into walls.
+	root.CFrame = target
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 end
@@ -362,7 +362,13 @@ function ParkourController:_step(dt)
 			self:_release()
 			return
 		end
-		self:_traverse(dt)
+		-- Give explicit vertical actions exclusive control for this frame.
+		-- Otherwise simultaneous W+A/D can transfer the hang pose upward while
+		-- the lateral traversal still computes from the old ledge and clips.
+		if not self.InputController:IsDown(Actions.Forward)
+			and not self.InputController:IsDown(Actions.Backward) then
+			self:_traverse(dt)
+		end
 	end
 end
 
