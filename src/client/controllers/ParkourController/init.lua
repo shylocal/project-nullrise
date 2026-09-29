@@ -53,6 +53,12 @@ function ParkourController:_start()
 		if action == Actions.Jump then
 			if self.GrabBlockedUntilJumpReleased then
 				self.GrabBlockedUntilJumpReleased = false
+				if self.State == "Grounded" and self.Humanoid then
+					if self.AutoRotateBeforeHang ~= nil then self.Humanoid.AutoRotate = self.AutoRotateBeforeHang end
+					if self.PlatformStandBeforeHang ~= nil then self.Humanoid.PlatformStand = self.PlatformStandBeforeHang end
+					self.AutoRotateBeforeHang = nil
+					self.PlatformStandBeforeHang = nil
+				end
 			end
 			if self.State == "Hanging" then
 				-- Releasing Space simply lets go; normal gravity handles the drop.
@@ -291,7 +297,8 @@ function ParkourController:_position_hanging()
 	-- the validated hang point and can pull the body into a ledge during a
 	-- simultaneous vertical transfer. Smooth only the vertical component.
 	local smoothed_y = current.Position.Y + (position.Y - current.Position.Y) * alpha
-	root.CFrame = CFrame.new(position.X, smoothed_y, position.Z) * target.Rotation
+	local smoothed_rotation = current.Rotation:Lerp(target.Rotation, alpha)
+	root.CFrame = CFrame.new(position.X, smoothed_y, position.Z) * smoothed_rotation
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 end
@@ -381,12 +388,20 @@ function ParkourController:_step(dt)
 			self._mantleElapsed = nil
 			self._mantleDuration = nil
 			if self.Humanoid then
-				if self.AutoRotateBeforeHang ~= nil then self.Humanoid.AutoRotate = self.AutoRotateBeforeHang end
-				if self.PlatformStandBeforeHang ~= nil then self.Humanoid.PlatformStand = self.PlatformStandBeforeHang end
-				self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+				-- Keep the hang's jump lock until Space is released, even if the
+				-- mantle animation has already reached its grounded endpoint.
+				local jump_held = self.InputController:IsDown(Actions.Jump)
+				if not jump_held then
+					if self.AutoRotateBeforeHang ~= nil then self.Humanoid.AutoRotate = self.AutoRotateBeforeHang end
+					if self.PlatformStandBeforeHang ~= nil then self.Humanoid.PlatformStand = self.PlatformStandBeforeHang end
+					self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+					self.AutoRotateBeforeHang = nil
+					self.PlatformStandBeforeHang = nil
+				end
+			else
+				self.AutoRotateBeforeHang = nil
+				self.PlatformStandBeforeHang = nil
 			end
-			self.AutoRotateBeforeHang = nil
-			self.PlatformStandBeforeHang = nil
 			if self.MovementController then self.MovementController:SetSprintBlocked(false) end
 		end
 	end
