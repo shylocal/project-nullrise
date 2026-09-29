@@ -555,7 +555,7 @@ function ParkourController:_traverse(dt)
 							local corner_guide = corner_top
 								and self:_get_climbable_guide(corner_top.Instance)
 							local corner_height_ok = corner_top
-								and math.abs(corner_top.Position.Y - active_top.Position.Y) <= TRAVERSE_HEIGHT_TOLERANCE
+								and math.abs(corner_top.Position.Y - active_top_y) <= TRAVERSE_HEIGHT_TOLERANCE
 								and corner_top.Normal.Y >= 0.5
 
 							if corner_top and corner_guide and corner_height_ok then
