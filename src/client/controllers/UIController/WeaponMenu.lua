@@ -8,6 +8,7 @@ local WeaponsFolder = ReplicatedStorage.shared.weapons
 local UITemplates = ReplicatedStorage.ui
 local WeaponRemote = ReplicatedStorage.remotes.Weapon
 local InventoryRemote = ReplicatedStorage.remotes.Inventory
+local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
 local WeaponMenu = {}
 WeaponMenu.__index = WeaponMenu
@@ -59,7 +60,7 @@ function WeaponMenu:_start()
 		self.Trove:Connect(
 			descendant.Activated,
 			function()
-				InventoryRemote:FireServer("SelectItem", weapon_id)
+				InventoryRemote:FireServer(Protocol.Inventory.SelectItem, weapon_id)
 			end
 		)
 	end
@@ -71,7 +72,7 @@ function WeaponMenu:_start()
 	self.Trove:Connect(
 		WeaponRemote.OnClientEvent,
 		function(action, weapon_id)
-			if action == "Equipped" then
+			if action == Protocol.Weapon.Equipped then
 				self:_set_selected(weapon_id, true)
 			end
 		end
