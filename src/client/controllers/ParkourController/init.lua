@@ -36,7 +36,6 @@ function ParkourController.new(character, input_controller, movement_controller)
 		VaultAutoRotateBefore = nil,
 		VaultPlatformStandBefore = nil,
 		NextVaultAt = 0,
-		NextVaultProbeAt = 0,
 		CornerLockPosition = nil,
 		CornerLockInputDirection = nil,
 	}, ParkourController)
