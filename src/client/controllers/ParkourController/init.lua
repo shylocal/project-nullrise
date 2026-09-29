@@ -9,27 +9,7 @@ local Actions = require(ReplicatedStorage.shared.input.Actions)
 local ParkourController = {}
 ParkourController.__index = ParkourController
 
--- Keep verbose parkour diagnostics off during normal play; re-enable only when debugging.
-local DEBUG_PARKOUR = false
-
-local CLIMBABLE_TAG = "Climbable"
-local WALL_REACH = 3.25
-local MAX_GRAB_HEIGHT = 4.5
-local HANG_DROP = 2.35
-local WALL_GAP = 0.8
-local TRAVERSE_SPEED = 5
-local SURFACE_PROBE = 1.4
-local MAX_TOP_SURFACE_HITS = 16
--- Max ledge-to-ledge rise; root-to-top range also accounts for the hang drop below the ledge.
-local MANTLE_MAX_RISE = 12.5
--- Ordinary-ground mantles are intentionally lower than ledge-to-ledge transfers.
-local GROUND_MANTLE_MAX_RISE = 3.5
-local MANTLE_MAX_INWARD = 8
-local MANTLE_MAX_OUTWARD = 2
-local MANTLE_MAX_LATERAL = 5
-local MANTLE_MIN_RISE = 0.25
-local TRAVERSE_HEIGHT_TOLERANCE = 1.5
-local CORNER_LOCK_DISTANCE = 1.75
+local Config = require(script.Parent.Config)
 
 local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
@@ -64,7 +44,7 @@ function ParkourController.new(character, input_controller, movement_controller)
 end
 
 function ParkourController:_debug(message, ...)
-	if not DEBUG_PARKOUR then return end
+	if not Config.Debug then return end
 	print("[Parkour] " .. string.format(message, ...))
 end
 
@@ -161,7 +141,7 @@ function ParkourController:_cast_climbable_side(origin, direction)
 	params.RespectCanCollide = false
 
 	local exclusions = { self.Character }
-	for _ = 1, MAX_TOP_SURFACE_HITS do
+	for _ = 1, Config.MaxTopSurfaceHits do
 		params.FilterDescendantsInstances = exclusions
 		local hit = Workspace:Raycast(origin, direction, params)
 		if not hit then
@@ -184,7 +164,7 @@ end
 function ParkourController:_get_climbable_guide(instance)
 	local current = instance
 	while current and current ~= Workspace do
-		if CollectionService:HasTag(current, CLIMBABLE_TAG) then
+		if CollectionService:HasTag(current, Config.ClimbableTag) then
 			return current
 		end
 		current = current.Parent
@@ -204,12 +184,12 @@ function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, 
 	local standing_height = self:_standing_height()
 	local origin = Vector3.new(
 		wall_position.X,
-		root_position.Y + MAX_GRAB_HEIGHT + standing_height + 2,
+		root_position.Y + Config.MaxGrabHeight + standing_height + 2,
 		wall_position.Z
 	) - wall_normal * 0.1
 	local direction = Vector3.new(
 		0,
-		-(MAX_GRAB_HEIGHT * 2 + standing_height + 4),
+		-(Config.MaxGrabHeight * 2 + standing_height + 4),
 		0
 	)
 
@@ -222,7 +202,7 @@ function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, 
 	local exclusions = { self.Character }
 	local best = nil
 	local best_height_distance = math.huge
-	for hit_index = 1, MAX_TOP_SURFACE_HITS do
+	for hit_index = 1, Config.MaxTopSurfaceHits do
 		params.FilterDescendantsInstances = exclusions
 		local candidate = Workspace:Raycast(origin, direction, params)
 		if not candidate then
@@ -233,8 +213,8 @@ function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, 
 		local height_distance = math.abs(height_delta)
 		local climbable = self:_is_climbable(candidate.Instance)
 		local walkable = candidate.Normal.Y >= 0.5
-		local reachable = height_delta >= -MAX_GRAB_HEIGHT
-			and height_delta <= MAX_GRAB_HEIGHT
+		local reachable = height_delta >= -Config.MaxGrabHeight
+			and height_delta <= Config.MaxGrabHeight
 
 		if climbable and walkable and reachable and height_distance < best_height_distance then
 			best = candidate
@@ -281,7 +261,7 @@ function ParkourController:_detect_surface()
 	direction = direction.Unit
 
 	local origin = root.Position + Vector3.new(0, 1.1, 0)
-	local wall = self:_cast(origin, direction * WALL_REACH)
+	local wall = self:_cast(origin, direction * Config.WallReach)
 	if not wall then
 		self:_debug_detection("wall ray missed")
 		return nil
@@ -302,8 +282,8 @@ function ParkourController:_detect_surface()
 	end
 
 	local height_delta = root.Position.Y - top.Position.Y
-	if height_delta < -MAX_GRAB_HEIGHT or height_delta > MAX_GRAB_HEIGHT then
-		self:_debug_detection("height out of range; delta=%.2f max=%.2f", height_delta, MAX_GRAB_HEIGHT)
+	if height_delta < -Config.MaxGrabHeight or height_delta > Config.MaxGrabHeight then
+		self:_debug_detection("height out of range; delta=%.2f max=%.2f", height_delta, Config.MaxGrabHeight)
 		return nil
 	end
 
@@ -313,7 +293,7 @@ function ParkourController:_detect_surface()
 		return nil
 	end
 	hang_normal = hang_normal.Unit
-	local hang_position = top.Position + hang_normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
+	local hang_position = top.Position + hang_normal * Config.WallGap - Vector3.new(0, Config.HangDrop, 0)
 	local body_clear, blocking_part = self:_has_hang_body_clearance(
 		hang_position,
 		hang_normal,
@@ -347,7 +327,7 @@ function ParkourController:_grab(guide, normal, position)
 	self.State = "Hanging"
 	self.CurrentClimbable = guide
 	self.Normal = normal
-	self.HangDepthOffset = flatten(normal).Unit * WALL_GAP
+	self.HangDepthOffset = flatten(normal).Unit * Config.WallGap
 	self.HangPosition = position
 
 	local humanoid = self.Humanoid
@@ -492,7 +472,7 @@ function ParkourController:_traverse(dt)
 		return
 	end
 
-	local active_top_y = self.HangPosition.Y + HANG_DROP
+	local active_top_y = self.HangPosition.Y + Config.HangDrop
 
 	local direction = 0
 	if self.InputController:IsDown(Actions.Right) then direction += 1 end
@@ -527,11 +507,11 @@ function ParkourController:_traverse(dt)
 			if radial.Magnitude >= 0.05 then
 				radial = radial.Unit
 				local radius = math.max(cylinder.Size.Y, cylinder.Size.Z) * 0.5
-				local arc = TRAVERSE_SPEED * math.max(dt, 0)
+				local arc = Config.TraverseSpeed * math.max(dt, 0)
 				local angular_tangent = flatten(Vector3.yAxis:Cross(radial))
 				local travel_tangent = tangent * direction
 				local turn_sign = angular_tangent:Dot(travel_tangent) >= 0 and 1 or -1
-				local angle = arc / math.max(radius + WALL_GAP, 0.1) * turn_sign
+				local angle = arc / math.max(radius + Config.WallGap, 0.1) * turn_sign
 				local rotated = CFrame.fromAxisAngle(Vector3.yAxis, angle):VectorToWorldSpace(radial)
 				local sample = center + rotated * radius
 				local top = self:_get_guide_top(climbable, sample)
@@ -540,11 +520,11 @@ function ParkourController:_traverse(dt)
 					if next_normal.Magnitude >= 0.05 then
 						next_normal = next_normal.Unit
 						local next_position = Vector3.new(top.Position.X, self.HangPosition.Y, top.Position.Z)
-							+ next_normal * WALL_GAP
+							+ next_normal * Config.WallGap
 						local clear = self:_has_hang_body_clearance(next_position, next_normal)
 						if clear then
 							self.Normal = next_normal
-							self.HangDepthOffset = next_normal * WALL_GAP
+							self.HangDepthOffset = next_normal * Config.WallGap
 							self.HangPosition = next_position
 						else
 							self:_restore_hang_pose(pose_snapshot)
@@ -557,20 +537,20 @@ function ParkourController:_traverse(dt)
 		end
 
 		local candidate_position = root.Position
-			+ tangent * direction * TRAVERSE_SPEED * math.max(dt, 0)
+			+ tangent * direction * Config.TraverseSpeed * math.max(dt, 0)
 		local probe_origin = candidate_position
 			+ Vector3.new(0, 1.5, 0)
 			+ normal * 0.3
 		local probe = self:_cast(
 			probe_origin,
-			-normal * (WALL_GAP + SURFACE_PROBE)
+			-normal * (Config.WallGap + Config.SurfaceProbe)
 		)
 		local top = probe
-			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position, root.Position.Y + HANG_DROP)
+			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position, root.Position.Y + Config.HangDrop)
 		local next_climbable = top
 			and self:_get_climbable_guide(top.Instance)
 		local same_height = top
-			and math.abs(top.Position.Y - active_top_y) <= TRAVERSE_HEIGHT_TOLERANCE
+			and math.abs(top.Position.Y - active_top_y) <= Config.TraverseHeightTolerance
 			and top.Normal.Y >= 0.5
 		local horizontal_normal = probe and flatten(probe.Normal) or Vector3.zero
 
@@ -580,7 +560,7 @@ function ParkourController:_traverse(dt)
 		local movement_tangent = tangent * direction
 		local corner_locked = false
 		if self.CornerLockPosition then
-			corner_locked = flatten(root.Position - self.CornerLockPosition).Magnitude < CORNER_LOCK_DISTANCE
+			corner_locked = flatten(root.Position - self.CornerLockPosition).Magnitude < Config.CornerLockDistance
 			if self.CornerLockInputDirection
 				and direction ~= self.CornerLockInputDirection then
 				-- An intentional left/right reversal means the player wants to
@@ -615,10 +595,10 @@ function ParkourController:_traverse(dt)
 				local corner_origin = candidate_position
 					+ Vector3.new(0, 1.5, 0)
 					+ longitudinal_offset
-					+ turn_normal * (WALL_GAP + 0.75)
+					+ turn_normal * (Config.WallGap + 0.75)
 				local corner_probe = self:_cast_climbable_side(
 					corner_origin,
-					-turn_normal * (WALL_GAP + SURFACE_PROBE + 2)
+					-turn_normal * (Config.WallGap + Config.SurfaceProbe + 2)
 				)
 				if corner_probe then
 					local corner_normal = flatten(corner_probe.Normal)
@@ -630,19 +610,19 @@ function ParkourController:_traverse(dt)
 						local perpendicular = alignment_to_old <= 0.45
 							and alignment_to_turn >= 0.55
 						local near_corner = along_movement >= -1.5
-							and along_movement <= WALL_GAP + SURFACE_PROBE + 1.5
+							and along_movement <= Config.WallGap + Config.SurfaceProbe + 1.5
 
 						if perpendicular and near_corner then
 							local corner_top = self:_cast_reachable_grab_top(
 								corner_probe.Position,
 								corner_probe.Normal,
 								root.Position,
-								root.Position.Y + HANG_DROP
+								root.Position.Y + Config.HangDrop
 							)
 							local corner_guide = corner_top
 								and self:_get_climbable_guide(corner_top.Instance)
 							local corner_height_ok = corner_top
-								and math.abs(corner_top.Position.Y - active_top_y) <= TRAVERSE_HEIGHT_TOLERANCE
+								and math.abs(corner_top.Position.Y - active_top_y) <= Config.TraverseHeightTolerance
 								and corner_top.Normal.Y >= 0.5
 
 							if corner_top and corner_guide and corner_height_ok then
@@ -662,12 +642,12 @@ function ParkourController:_traverse(dt)
 									end
 								end
 								local clearance_valid = cleared_top
-									and cleared_distance <= TRAVERSE_HEIGHT_TOLERANCE
+									and cleared_distance <= Config.TraverseHeightTolerance
 									and flatten(cleared_top.Position - cleared_sample).Magnitude <= 1.25
 								if clearance_valid then
 									local candidate_hang = cleared_top.Position
-										+ corner_normal * WALL_GAP
-										- Vector3.new(0, HANG_DROP, 0)
+										+ corner_normal * Config.WallGap
+										- Vector3.new(0, Config.HangDrop, 0)
 									local candidate_clear = self:_has_hang_body_clearance(candidate_hang, corner_normal)
 									if candidate_clear then
 									local turn_side_penalty = turn_normal:Dot(movement_tangent) >= 0 and 0 or 100
@@ -715,7 +695,7 @@ function ParkourController:_traverse(dt)
 		if top and next_climbable == climbable and same_height
 			and (is_corner_transfer or probe_normal_aligned) then
 			self.Normal = horizontal_normal
-			self.HangDepthOffset = horizontal_normal * WALL_GAP
+			self.HangDepthOffset = horizontal_normal * Config.WallGap
 			self.HangPosition = Vector3.new(
 				top.Position.X,
 				self.HangPosition.Y,
@@ -725,7 +705,7 @@ function ParkourController:_traverse(dt)
 			and (is_corner_transfer or probe_normal_aligned) then
 			self.CurrentClimbable = next_climbable
 			self.Normal = horizontal_normal
-			self.HangDepthOffset = horizontal_normal * WALL_GAP
+			self.HangDepthOffset = horizontal_normal * Config.WallGap
 			self.HangPosition = Vector3.new(
 				top.Position.X,
 				self.HangPosition.Y,
@@ -735,7 +715,7 @@ function ParkourController:_traverse(dt)
 			self:_debug_traversal("local surface probe did not validate the active guide or corner")
 		end
 
-		-- Exempt only the exact wall part supporting the hang; the top is below the root by HANG_DROP and must not mask a thick-wall collision.
+		-- Exempt only the exact wall part supporting the hang; the top is below the root by Config.HangDrop and must not mask a thick-wall collision.
 		local pose_changed = (self.HangPosition - pose_snapshot.HangPosition).Magnitude > 1e-3
 			or self.Normal:Dot(pose_snapshot.Normal) < 0.999
 		local midpoint_clear = true
@@ -786,7 +766,7 @@ function ParkourController:_try_lower_ledge()
 	end
 	tangent = tangent.Unit
 
-	local current_top = self.HangPosition - normal * WALL_GAP + Vector3.new(0, HANG_DROP, 0)
+	local current_top = self.HangPosition - normal * Config.WallGap + Vector3.new(0, Config.HangDrop, 0)
 	local best_top = nil
 	local best_drop = math.huge
 	local best_distance = math.huge
@@ -805,10 +785,10 @@ function ParkourController:_try_lower_ledge()
 		-- actual offset from the player's ledge instead of subtracting a
 		-- model-wide half extent that changes when another child is resized.
 		local lateral_gap = math.abs(flatten(relative):Dot(tangent))
-		local in_vertical_range = drop >= 0.5 and drop <= MANTLE_MAX_RISE
-		local in_reach = inward >= -MANTLE_MAX_OUTWARD
-			and inward <= MANTLE_MAX_INWARD
-			and lateral_gap <= MANTLE_MAX_LATERAL
+		local in_vertical_range = drop >= 0.5 and drop <= Config.MantleMaxRise
+		local in_reach = inward >= -Config.MantleMaxOutward
+			and inward <= Config.MantleMaxInward
+			and lateral_gap <= Config.MantleMaxLateral
 
 		if in_vertical_range and in_reach then
 			local target_top_position = top.Position
@@ -823,7 +803,7 @@ function ParkourController:_try_lower_ledge()
 
 	-- S transfers only to a lower tagged guide/surface. It does not dismount to
 	-- ordinary ground; W remains the upper-ground mantle action.
-	for _, guide in ipairs(CollectionService:GetTagged(CLIMBABLE_TAG)) do
+	for _, guide in ipairs(CollectionService:GetTagged(Config.ClimbableTag)) do
 		if guide:IsDescendantOf(Workspace) then
 			for _, lateral_offset in ipairs(lateral_samples) do
 				for _, inward_offset in ipairs(inward_samples) do
@@ -900,17 +880,17 @@ function ParkourController:_refresh_hang_contact(expected_guide, expected_top_y)
 		+ normal * 0.3
 	local probe = self:_cast(
 		probe_origin,
-		-normal * (WALL_GAP + SURFACE_PROBE)
+		-normal * (Config.WallGap + Config.SurfaceProbe)
 	)
 	if not probe then
 		return false
 	end
 
-	local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, candidate_position.Y + HANG_DROP)
+	local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, candidate_position.Y + Config.HangDrop)
 	if not top or self:_get_climbable_guide(top.Instance) ~= expected_guide then
 		return false
 	end
-	if expected_top_y and math.abs(top.Position.Y - expected_top_y) > TRAVERSE_HEIGHT_TOLERANCE then
+	if expected_top_y and math.abs(top.Position.Y - expected_top_y) > Config.TraverseHeightTolerance then
 		return false
 	end
 
@@ -925,7 +905,7 @@ function ParkourController:_refresh_hang_contact(expected_guide, expected_top_y)
 	-- actual wall normal. This runs synchronously within W/S, so no sideways
 	-- input is needed to settle the character.
 	self.Normal = horizontal_normal
-	self.HangDepthOffset = horizontal_normal * WALL_GAP
+	self.HangDepthOffset = horizontal_normal * Config.WallGap
 	self.HangPosition = Vector3.new(
 		top.Position.X,
 		candidate_position.Y,
@@ -967,8 +947,8 @@ function ParkourController:_get_ledge_outward_normal(top, reference_position)
 	add_axis(Vector3.xAxis)
 	add_axis(Vector3.zAxis)
 
-	local probe_length = WALL_GAP + SURFACE_PROBE + 2
-	local probe_y = top.Position.Y - HANG_DROP + 1.5
+	local probe_length = Config.WallGap + Config.SurfaceProbe + 2
+	local probe_y = top.Position.Y - Config.HangDrop + 1.5
 	local best_normal = nil
 	local best_score = math.huge
 	for _, outward in ipairs(axes) do
@@ -1018,16 +998,16 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 		-- A vertical transfer may land on a ledge whose wall faces another
 		-- direction. Use its detected destination normal for both facing and
 		-- stand-off depth instead of carrying the source wall's cached offset.
-		depth_offset = destination_normal * WALL_GAP
+		depth_offset = destination_normal * Config.WallGap
 	elseif not depth_offset or flatten(depth_offset).Magnitude < 0.05 then
-		depth_offset = destination_normal * WALL_GAP
+		depth_offset = destination_normal * Config.WallGap
 	end
 	local target_guide = top.Guide or self:_get_climbable_guide(top.Instance)
 	if not target_guide then return false end
 
 	local planned_position = top.Position
 		+ depth_offset
-		- Vector3.new(0, HANG_DROP, 0)
+		- Vector3.new(0, Config.HangDrop, 0)
 	local planned_clear, planned_blocker = self:_has_hang_body_clearance(
 		planned_position,
 		destination_normal
@@ -1047,7 +1027,7 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 	self.HangDepthOffset = depth_offset
 	self.HangPosition = top.Position
 		+ depth_offset
-		- Vector3.new(0, HANG_DROP, 0)
+		- Vector3.new(0, Config.HangDrop, 0)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 	self:_position_hanging()
@@ -1166,7 +1146,7 @@ function ParkourController:_get_guide_tops(guide, sample_position)
 
 	-- Starting just below each found surface exposes the next lower part in a
 	-- stacked Model without globally ray-filtering out the whole tagged guide.
-	for _ = 2, MAX_TOP_SURFACE_HITS do
+	for _ = 2, Config.MaxTopSurfaceHits do
 		local hit = Workspace:Raycast(
 			ray_origin,
 			Vector3.new(0, -ray_length, 0),
@@ -1208,8 +1188,8 @@ function ParkourController:_try_ground_mantle(current_top, normal, tangent)
 	local lateral_step = math.max(root.Size.X * 0.45, 0.4)
 	local inward_offsets = { 0.5, 1, 1.75, 2.75, 4, 5.5, 7 }
 	local lateral_factors = { 0, -1, 1 }
-	local ray_origin_y = current_top.Y + GROUND_MANTLE_MAX_RISE + standing_height + 2
-	local ray_length = GROUND_MANTLE_MAX_RISE + standing_height + 4
+	local ray_origin_y = current_top.Y + Config.GroundMantleMaxRise + standing_height + 2
+	local ray_length = Config.GroundMantleMaxRise + standing_height + 4
 	local best_ground = nil
 	local best_score = math.huge
 
@@ -1232,12 +1212,12 @@ function ParkourController:_try_ground_mantle(current_top, normal, tangent)
 				local inward_distance = relative:Dot(-outward_normal)
 				local lateral_distance = math.abs(flatten(relative):Dot(sideways))
 				local root_to_floor = root.Position.Y - ground.Position.Y
-				local reachable = rise > MANTLE_MIN_RISE
-					and rise <= GROUND_MANTLE_MAX_RISE
+				local reachable = rise > Config.MantleMinRise
+					and rise <= Config.GroundMantleMaxRise
 					and inward_distance >= 0.25
-					and inward_distance <= MANTLE_MAX_INWARD
-					and lateral_distance <= MANTLE_MAX_LATERAL
-					and root_to_floor <= GROUND_MANTLE_MAX_RISE + HANG_DROP
+					and inward_distance <= Config.MantleMaxInward
+					and lateral_distance <= Config.MantleMaxLateral
+					and root_to_floor <= Config.GroundMantleMaxRise + Config.HangDrop
 
 				if reachable then
 					local score = inward_distance * inward_distance
@@ -1291,8 +1271,8 @@ function ParkourController:_try_mantle()
 	local root = self.Root
 	local normal = self.Normal
 	local current_top = self.HangPosition
-		- normal * WALL_GAP
-		+ Vector3.new(0, HANG_DROP, 0)
+		- normal * Config.WallGap
+		+ Vector3.new(0, Config.HangDrop, 0)
 	local tangent = flatten(root.CFrame.RightVector)
 	if tangent.Magnitude > 0.05 then
 		tangent = tangent.Unit
@@ -1318,13 +1298,13 @@ function ParkourController:_try_mantle()
 		local lateral = math.abs(flatten(relative):Dot(tangent))
 		local rise = top.Position.Y - current_top.Y
 		local root_height_delta = root.Position.Y - top.Position.Y
-		local in_vertical_range = rise > MANTLE_MIN_RISE
-			and rise <= MANTLE_MAX_RISE
-			and root_height_delta >= -(MANTLE_MAX_RISE + HANG_DROP)
-			and root_height_delta <= MAX_GRAB_HEIGHT
-		local in_reach = inward >= -MANTLE_MAX_OUTWARD
-			and inward <= MANTLE_MAX_INWARD
-			and lateral <= MANTLE_MAX_LATERAL
+		local in_vertical_range = rise > Config.MantleMinRise
+			and rise <= Config.MantleMaxRise
+			and root_height_delta >= -(Config.MantleMaxRise + Config.HangDrop)
+			and root_height_delta <= Config.MaxGrabHeight
+		local in_reach = inward >= -Config.MantleMaxOutward
+			and inward <= Config.MantleMaxInward
+			and lateral <= Config.MantleMaxLateral
 
 		if in_vertical_range and in_reach then
 			considered += 1
@@ -1361,7 +1341,7 @@ function ParkourController:_try_mantle()
 	-- Sample real surface columns around the current hang point. This avoids
 	-- using a resized parent Model's bounding-box center or footprint as the
 	-- destination, while still finding offset, wide, and multi-part ledges.
-	for _, guide in ipairs(CollectionService:GetTagged(CLIMBABLE_TAG)) do
+	for _, guide in ipairs(CollectionService:GetTagged(Config.ClimbableTag)) do
 		if guide:IsDescendantOf(Workspace) then
 			for _, lateral_offset in ipairs(lateral_samples) do
 				for _, inward_offset in ipairs(inward_samples) do
@@ -1408,10 +1388,10 @@ function ParkourController:_try_mantle()
 		if not self:_try_ground_mantle(current_top, normal, tangent) then
 			self:_debug(
 				"mantle found no reachable higher guide or visible ground; tagged_guides=%d considered=%d rejected=%d max_rise=%.2f",
-				#CollectionService:GetTagged(CLIMBABLE_TAG),
+				#CollectionService:GetTagged(Config.ClimbableTag),
 				considered,
 				rejected,
-				MANTLE_MAX_RISE
+				Config.MantleMaxRise
 			)
 		end
 	end
