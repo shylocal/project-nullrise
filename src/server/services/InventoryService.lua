@@ -26,7 +26,11 @@ function InventoryService.new(player_service)
 	}, InventoryService)
 
 	self.Trove:Add(self.Changed)
-	self:_start()
+	local ok, err = pcall(self._start, self)
+	if not ok then
+		self:Destroy()
+		error(err, 0)
+	end
 
 	return self
 end
