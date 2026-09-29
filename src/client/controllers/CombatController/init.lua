@@ -240,7 +240,8 @@ function CombatController:_begin_attack(attack_key, attack, track, remote_action
 	self.CurrentTrack = track
 
 	self.MovementController:SetSprintBlocked(
-		not self:_can_sprint_while_attacking(attack)
+		not self:_can_sprint_while_attacking(attack),
+		self
 	)
 
 	local attack_trove = Trove.new()
@@ -306,7 +307,7 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
 	self.ChargeReady = false
-	self.MovementController:SetSprintBlocked(false)
+	self.MovementController:SetSprintBlocked(false, self)
 
 	if self.BufferedAttack then
 		task.defer(function()
@@ -436,7 +437,7 @@ function CombatController:Reset()
 	end
 
 	self.AnimationController:StopAction()
-	self.MovementController:SetSprintBlocked(false)
+	self.MovementController:SetSprintBlocked(false, self)
 
 	self.NextAttack = 1
 	self.AttackReadyAt = 0
