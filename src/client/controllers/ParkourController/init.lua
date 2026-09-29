@@ -472,6 +472,8 @@ function ParkourController:_step(dt)
 					"AutoRotate=", humanoid.AutoRotate, "PlatformStand=", humanoid.PlatformStand,
 					"Jump=", humanoid.Jump,
 					"jumpingEnabled=", humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping),
+					"UseJumpPower=", humanoid.UseJumpPower,
+					"JumpPower=", humanoid.JumpPower, "JumpHeight=", humanoid.JumpHeight,
 					"WalkSpeed=", humanoid.WalkSpeed, "rootAnchored=", root.Anchored)
 			end
 		end
@@ -947,6 +949,9 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 		local launch_jump_enabled = humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping)
 		local launch_autorotate = humanoid.AutoRotate
 		local launch_platform_stand = humanoid.PlatformStand
+		local launch_use_jump_power = humanoid.UseJumpPower
+		local launch_jump_power = humanoid.JumpPower
+		local launch_jump_height = humanoid.JumpHeight
 		local launch_move_direction = humanoid.MoveDirection
 		local launch_look_vector = root.CFrame.LookVector
 		local requested_velocity = Vector3.new(
@@ -960,6 +965,9 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 			StartPosition = root.Position,
 			LaunchForward = forward,
 			LastState = launch_state,
+			UseJumpPower = launch_use_jump_power,
+			JumpPowerBefore = launch_jump_power,
+			JumpHeightBefore = launch_jump_height,
 			DebugMilestones = { 0.05, 0.15, 0.35, 0.65, 1, 1.5, 2.25 },
 			DebugMilestoneIndex = 1,
 		}
@@ -968,7 +976,9 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 			"parkour=", self.State, "humanoid=", launch_state.Name,
 			"floor=", launch_floor.Name, "jumpingEnabled=", launch_jump_enabled,
 			"AutoRotate=", launch_autorotate, "PlatformStand=", launch_platform_stand,
-			"Jump=", humanoid.Jump, "MoveDirection=", launch_move_direction,
+			"Jump=", humanoid.Jump, "UseJumpPower=", launch_use_jump_power,
+			"JumpPowerBefore=", launch_jump_power, "JumpHeightBefore=", launch_jump_height,
+			"MoveDirection=", launch_move_direction,
 			"forward=", forward, "look=", launch_look_vector,
 			"WalkSpeed=", humanoid.WalkSpeed, "rootAnchored=", root.Anchored,
 			"velocityBefore=", current_velocity, "velocityRequested=", requested_velocity,
@@ -979,6 +989,15 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 				"t=", math.floor((os.clock() - top_hop.StartedAt) * 100) / 100,
 				"floor=", humanoid.FloorMaterial.Name, "jump=", humanoid.Jump)
 		end)
+		-- The default Humanoid jump impulse was overshooting the calculated
+		-- obstacle-relative launch speed. Temporarily zero the active native
+		-- jump setting while preserving the Jumping state transition/animation;
+		-- the manually calculated velocity supplies the actual lift.
+		if launch_use_jump_power then
+			humanoid.JumpPower = 0
+		else
+			humanoid.JumpHeight = 0
+		end
 		humanoid.Jump = true
 		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 		-- Apply calculated vertical and forward velocity. The Humanoid physics
@@ -987,6 +1006,8 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 		vault_debug("TOP HOP LAUNCH APPLIED", "humanoid=", humanoid:GetState().Name,
 			"floor=", humanoid.FloorMaterial.Name, "Jump=", humanoid.Jump,
 			"jumpingEnabled=", humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping),
+			"UseJumpPower=", humanoid.UseJumpPower, "JumpPowerDuringHop=", humanoid.JumpPower,
+			"JumpHeightDuringHop=", humanoid.JumpHeight,
 			"AutoRotate=", humanoid.AutoRotate, "PlatformStand=", humanoid.PlatformStand,
 			"velocityNow=", root.AssemblyLinearVelocity, "velocityRequested=", requested_velocity,
 			"velocityError=", root.AssemblyLinearVelocity - requested_velocity,
@@ -1241,6 +1262,13 @@ function ParkourController:_finish_top_hop(landed)
 	self._topHopActive = nil
 	local root = self.Root
 	local humanoid = self.Humanoid
+	if humanoid and humanoid.Parent then
+		if top_hop.UseJumpPower then
+			humanoid.JumpPower = top_hop.JumpPowerBefore
+		else
+			humanoid.JumpHeight = top_hop.JumpHeightBefore
+		end
+	end
 	vault_debug("TOP HOP END", "result=", landed and "LANDED" or "TIMEOUT/NO LANDING",
 		"elapsed=", math.floor((os.clock() - top_hop.StartedAt) * 100) / 100,
 		"sawAir=", top_hop.SawAir,
@@ -1248,8 +1276,11 @@ function ParkourController:_finish_top_hop(landed)
 		"floor=", humanoid and humanoid.FloorMaterial.Name or "nil",
 		"start=", top_hop.StartPosition, "finish=", root and root.Position or "nil",
 		"velocity=", root and root.AssemblyLinearVelocity or "nil",
-		"AutoRotate=", humanoid and humanoid.AutoRotate or "nil",
-		"PlatformStand=", humanoid and humanoid.PlatformStand or "nil")
+		"AutoRotate=", humanoid and humanoid.AutoRotate,
+		"PlatformStand=", humanoid and humanoid.PlatformStand,
+		"UseJumpPower=", humanoid and humanoid.UseJumpPower,
+		"JumpPowerRestored=", humanoid and humanoid.JumpPower,
+		"JumpHeightRestored=", humanoid and humanoid.JumpHeight)
 end
 
 function ParkourController:_finish_vault(completed)
