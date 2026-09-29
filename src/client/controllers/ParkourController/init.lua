@@ -664,24 +664,28 @@ end
 function ParkourController:_get_guide_top(guide)
 	local box_cframe
 	local box_size
+	local hit_instance
 	if guide:IsA("BasePart") then
 		box_cframe = guide.CFrame
 		box_size = guide.Size
+		hit_instance = guide
 	elseif guide:IsA("Model") then
 		box_cframe, box_size = guide:GetBoundingBox()
+		hit_instance = guide.PrimaryPart or guide:FindFirstChildWhichIsA("BasePart", true)
 	else
 		return nil
 	end
+	if not hit_instance then return nil end
 
 	local up = box_cframe.UpVector
 	if up.Y < 0.5 then
 		return nil
 	end
 
-	-- Represent the guide's upper face as a lightweight surface record. The
-	-- guide itself may be non-collidable; landing support is checked separately.
+	-- Use a BasePart as the diagnostic/support reference, while the tagged
+	-- Model ancestor still makes the guide climbable.
 	return {
-		Instance = guide,
+		Instance = hit_instance,
 		Position = box_cframe.Position + up * (box_size.Y * 0.5),
 		Normal = up,
 	}
