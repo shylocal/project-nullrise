@@ -11,30 +11,7 @@ local ParkourController = {}
 ParkourController.__index = ParkourController
 
 local Config = require(script.Config)
-
--- Shape the vertical arc so its apex lines up with the obstacle,
--- rather than always landing halfway through the entire scripted trajectory.
--- This matters when detection starts the vault well before the wall.
-local function vault_arc_weight(linear, peak_progress)
-	local peak = math.clamp(peak_progress or 0.5, 0.2, 0.92)
-	if linear <= peak then
-		return math.sin((linear / peak) * math.pi * 0.5)
-	end
-	return math.cos(((linear - peak) / (1 - peak)) * math.pi * 0.5)
-end
-
-local function vault_hip_height_weight(linear)
-	-- Reach the lowered pose quickly, hold it through most of the vault,
-	-- then blend back to the original HipHeight during the final phase.
-	local function smoothstep(value)
-		value = math.clamp(value, 0, 1)
-		return value * value * (3 - 2 * value)
-	end
-
-	local fade_in = smoothstep(linear / 0.18)
-	local fade_out = smoothstep((1 - linear) / 0.22)
-	return fade_in * fade_out
-end
+local VaultMath = require(script.VaultMath)
 
 function ParkourController.new(character, input_controller, movement_controller)
 	local self = setmetatable({
@@ -79,7 +56,6 @@ function ParkourController:_start()
 				-- Space explicitly requests a vault; if no valid vault is found,
 				-- the ordinary jump or ledge-grab flow remains available.
 				self:_try_vault()
-			else
 			end
 		elseif action == Actions.Forward and self.State == "Hanging" then
 			self:_try_mantle()
@@ -496,7 +472,7 @@ function ParkourController:_step(dt)
 		local eased = linear * linear * (3 - 2 * linear)
 		local base = self._vaultStart:Lerp(self._vaultTarget, eased)
 		local horizontal = self._vaultStart.Position:Lerp(self._vaultTarget.Position, linear)
-		local arc = vault_arc_weight(linear, self._vaultArcPeakProgress) * self._vaultArcHeight
+		local arc = VaultMath.arc_weight(linear, self._vaultArcPeakProgress) * self._vaultArcHeight
 		local position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
 		root.CFrame = CFrame.new(position + Vector3.new(0, arc, 0)) * base.Rotation
 
@@ -504,7 +480,7 @@ function ParkourController:_step(dt)
 		local original_hip_height = self.VaultHipHeightBefore
 		if vault_humanoid and vault_humanoid.Parent and original_hip_height ~= nil then
 			local reduction = math.max(0, Config.VaultHipHeightReduction or 0)
-			local weight = vault_hip_height_weight(linear)
+			local weight = VaultMath.hip_height_weight(linear)
 			local minimum_hip_height = 0
 			if vault_humanoid.RigType == Enum.HumanoidRigType.R6 then
 				-- R6 commonly starts at zero HipHeight, so allow a small negative
@@ -1061,7 +1037,7 @@ function ParkourController:_try_vault()
 		local eased = alpha * alpha * (3 - 2 * alpha)
 		local base = start_cframe:Lerp(target_cframe, eased)
 		local horizontal = start_cframe.Position:Lerp(target_cframe.Position, alpha)
-		local arc = vault_arc_weight(alpha, arc_peak_progress) * arc_height
+		local arc = VaultMath.arc_weight(alpha, arc_peak_progress) * arc_height
 		local sample_position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
 		local sample_cframe = CFrame.new(
 			sample_position + Vector3.new(0, arc, 0)
