@@ -777,7 +777,8 @@ function ParkourController:_try_lower_ledge()
 	-- S transfers only to a lower tagged guide/surface. It does not dismount to
 	-- ordinary ground; W remains the upper-ground mantle action.
 	for _, guide in ipairs(CollectionService:GetTagged(Config.ClimbableTag)) do
-		if guide:IsDescendantOf(Workspace) then
+		if guide:IsDescendantOf(Workspace)
+			and self:_is_guide_within_mantle_search(guide, current_top, normal, tangent) then
 			for _, lateral_offset in ipairs(lateral_samples) do
 				for _, inward_offset in ipairs(inward_samples) do
 					local sample_position = current_top
@@ -1213,6 +1214,32 @@ function ParkourController:_try_ground_mantle(current_top, normal, tangent)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 	return true
+end
+
+function ParkourController:_is_guide_within_mantle_search(guide, current_top, normal, tangent)
+	local bounds_cframe
+	local bounds_size
+
+	if guide:IsA("BasePart") then
+		bounds_cframe = guide.CFrame
+		bounds_size = guide.Size
+	elseif guide:IsA("Model") then
+		bounds_cframe, bounds_size = guide:GetBoundingBox()
+	else
+		return false
+	end
+
+	-- The bounding sphere is a conservative broad-phase: it can admit extra
+	-- guides, but cannot exclude a guide whose bounds intersect the mantle
+	-- search volume. Detailed raycasts still decide whether a top is usable.
+	local radius = bounds_size.Magnitude * 0.5
+	local relative = flatten(bounds_cframe.Position - current_top)
+	local inward = relative:Dot(-normal)
+	local lateral = math.abs(relative:Dot(tangent))
+
+	return inward + radius >= -Config.MantleMaxOutward
+		and inward - radius <= Config.MantleMaxInward
+		and lateral - radius <= Config.MantleMaxLateral
 end
 
 function ParkourController:_try_mantle()
