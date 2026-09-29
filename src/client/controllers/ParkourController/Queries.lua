@@ -85,9 +85,70 @@ function Queries.cast_grabbable_side(self, origin, direction)
 
 	return nil
 end
-function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_position, reference_y, max_above_height, wall_instance)
-	-- Sample nearby columns around the side hit. When a physical wall part is
-	-- known, query its own top first so an invisible climb guide cannot mask it.
+
+local function is_tall_wall_candidate(instance, normal)
+	if not instance:IsA("BasePart")
+		or not instance.CanCollide
+		or ClimbableQuery.is_climbable(instance)
+		or math.abs(normal.Y) >= 0.5 then
+		return false
+	end
+
+	local model = instance:FindFirstAncestorOfClass("Model")
+	if model and model:FindFirstChildOfClass("Humanoid") then
+		return false
+	end
+
+	-- Use projected world-space height so rotated tall parts qualify even when
+	-- their height is along local X or Z rather than local Y.
+	local cframe = instance.CFrame
+	local size = instance.Size
+	local world_height = math.abs(cframe.RightVector.Y) * size.X
+		+ math.abs(cframe.UpVector.Y) * size.Y
+		+ math.abs(cframe.LookVector.Y) * size.Z
+	return world_height >= Config.TallWallMinHeight
+end
+
+local function cast_tall_wall_top(self, wall, wall_position, root_position)
+	local standing_height = self:_standing_height()
+	local origin = Vector3.new(
+		wall_position.X,
+		root_position.Y + Config.MaxGrabHeight + standing_height + 2,
+		wall_position.Z
+	) - wall.Normal * 0.1
+	local direction = Vector3.new(
+		0,
+		-(Config.MaxGrabHeight * 2 + standing_height + 4),
+		0
+	)
+
+	local params = self._tallWallTopParams or RaycastParams.new()
+	self._tallWallTopParams = params
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { wall.Instance }
+	params.IgnoreWater = true
+	params.RespectCanCollide = true
+
+	local top = Workspace:Raycast(origin, direction, params)
+	if not top or top.Normal.Y < 0.5 then
+		return nil
+	end
+
+	-- Grab only when the lip is within standing reach. This avoids catching a
+	-- tall wall from low on its face while allowing a jump that reaches the edge.
+	local top_above_root = top.Position.Y - root_position.Y
+	if top_above_root > standing_height + Config.TallWallTopReachMargin
+		or top_above_root < -Config.MaxGrabHeight then
+		return nil
+	end
+	return top
+end
+
+function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_position, reference_y)
+	-- Several climb guides can overlap vertically. A single downward ray hits
+	-- the highest one first, even when that ledge is outside grab range. Walk
+	-- down through successive hits and choose the climbable, walkable top closest
+	-- in height to the character.
 	local standing_height = self:_standing_height()
 	local origin = Vector3.new(
 		wall_position.X,
@@ -245,87 +306,79 @@ function Queries.detect_surface(self)
 		or humanoid_state == Enum.HumanoidStateType.Climbing then return nil end
 	local root = self.Root
 	if not root then
-				return nil
+		return nil
 	end
 
 	local direction = Vector.flatten(root.CFrame.LookVector)
 	if direction.Magnitude < 0.1 then
-				return nil
+		return nil
 	end
 	direction = direction.Unit
 
 	local origin = root.Position + Vector3.new(0, 1.1, 0)
 	local wall = Queries.cast_grabbable_side(self, origin, direction * Config.WallReach)
 	if not wall then
-		debug_log(self, "detect-no-wall", 0.8, "no wall hit", "root", root.Position,
-			"look", direction, "move", humanoid.MoveDirection, "reach", Config.WallReach)
 		return nil
 	end
 
-	-- A held jump alone must not latch the character after they have stopped
-	-- approaching the wall. Require current movement intent to have a component
-	-- into the detected face; this still permits diagonal approaches.
-	local approach = Vector.flatten(humanoid.MoveDirection)
-	local toward_wall = Vector.flatten(-wall.Normal)
-	local approach_dot = if approach.Magnitude >= 0.05 and toward_wall.Magnitude >= 0.05
-		then approach.Unit:Dot(toward_wall.Unit) else -1
-	if approach_dot < 0.15 then
-		debug_log(self, "detect-movement-gate", 0.8, "movement gate rejected wall", wall.Instance:GetFullName(),
-			"group", wall.Instance.CollisionGroup, "move", approach, "towardWall", toward_wall,
-			"dot", approach_dot)
-		return nil
+	local top = nil
+	local tall_wall = false
+	if ClimbableQuery.is_climbable(wall.Instance) then
+		top = Queries.cast_reachable_grab_top(
+			self,
+			wall.Position,
+			wall.Normal,
+			root.Position,
+			root.Position.Y
+		)
+		if top and not ClimbableQuery.is_climbable(top.Instance) then
+			top = nil
+		end
 	end
 
-	local standing_height = self:_standing_height()
-	local grab_reference_y = root.Position.Y + standing_height
-	local top = Queries.cast_reachable_grab_top(
-		self,
-		wall.Position,
-		wall.Normal,
-		root.Position,
-		grab_reference_y,
-		Config.GrabTopProximity,
-		wall.Instance
-	)
+	-- Keep the stable tagged-guide path first. Only if it does not find a
+	-- reachable ledge do we try the additive tall, collidable-part path.
 	if not top then
-		debug_log(self, "detect-no-top", 0.8, "no reachable top", "wall", wall.Instance:GetFullName(),
-			"wallGroup", wall.Instance.CollisionGroup, "wallNormal", wall.Normal,
-			"wallPosition", wall.Position, "rootY", root.Position.Y,
-			"reachY", root.Position.Y + self:_standing_height(),
-			"move", humanoid.MoveDirection, "nearTopLimit", Config.GrabTopProximity,
-			"maxBelow", Config.MaxGrabHeight)
+		local physical_wall = Queries.cast(self, origin, direction * Config.WallReach, true)
+		if physical_wall and is_tall_wall_candidate(physical_wall.Instance, physical_wall.Normal) then
+			local physical_top = cast_tall_wall_top(self, physical_wall, physical_wall.Position, root.Position)
+			if physical_top then
+				wall = physical_wall
+				top = physical_top
+				tall_wall = true
+			end
+		end
+	end
+	if not top then
 		return nil
 	end
 
-	local root_height_delta = root.Position.Y - top.Position.Y
-	local reach_height_delta = grab_reference_y - top.Position.Y
-	if reach_height_delta < -Config.GrabTopProximity or root_height_delta > Config.MaxGrabHeight then
-		debug_log(self, "detect-height", 0.8, "top outside height range", "wall", wall.Instance:GetFullName(),
-			"top", top.Instance:GetFullName(), "rootDelta", root_height_delta,
-			"reachDelta", reach_height_delta, "topY", top.Position.Y,
-			"rootY", root.Position.Y, "reachY", grab_reference_y)
+	local height_delta = root.Position.Y - top.Position.Y
+	if height_delta < -Config.MaxGrabHeight or height_delta > Config.MaxGrabHeight then
 		return nil
 	end
 
 	local hang_normal = Vector.flatten(wall.Normal)
 	if hang_normal.Magnitude < 0.05 then
-				return nil
+		return nil
 	end
 	hang_normal = hang_normal.Unit
-	local hang_position = top.Position + hang_normal * Config.WallGap - Vector3.new(0, Config.HangDrop, 0)
-	local body_clear, blocker = Queries.has_hang_body_clearance(self, hang_position, hang_normal)
+
+	-- Tagged guides retain the stable stand-off. Solid tall walls use the
+	-- smallest stand-off that clears the root collision envelope.
+	local edge_gap = Config.WallGap
+	if tall_wall then
+		-- The top ray samples 0.1 studs inside the wall footprint; compensate
+		-- so the root still stops just outside the physical face.
+		edge_gap = root.Size.Z * 0.5 + Config.TallWallEdgeClearance + 0.1
+	end
+	local hang_position = top.Position + hang_normal * edge_gap - Vector3.new(0, Config.HangDrop, 0)
+	local body_clear = Queries.has_hang_body_clearance(self, hang_position, hang_normal)
 	if not body_clear then
-		debug_log(self, "detect-clearance", 0.8, "hang clearance rejected", "blocker",
-			blocker and blocker:GetFullName(), "hangPosition", hang_position, "normal", hang_normal)
 		return nil
 	end
 
-	local guide = ClimbableQuery.get_guide(top.Instance) or top.Instance
-	debug_log(self, "detect-accepted", 0, "surface accepted", "wall", wall.Instance:GetFullName(),
-		"wallGroup", wall.Instance.CollisionGroup, "top", top.Instance:GetFullName(),
-		"topGroup", top.Instance.CollisionGroup, "guide", guide:GetFullName(),
-		"root", root.Position, "topPosition", top.Position, "move", humanoid.MoveDirection)
-	return guide, hang_normal, hang_position
+	return ClimbableQuery.get_guide(top.Instance) or top.Instance, hang_normal, hang_position, edge_gap
 end
 function Queries.has_hang_body_clearance(self, position, normal)
 	local root = self.Root
