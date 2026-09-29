@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 local CombatRemote = ReplicatedStorage.remotes.Combat
+local AttackLifecycle = require(script.Parent.AttackLifecycle)
 
 local AttackInput = {}
 
@@ -78,7 +79,7 @@ function AttackInput.primary_ended(self)
 		if charge then
 			self.ChargeReady = false
 			CombatRemote:FireServer(Protocol.Combat.HitStart, "Charge")
-			self:_start_hitbox("Charge", charge)
+			AttackLifecycle.start_hitbox(self, "Charge", charge)
 		end
 	end
 
