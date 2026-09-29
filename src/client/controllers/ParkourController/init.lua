@@ -375,7 +375,7 @@ function ParkourController:_position_hanging()
 	root.CFrame = CFrame.lookAt(position, position - normal)
 end
 
-function ParkourController:_has_hang_body_clearance(position, normal, allowed_surfaces, strict)
+function ParkourController:_has_hang_body_clearance(position, normal)
 	local root = self.Root
 	local character = self.Character
 	if not root or not character or not position or not normal then
@@ -429,7 +429,6 @@ function ParkourController:_has_hang_body_clearance(position, normal, allowed_su
 				tostring(part.Size),
 				tostring(position),
 				tostring(facing),
-				tostring(strict == true),
 				tostring(root.Size)
 			)
 			return false, part
@@ -542,7 +541,7 @@ function ParkourController:_traverse(dt)
 						next_normal = next_normal.Unit
 						local next_position = Vector3.new(top.Position.X, self.HangPosition.Y, top.Position.Z)
 							+ next_normal * WALL_GAP
-						local clear = self:_has_hang_body_clearance(next_position, next_normal, { cylinder }, false)
+						local clear = self:_has_hang_body_clearance(next_position, next_normal)
 						if clear then
 							self.Normal = next_normal
 							self.HangDepthOffset = next_normal * WALL_GAP
@@ -669,10 +668,7 @@ function ParkourController:_traverse(dt)
 									local candidate_hang = cleared_top.Position
 										+ corner_normal * WALL_GAP
 										- Vector3.new(0, HANG_DROP, 0)
-									local candidate_allowed = { corner_probe.Instance, cleared_top.Instance }
-									local candidate_clear = self:_has_hang_body_clearance(
-										candidate_hang, corner_normal, candidate_allowed, true
-									)
+									local candidate_clear = self:_has_hang_body_clearance(candidate_hang, corner_normal)
 									if candidate_clear then
 									local turn_side_penalty = turn_normal:Dot(movement_tangent) >= 0 and 0 or 100
 									local score = turn_side_penalty
@@ -740,9 +736,6 @@ function ParkourController:_traverse(dt)
 		end
 
 		-- Exempt only the exact wall part supporting the hang; the top is below the root by HANG_DROP and must not mask a thick-wall collision.
-		local allowed_contact = {}
-		local contact_wall = is_corner_transfer and best_corner.WallInstance or (probe and probe.Instance)
-		if contact_wall then table.insert(allowed_contact, contact_wall) end
 		local pose_changed = (self.HangPosition - pose_snapshot.HangPosition).Magnitude > 1e-3
 			or self.Normal:Dot(pose_snapshot.Normal) < 0.999
 		local midpoint_clear = true
@@ -750,9 +743,9 @@ function ParkourController:_traverse(dt)
 			local midpoint = pose_snapshot.HangPosition:Lerp(self.HangPosition, 0.5)
 			local midpoint_normal = flatten(pose_snapshot.Normal + self.Normal)
 			if midpoint_normal.Magnitude < 0.05 then midpoint_normal = self.Normal end
-			midpoint_clear = self:_has_hang_body_clearance(midpoint, midpoint_normal, allowed_contact, false)
+			midpoint_clear = self:_has_hang_body_clearance(midpoint, midpoint_normal)
 		end
-		local body_clear = not pose_changed or (midpoint_clear and self:_has_hang_body_clearance(self.HangPosition, self.Normal, allowed_contact, false))
+		local body_clear = not pose_changed or (midpoint_clear and self:_has_hang_body_clearance(self.HangPosition, self.Normal))
 		if not body_clear then
 			self:_restore_hang_pose(pose_snapshot)
 		else
@@ -1032,26 +1025,12 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 	local target_guide = top.Guide or self:_get_climbable_guide(top.Instance)
 	if not target_guide then return false end
 
-	-- Resolve the source wall contact so only the intended source/destination
-	-- surfaces are exempt from the blocker query.
-	local source_contact = self:_cast(
-		root.Position + Vector3.new(0, 1.5, 0) + normal * 0.3,
-		-normal * (WALL_GAP + SURFACE_PROBE)
-	)
-	local allowed_surfaces = {
-		self.CurrentClimbable,
-	}
-	if source_contact then
-		table.insert(allowed_surfaces, source_contact.Instance)
-	end
 	local planned_position = top.Position
 		+ depth_offset
 		- Vector3.new(0, HANG_DROP, 0)
 	local planned_clear, planned_blocker = self:_has_hang_body_clearance(
 		planned_position,
-		destination_normal,
-		allowed_surfaces,
-		true
+		destination_normal
 	)
 	if not planned_clear then
 		self:_debug(
@@ -1081,9 +1060,7 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 	self:_debug("vertical transfer contact refreshed; guide=%s", target_guide:GetFullName())
 	local final_clear, final_blocker = self:_has_hang_body_clearance(
 		self.HangPosition,
-		self.Normal,
-		allowed_surfaces,
-		true
+		self.Normal
 	)
 	if not final_clear then
 		self:_restore_hang_pose(pose_snapshot)
