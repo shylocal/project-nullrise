@@ -444,7 +444,7 @@ end
 
 function ParkourController:_try_lower_ledge()
 	self:_debug("lower ledge requested; state=%s", self.State)
-	if self.State ~= "Hanging" or not self.Root or not self.HangPosition or not normal then
+	if self.State ~= "Hanging" or not self.Root or not self.HangPosition or not self.Normal then
 		self:_debug("lower ledge aborted; missing hanging state or character parts")
 		return
 	end
