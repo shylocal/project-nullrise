@@ -64,7 +64,7 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 
 	task.delay(cooldown, function()
 		if self.BufferedAttack and self.PrimaryHeld then
-			AttackInput.resolve_buffered_attack(self)
+			self:_resolve_buffered_attack()
 		end
 	end)
 end
