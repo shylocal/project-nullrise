@@ -28,6 +28,7 @@ local MANTLE_MAX_LATERAL = 5
 local MANTLE_MIN_RISE = 0.25
 local TRAVERSE_HEIGHT_TOLERANCE = 1.5
 local LEDGE_EDGE_MARGIN = 0.02
+local CORNER_LOCK_DISTANCE = 1.75
 local MAX_GROUND_DROP = 32
 
 local function flatten(vector)
@@ -54,6 +55,7 @@ function ParkourController.new(character, input_controller, movement_controller)
 		LastDetectionLogAt = 0,
 		LastTraversalDiagnostic = nil,
 		LastTraversalSuccessLogAt = 0,
+		CornerLockPosition = nil,
 	}, ParkourController)
 
 	self:_start()
@@ -419,14 +421,23 @@ function ParkourController:_traverse(dt)
 			and top.Normal.Y >= 0.5
 		local horizontal_normal = probe and flatten(probe.Normal) or Vector3.zero
 
-		-- Probe a wider corner fan on every A/D step. A single offset can
-		-- miss the adjacent face when the character is at the corner seam or
-		-- when the guide is one tagged L-shaped model with multiple parts.
+		-- Probe a wider corner fan when the character reaches a corner. Both
+		-- handednesses are considered because a route may wrap around either
+		-- a convex outside corner or a concave inside corner.
 		local movement_tangent = tangent * direction
-		-- For a convex 90-degree turn, the next face points back toward the
-		-- approach direction; probing the opposite normal can grab a stray
-		-- rear/inside face and rotate the character the wrong way.
-		local corner_turn_normals = { -movement_tangent }
+		local corner_locked = false
+		if self.CornerLockPosition then
+			corner_locked = flatten(root.Position - self.CornerLockPosition).Magnitude < CORNER_LOCK_DISTANCE
+			if not corner_locked then
+				self.CornerLockPosition = nil
+			end
+		end
+		local corner_turn_normals = {}
+		if not corner_locked then
+			-- The face facing the direction of travel is preferred. The opposite
+			-- face remains a fallback for concave layouts, not an equal candidate.
+			corner_turn_normals = { movement_tangent, -movement_tangent }
+		end
 		local corner_longitudinal_offsets = {
 			-normal * 1.8,
 			-normal * 0.9,
@@ -482,7 +493,9 @@ function ParkourController:_traverse(dt)
 								local clearance_valid = cleared_top
 									and flatten(cleared_top.Position - cleared_sample).Magnitude <= 1.25
 								if clearance_valid then
-									local score = math.abs(along_movement)
+									local turn_side_penalty = turn_normal:Dot(movement_tangent) >= 0 and 0 or 100
+									local score = turn_side_penalty
+										+ math.abs(along_movement)
 										+ alignment_to_old * 2
 										+ math.abs(longitudinal_offset.Magnitude) * 0.05
 									if score < best_corner_score then
@@ -541,6 +554,12 @@ function ParkourController:_traverse(dt)
 			) + self.HangDepthOffset
 		else
 			self:_debug_traversal("local surface probe did not validate the active guide or corner")
+		end
+		if is_corner_transfer then
+			-- Keep the newly selected face stable until the root has moved away
+			-- from the seam. This prevents the fan from immediately reacquiring
+			-- the face we just left and flipping the character back and forth.
+			self.CornerLockPosition = self.HangPosition
 		end
 	end
 
@@ -1146,6 +1165,7 @@ function ParkourController:_release()
 	self.Normal = nil
 	self.HangDepthOffset = nil
 	self.HangPosition = nil
+	self.CornerLockPosition = nil
 
 	local humanoid = self.Humanoid
 	if humanoid then
