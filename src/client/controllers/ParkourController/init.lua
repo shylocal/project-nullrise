@@ -51,7 +51,11 @@ end
 
 function ParkourController:_start()
 	self.Trove:Connect(self.InputController.ActionBegan, function(action)
-		if action == Actions.Forward and self.State == "Hanging" then
+		if action == Actions.Jump and self.State == "Grounded" then
+			-- Space explicitly requests a vault; if no valid vault is found,
+			-- the ordinary jump or ledge-grab flow remains available.
+			self:_try_vault()
+		elseif action == Actions.Forward and self.State == "Hanging" then
 			self:_try_mantle()
 		elseif action == Actions.Backward and self.State == "Hanging" then
 			self:_try_lower_ledge()
@@ -385,9 +389,6 @@ function ParkourController:_step(dt)
 		if self.InputController:IsDown(Actions.Jump) and not self.GrabBlockedUntilJumpReleased then
 			local climbable, normal, position = self:_detect_surface()
 			if climbable then self:_grab(climbable, normal, position) end
-		end
-		if self.State == "Grounded" then
-			self:_try_vault()
 		end
 	elseif self.State == "Hanging" then
 		if not self.InputController:IsDown(Actions.Jump) then
