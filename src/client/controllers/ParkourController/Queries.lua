@@ -18,9 +18,17 @@ function Queries.cast(self, origin, direction, respect_can_collide)
 	return Workspace:Raycast(origin, direction, params)
 end
 local function is_grabbable_surface(instance)
-	if not instance:IsA("BasePart")
-		or not instance.CanCollide
-		or instance.CollisionGroup == Config.ClimbableCollisionGroup then
+	if not instance:IsA("BasePart") then
+		return false
+	end
+
+	-- Explicitly tagged climb guides are authored as invisible, non-collidable
+	-- query volumes. Keep those eligible while continuing to ignore unrelated
+	-- non-collidable parts and the helper collision group.
+	local is_guide = ClimbableQuery.is_climbable(instance)
+	if not is_guide
+		and (not instance.CanCollide
+			or instance.CollisionGroup == Config.ClimbableCollisionGroup) then
 		return false
 	end
 
