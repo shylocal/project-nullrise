@@ -401,6 +401,7 @@ function ParkourController:_has_hang_body_clearance(position, normal, allowed_su
 		probe.CanCollide = false
 		probe.CanTouch = false
 		probe.CanQuery = true
+		probe.CollisionGroup = "Climbable"
 		probe.Transparency = 1
 		probe.CastShadow = false
 		probe.Parent = Workspace
@@ -410,22 +411,9 @@ function ParkourController:_has_hang_body_clearance(position, normal, allowed_su
 	probe.CFrame = target_cframe
 	local overlap_params = OverlapParams.new()
 	overlap_params.FilterType = Enum.RaycastFilterType.Exclude
-	local exclusions = { character, probe }
-	local function allow_contact_surface(instance)
-		if not instance then return end
-		table.insert(exclusions, instance)
-		-- A tagged Climbable Model can contain separate marker/side/top parts.
-		-- Exclude its tagged guide ancestor too, otherwise sibling parts from
-		-- the same intended hang surface falsely block the root at tight turns.
-		local guide = not strict and self:_get_climbable_guide(instance) or nil
-		if guide and guide ~= instance then
-			table.insert(exclusions, guide)
-		end
-	end
-	for _, instance in ipairs(allowed_surfaces or {}) do
-		allow_contact_surface(instance)
-	end
-	overlap_params.FilterDescendantsInstances = exclusions
+	overlap_params.FilterDescendantsInstances = { character, probe }
+	-- Collision filtering excludes Climbable geometry from this clearance query.
+	overlap_params.CollisionGroup = "Climbable"
 	overlap_params.RespectCanCollide = true
 
 	local overlaps = Workspace:GetPartsInPart(probe, overlap_params)
@@ -441,9 +429,6 @@ function ParkourController:_has_hang_body_clearance(position, normal, allowed_su
 				tostring(strict == true),
 				tostring(root.Size)
 			)
-			for _, allowed in ipairs(allowed_surfaces or {}) do
-				self:_debug("hang clearance allowed surface: %s", allowed and allowed:GetFullName() or "nil")
-			end
 			return false, part
 		end
 	end
