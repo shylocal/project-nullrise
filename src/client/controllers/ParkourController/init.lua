@@ -35,6 +35,7 @@ function ParkourController.new(character, input_controller, movement_controller)
 		VaultJumpingEnabledBefore = nil,
 		VaultAutoRotateBefore = nil,
 		VaultPlatformStandBefore = nil,
+		_vaultExitVelocity = nil,
 		NextVaultAt = 0,
 		CornerLockPosition = nil,
 		CornerLockInputDirection = nil,
@@ -641,7 +642,18 @@ function ParkourController:_try_vault()
 		end
 	end
 
+	-- Script the vault arc, then hand the player back the forward speed they
+	-- had while sprinting. Humanoid.WalkSpeed is captured before sprint is
+	-- temporarily blocked; actual momentum above that speed is preserved.
+	local horizontal_velocity = flatten(root.AssemblyLinearVelocity)
+	local forward_speed = horizontal_velocity:Dot(forward)
+	local sprint_speed = math.max(0, humanoid.WalkSpeed)
+	if forward_speed < sprint_speed then
+		horizontal_velocity += forward * (sprint_speed - forward_speed)
+	end
+
 	self.NextVaultAt = now + Config.VaultCooldown
+	self._vaultExitVelocity = horizontal_velocity
 	self._vaultStart = start_cframe
 	self._vaultTarget = target_cframe
 	self._vaultElapsed = 0
@@ -670,6 +682,8 @@ function ParkourController:_finish_vault(completed)
 	end
 
 	self.State = "Grounded"
+	local exit_velocity = self._vaultExitVelocity
+	self._vaultExitVelocity = nil
 	self._vaultStart = nil
 	self._vaultTarget = nil
 	self._vaultElapsed = nil
@@ -714,6 +728,19 @@ function ParkourController:_finish_vault(completed)
 	end
 	if self.MovementController then
 		self.MovementController:SetSprintBlocked(false, self)
+	end
+
+	-- The scripted CFrame path zeroes physics velocity while airborne. Restore
+	-- horizontal sprint momentum at the landing handoff so the vault does not
+	-- leave the character stationary; preserve any vertical landing velocity.
+	local root = self.Root
+	if completed and root and root.Parent and exit_velocity then
+		local vertical_velocity = root.AssemblyLinearVelocity.Y
+		root.AssemblyLinearVelocity = Vector3.new(
+			exit_velocity.X,
+			vertical_velocity,
+			exit_velocity.Z
+		)
 	end
 end
 
