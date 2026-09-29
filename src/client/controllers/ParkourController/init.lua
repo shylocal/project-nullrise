@@ -21,7 +21,8 @@ local SURFACE_PROBE = 1.4
 local MANTLE_LANDING_OFFSETS = { -0.6, -0.3, 0, 0.3, 0.6, 0.9, 1.2 }
 local LOWER_PROBE_OFFSETS = { 0.15, 0.45, 0.75, 1.05 }
 local MAX_TOP_SURFACE_HITS = 16
-local MANTLE_MAX_RISE = 9
+-- Max ledge-to-ledge rise; root-to-top range also accounts for the hang drop below the ledge.
+local MANTLE_MAX_RISE = 12.5
 local MANTLE_MAX_INWARD = 8
 local MANTLE_MAX_OUTWARD = 2
 local MANTLE_MAX_LATERAL = 5
@@ -733,7 +734,7 @@ function ParkourController:_try_mantle()
 				local root_height_delta = root.Position.Y - top.Position.Y
 				local in_vertical_range = rise >= -0.25
 					and rise <= MANTLE_MAX_RISE
-					and root_height_delta >= -MANTLE_MAX_RISE
+					and root_height_delta >= -(MANTLE_MAX_RISE + HANG_DROP)
 					and root_height_delta <= MAX_GRAB_HEIGHT
 				local in_reach = inward >= -MANTLE_MAX_OUTWARD
 					and inward <= MANTLE_MAX_INWARD
