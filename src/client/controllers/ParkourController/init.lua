@@ -177,7 +177,8 @@ function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, 
 		0
 	)
 
-	local params = RaycastParams.new()
+	local params = self._reachableTopParams or RaycastParams.new()
+	self._reachableTopParams = params
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { self.Character }
 	params.IgnoreWater = true
