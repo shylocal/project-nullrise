@@ -26,6 +26,8 @@ return {
 	VaultLongObstacleHopLength = 20,
 	VaultGroundSupportTolerance = 0.65,
 	VaultMinTopHopDepth = 2.5,
+	VaultTopHopHeightMargin = 0.6,
+	VaultTopHopForwardBoostSpeed = 6,
 	VaultDuration = 0.38,
 	VaultDurationMultiplier = 0.88,
 	VaultCooldown = 0.3,
