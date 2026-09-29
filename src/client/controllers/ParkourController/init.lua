@@ -444,20 +444,21 @@ end
 
 function ParkourController:_try_lower_ledge()
 	self:_debug("lower ledge requested; state=%s", self.State)
-	if self.State ~= "Hanging" or not self.Root or not self.HangPosition or not self.Normal then
+	if self.State ~= "Hanging" or not self.Root or not self.HangPosition or not normal then
 		self:_debug("lower ledge aborted; missing hanging state or character parts")
 		return
 	end
 
+	local normal = self.Normal
 	-- Sample several points just beyond the wall face. The old single probe
 	-- sat a full character gap in front of the ledge and could miss narrow
 	-- lower platforms or fall clear of the platform's footprint.
-	local current_top = self.HangPosition - self.Normal * WALL_GAP + Vector3.new(0, HANG_DROP, 0)
+	local current_top = self.HangPosition - normal * WALL_GAP + Vector3.new(0, HANG_DROP, 0)
 	local lower = nil
 	local lower_offset = nil
 	for _, offset in ipairs(LOWER_PROBE_OFFSETS) do
 		local probe_origin = current_top
-			+ self.Normal * offset
+			+ normal * offset
 			- Vector3.new(0, 0.15, 0)
 		local candidate = self:_cast(
 			probe_origin,
@@ -505,7 +506,7 @@ function ParkourController:_try_lower_ledge()
 		local ground_offset = nil
 		for _, offset in ipairs(GROUND_PROBE_OFFSETS) do
 			local probe_origin = current_top
-				+ self.Normal * offset
+				+ normal * offset
 				+ Vector3.new(0, 2, 0)
 			local candidate = self:_cast(
 				probe_origin,
@@ -541,7 +542,7 @@ function ParkourController:_try_lower_ledge()
 		)
 		self.GrabBlockedUntilJumpReleased = true
 		self:_release()
-		root.CFrame = CFrame.lookAt(ground_position, ground_position - self.Normal)
+		root.CFrame = CFrame.lookAt(ground_position, ground_position - normal)
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 		if self.Humanoid then
@@ -558,7 +559,7 @@ function ParkourController:_try_lower_ledge()
 		lower_offset
 	)
 	self.Surface = lower.Instance
-	self.HangPosition = lower.Position + self.Normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
+	self.HangPosition = lower.Position + normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
 	self:_position_hanging()
 end
 function ParkourController:_standing_height()
