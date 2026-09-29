@@ -19,7 +19,6 @@ local HANG_DROP = 2.35
 local WALL_GAP = 0.8
 local TRAVERSE_SPEED = 5
 local SURFACE_PROBE = 1.4
-local LOWER_PROBE_OFFSETS = { 0.15, 0.45, 0.75, 1.05 }
 local GROUND_PROBE_OFFSETS = { 0.75, 1.05, 1.35, 1.65, 2.0 }
 local MAX_TOP_SURFACE_HITS = 16
 -- Max ledge-to-ledge rise; root-to-top range also accounts for the hang drop below the ledge.
@@ -450,119 +449,136 @@ function ParkourController:_try_lower_ledge()
 		return
 	end
 
-	local normal = self.Normal
-	-- Sample several points just beyond the wall face. The old single probe
-	-- sat a full character gap in front of the ledge and could miss narrow
-	-- lower platforms or fall clear of the platform's footprint.
-	local current_top = self.HangPosition - normal * WALL_GAP + Vector3.new(0, HANG_DROP, 0)
-	local lower = nil
-	local lower_offset = nil
-	for _, offset in ipairs(LOWER_PROBE_OFFSETS) do
-		local probe_origin = current_top
-			+ normal * offset
-			- Vector3.new(0, 0.15, 0)
-		local candidate = self:_cast(
-			probe_origin,
-			Vector3.new(0, -(MAX_GRAB_HEIGHT + 0.5), 0)
-		)
-		if not candidate then
-			self:_debug("lower probe offset %.2f: ray missed", offset)
-		elseif candidate.Normal.Y < 0.5 then
-			self:_debug(
-				"lower probe offset %.2f: hit %s with non-walkable normal=%s",
-				offset,
-				candidate.Instance:GetFullName(),
-				tostring(candidate.Normal)
-			)
-		elseif not self:_is_climbable(candidate.Instance) then
-			self:_debug(
-				"lower probe offset %.2f: hit %s (not climbable)",
-				offset,
-				candidate.Instance:GetFullName()
-			)
-		else
-			local drop = current_top.Y - candidate.Position.Y
-			if drop >= 0.5 and drop <= MAX_GRAB_HEIGHT then
-				lower = candidate
-				lower_offset = offset
-				break
-			end
-			self:_debug(
-				"lower probe offset %.2f: hit %s but drop %.2f is out of range",
-				offset,
-				candidate.Instance:GetFullName(),
-				drop
-			)
-		end
+	local root = self.Root
+	local normal = flatten(self.Normal)
+	if normal.Magnitude < 0.05 then
+		self:_debug("lower ledge aborted; active wall normal is invalid")
+		return
 	end
+	normal = normal.Unit
+	local tangent = flatten(root.CFrame.RightVector)
+	if tangent.Magnitude < 0.05 then
+		tangent = flatten(Vector3.yAxis:Cross(normal))
+	end
+	if tangent.Magnitude < 0.05 then
+		self:_debug("lower ledge aborted; lateral axis is invalid")
+		return
+	end
+	tangent = tangent.Unit
 
-	if not lower then
-		-- If there is no tagged ledge below, allow S to dismount onto ordinary
-		-- collidable ground. Probe out from the wall so we do not mistake its
-		-- vertical face for a floor; the guide blocks themselves may stay
-		-- non-collidable.
-		local root = self.Root
-		local standing_height = self:_standing_height()
-		local ground = nil
-		local ground_offset = nil
-		for _, offset in ipairs(GROUND_PROBE_OFFSETS) do
-			local probe_origin = current_top
-				+ normal * offset
-				+ Vector3.new(0, 2, 0)
-			local candidate = self:_cast(
-				probe_origin,
-				Vector3.new(0, -(MAX_GROUND_DROP + 2), 0),
-				true
-			)
-			if candidate and candidate.Normal.Y >= 0.5
-				and not self:_is_climbable(candidate.Instance) then
-				local drop = current_top.Y - candidate.Position.Y
-				if drop >= -0.25 and drop <= MAX_GROUND_DROP then
-					ground = candidate
-					ground_offset = offset
-					break
+	local current_top = self.HangPosition - normal * WALL_GAP + Vector3.new(0, HANG_DROP, 0)
+	local best_top = nil
+	local best_drop = math.huge
+	local best_distance = math.huge
+	local best_lateral_offset = 0
+	local examined = 0
+
+	-- Search tagged guides directly instead of relying on a downward ray that
+	-- can be occluded by the active guide and incorrectly fall through to ground.
+	-- S selects the closest lower reachable ledge and keeps the hang state.
+	for _, guide in ipairs(CollectionService:GetTagged(CLIMBABLE_TAG)) do
+		if guide ~= self.CurrentClimbable and guide:IsDescendantOf(Workspace) then
+			local top = self:_get_guide_top(guide)
+			if top and top.Normal.Y >= 0.5 then
+				local relative = top.Position - current_top
+				local drop = current_top.Y - top.Position.Y
+				local inward = relative:Dot(-normal)
+				local guide_center_lateral = flatten(relative):Dot(tangent)
+				local guide_half_extent = self:_get_guide_half_extent(top, tangent)
+				local lateral_gap = math.max(0, math.abs(guide_center_lateral) - guide_half_extent)
+				local lateral_margin = math.max(root.Size.X * 0.5, 0.5)
+				local safe_lateral_extent = math.max(0, guide_half_extent - lateral_margin)
+				local player_lateral = flatten(root.Position - current_top):Dot(tangent)
+				local target_lateral_offset = math.clamp(
+					player_lateral - guide_center_lateral,
+					-safe_lateral_extent,
+					safe_lateral_extent
+				)
+				local in_vertical_range = drop >= 0.5 and drop <= MANTLE_MAX_RISE
+				local in_reach = inward >= -MANTLE_MAX_OUTWARD
+					and inward <= MANTLE_MAX_INWARD
+					and lateral_gap <= MANTLE_MAX_LATERAL
+
+				if in_vertical_range and in_reach then
+					examined += 1
+					local target_top_position = top.Position + tangent * target_lateral_offset
+					local horizontal_distance = flatten(target_top_position - current_top).Magnitude
+					if drop < best_drop
+						or (drop == best_drop and horizontal_distance < best_distance) then
+						best_top = top
+						best_drop = drop
+						best_distance = horizontal_distance
+						best_lateral_offset = target_lateral_offset
+					end
 				end
 			end
 		end
+	end
 
-		if not ground or not root then
-			self:_debug("lower ledge: no tagged lower guide or reachable ground found")
-			return
-		end
-
-		local ground_position = Vector3.new(
-			ground.Position.X,
-			ground.Position.Y + standing_height - 0.05,
-			ground.Position.Z
-		)
+	if best_top then
+		local target_normal = self:_get_guide_wall_normal(best_top.Guide, best_top, normal)
 		self:_debug(
-			"ground dismount accepted; surface=%s drop=%.2f probe_offset=%.2f",
-			ground.Instance:GetFullName(),
-			current_top.Y - ground.Position.Y,
-			ground_offset
+			"lower ledge selected; guide=%s drop=%.2f horizontal_distance=%.2f examined=%d",
+			best_top.Guide:GetFullName(),
+			best_drop,
+			best_distance,
+			examined
 		)
-		self.GrabBlockedUntilJumpReleased = true
-		self:_release()
-		root.CFrame = CFrame.lookAt(ground_position, ground_position - normal)
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.AssemblyAngularVelocity = Vector3.zero
-		if self.Humanoid then
-			self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
-		end
+		self:_transfer_hang_to_ledge(best_top, target_normal, tangent, best_lateral_offset)
 		return
 	end
 
-	local drop = current_top.Y - lower.Position.Y
-	self:_debug(
-		"lower ledge accepted; surface=%s drop=%.2f probe_offset=%.2f",
-		lower.Instance:GetFullName(),
-		drop,
-		lower_offset
+	-- Only dismount to ordinary collidable ground when no eligible tagged
+	-- lower guide exists. The guide blocks themselves may remain non-collidable.
+	local standing_height = self:_standing_height()
+	local ground = nil
+	local ground_offset = nil
+	for _, offset in ipairs(GROUND_PROBE_OFFSETS) do
+		local probe_origin = current_top
+			+ normal * offset
+			+ Vector3.new(0, 2, 0)
+		local candidate = self:_cast(
+			probe_origin,
+			Vector3.new(0, -(MAX_GROUND_DROP + 2), 0),
+			true
+		)
+		if candidate and candidate.Normal.Y >= 0.5
+			and not self:_is_climbable(candidate.Instance) then
+			local drop = current_top.Y - candidate.Position.Y
+			if drop >= -0.25 and drop <= MAX_GROUND_DROP then
+				ground = candidate
+				ground_offset = offset
+				break
+			end
+		end
+	end
+
+	if not ground then
+		self:_debug("lower ledge: no eligible tagged guide or reachable ground found")
+		return
+	end
+
+	local ground_position = Vector3.new(
+		ground.Position.X,
+		ground.Position.Y + standing_height - 0.05,
+		ground.Position.Z
 	)
-	self.CurrentClimbable = self:_get_climbable_guide(lower.Instance)
-	self.HangPosition = lower.Position + normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
-	self:_position_hanging()
+	self:_debug(
+		"ground dismount accepted; surface=%s drop=%.2f probe_offset=%.2f",
+		ground.Instance:GetFullName(),
+		current_top.Y - ground.Position.Y,
+		ground_offset
+	)
+	self.GrabBlockedUntilJumpReleased = true
+	self:_release()
+	root.CFrame = CFrame.lookAt(ground_position, ground_position - normal)
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	if self.Humanoid then
+		self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+	end
 end
+
 function ParkourController:_standing_height()
 	local root = self.Root
 	local humanoid = self.Humanoid
@@ -597,6 +613,44 @@ function ParkourController:_get_guide_half_extent(top, tangent)
 	local look = flatten(top.BoxCFrame.LookVector)
 	return math.abs(tangent:Dot(right)) * top.BoxSize.X * 0.5
 		+ math.abs(tangent:Dot(look)) * top.BoxSize.Z * 0.5
+end
+
+function ParkourController:_get_guide_wall_normal(guide, top, preferred_normal)
+	local preferred = flatten(preferred_normal)
+	if preferred.Magnitude < 0.05 then
+		return Vector3.zAxis
+	end
+	preferred = preferred.Unit
+
+	-- Probe the destination guide at the height of the hanging torso. This
+	-- obtains its own outward-facing side normal instead of reusing the
+	-- previous ledge's normal, which can push the head into an offset ledge.
+	local sample_drop = math.max(0.35, HANG_DROP - 1.1)
+	local origin = top.Position
+		- Vector3.new(0, sample_drop, 0)
+		+ preferred * (WALL_GAP + SURFACE_PROBE + 0.5)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { guide }
+	params.IgnoreWater = true
+	params.RespectCanCollide = false
+	local hit = Workspace:Raycast(
+		origin,
+		-preferred * (WALL_GAP + SURFACE_PROBE + 1),
+		params
+	)
+	if hit then
+		local side_normal = flatten(hit.Normal)
+		if side_normal.Magnitude >= 0.05 then
+			side_normal = side_normal.Unit
+			if side_normal:Dot(preferred) < 0 then
+				side_normal = -side_normal
+			end
+			return side_normal
+		end
+	end
+
+	return preferred
 end
 
 function ParkourController:_get_hang_position_for_top(top, normal, tangent, lateral_offset)
@@ -812,7 +866,8 @@ function ParkourController:_try_mantle()
 			considered,
 			rejected
 		)
-		self:_transfer_hang_to_ledge(best_top, normal, tangent, best_lateral_offset)
+		local target_normal = self:_get_guide_wall_normal(best_top.Guide, best_top, normal)
+		self:_transfer_hang_to_ledge(best_top, target_normal, tangent, best_lateral_offset)
 	else
 		self:_debug(
 			"mantle found no reachable higher guide; tagged_guides=%d considered=%d rejected=%d max_rise=%.2f",
