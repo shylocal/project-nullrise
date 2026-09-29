@@ -21,9 +21,14 @@ function PlayerController.new(player, input_controller, ui_controller)
 		InputController = input_controller,
 		UIController = ui_controller,
 		WeaponMenu = ui_controller:Get("WeaponMenu"),
+		_destroyed = false,
 	}, PlayerController)
 
-	self:_start()
+	local ok, err = pcall(self._start, self)
+	if not ok then
+		self:Destroy()
+		error(err, 0)
+	end
 
 	return self
 end
@@ -123,6 +128,10 @@ function PlayerController:_clear_character()
 end
 
 function PlayerController:Destroy()
+	if self._destroyed then
+		return
+	end
+	self._destroyed = true
 	self.UIController:BindCharacter(nil)
 	self.Trove:Destroy()
 	self.CharacterController = nil
