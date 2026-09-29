@@ -7,6 +7,7 @@ local Trove = require(Packages.Trove)
 local CharacterControllerModule = require(script.Parent.CharacterController)
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
+local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 local InventoryRemote = ReplicatedStorage.remotes.Inventory
 
 local PlayerController = {}
@@ -47,7 +48,7 @@ function PlayerController:_start()
 	self.Trove:Connect(
 		ReplicatedStorage.remotes.Weapon.OnClientEvent,
 		function(action, weapon_id)
-			if action == "Equipped" then
+			if action == Protocol.Weapon.Equipped then
 				self:_set_weapon(weapon_id)
 			end
 		end
@@ -57,9 +58,9 @@ function PlayerController:_start()
 		self.InputController.ActionBegan,
 		function(action)
 			if action == Actions.Slot1 then
-				InventoryRemote:FireServer("SelectSlot", 1)
+				InventoryRemote:FireServer(Protocol.Inventory.SelectSlot, 1)
 			elseif action == Actions.Slot2 then
-				InventoryRemote:FireServer("SelectSlot", 2)
+				InventoryRemote:FireServer(Protocol.Inventory.SelectSlot, 2)
 			end
 		end
 	)
