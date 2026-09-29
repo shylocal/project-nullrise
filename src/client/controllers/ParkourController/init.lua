@@ -518,13 +518,8 @@ function ParkourController:_traverse(dt)
 		}
 		local best_corner = nil
 		local best_corner_score = math.huge
-		local character_bounds_cframe, character_bounds_size = self.Character:GetBoundingBox()
-		local bounds_right = flatten(character_bounds_cframe.RightVector)
-		local bounds_look = flatten(character_bounds_cframe.LookVector)
-		local source_half_extent = math.abs(normal:Dot(bounds_right)) * character_bounds_size.X * 0.5
-			+ math.abs(normal:Dot(bounds_look)) * character_bounds_size.Z * 0.5
-		local corner_clearance = math.max(root.Size.X, root.Size.Z) * 0.5
-			+ math.max(0, source_half_extent - math.max(root.Size.X, root.Size.Z) * 0.5) + 0.2
+		local corner_clearance = math.max(root.Size.X, root.Size.Z) * 0.5 + 0.2
+		local corner_inset_samples = { 0, 0.25, 0.5, 0.75, 1, corner_clearance }
 
 		for _, turn_normal in ipairs(corner_turn_normals) do
 			for _, longitudinal_offset in ipairs(corner_longitudinal_offsets) do
@@ -561,36 +556,51 @@ function ParkourController:_traverse(dt)
 								and corner_top.Normal.Y >= 0.5
 
 							if corner_top and corner_guide and corner_height_ok then
-								-- The root is centered at the corner seam after a 90-degree
-								-- turn, so its body can still overlap the old wall. Move one
-								-- half-root-width along the old wall's outward axis, then
-								-- confirm that the destination guide actually covers that
-								-- landing column before accepting the corner.
-								local cleared_sample = corner_top.Position + normal * corner_clearance
-								local cleared_top = self:_get_guide_top(corner_guide, cleared_sample)
-								local clearance_valid = cleared_top
-									and flatten(cleared_top.Position - cleared_sample).Magnitude <= 1.25
-								local proposed_hang_position = cleared_top
-									and Vector3.new(
-										cleared_top.Position.X,
-										self.HangPosition.Y,
-										cleared_top.Position.Z
-									) + corner_normal * WALL_GAP
-								local body_clearance_valid, blocking_part = false, nil
-								if clearance_valid and proposed_hang_position then
-									body_clearance_valid, blocking_part = self:_has_hang_body_clearance(
-										proposed_hang_position,
-										corner_normal,
-										{
-											climbable,
-											corner_guide,
-											active_top.Instance,
-											corner_probe.Instance,
-											cleared_top.Instance,
-										}
-									)
+								-- Start from the actual detected corner top. Try small
+								-- outward steps only when needed to clear the source wall;
+								-- a narrow ledge should not need to support one large inset.
+								local valid_corner_top = nil
+								local blocking_part = nil
+								local supported_top_found = false
+								for _, outward_offset in ipairs(corner_inset_samples) do
+									local sampled_top = corner_top
+									if outward_offset > 0 then
+										local sample_position = corner_top.Position + normal * outward_offset
+										local candidate_top = self:_get_guide_top(corner_guide, sample_position)
+										if candidate_top
+										and flatten(candidate_top.Position - sample_position).Magnitude <= 1.25 then
+											sampled_top = candidate_top
+										else
+											sampled_top = nil
+										end
+									end
+									if sampled_top then
+										supported_top_found = true
+										local proposed_hang_position = Vector3.new(
+											sampled_top.Position.X,
+											self.HangPosition.Y,
+											sampled_top.Position.Z
+										) + corner_normal * WALL_GAP
+										local body_clear, blocker = self:_has_hang_body_clearance(
+											proposed_hang_position,
+											corner_normal,
+											{
+												climbable,
+												corner_guide,
+												active_top.Instance,
+												corner_probe.Instance,
+												sampled_top.Instance,
+											}
+										)
+										if body_clear then
+											valid_corner_top = sampled_top
+											break
+										else
+											blocking_part = blocker
+										end
+									end
 								end
-								if clearance_valid and body_clearance_valid then
+								if valid_corner_top then
 									local turn_side_penalty = turn_normal:Dot(movement_tangent) >= 0 and 0 or 100
 									local score = turn_side_penalty
 										+ math.abs(along_movement)
@@ -598,18 +608,23 @@ function ParkourController:_traverse(dt)
 										+ math.abs(longitudinal_offset.Magnitude) * 0.05
 									if score < best_corner_score then
 										best_corner = {
-											Top = cleared_top,
+											Top = valid_corner_top,
 											Guide = corner_guide,
 											Normal = corner_normal,
 										}
 										best_corner_score = score
 									end
+								elseif supported_top_found then
+									self:_debug_traversal(
+										"corner candidate blocked by collidable part: "
+										.. tostring(blocking_part)
+									)
 								else
 									self:_debug_traversal(
-										"corner candidate rejected by body clearance: %s",
-										tostring(blocking_part)
+										"corner candidate has no supported top at tested offsets"
 									)
 								end
+							end
 							end
 						end
 					end
