@@ -604,6 +604,14 @@ function ParkourController:_traverse(dt)
 									and cleared_distance <= TRAVERSE_HEIGHT_TOLERANCE
 									and flatten(cleared_top.Position - cleared_sample).Magnitude <= 1.25
 								if clearance_valid then
+									local candidate_hang = cleared_top.Position
+										+ corner_normal * WALL_GAP
+										- Vector3.new(0, HANG_DROP, 0)
+									local candidate_allowed = { corner_probe.Instance, cleared_top.Instance }
+									local candidate_clear = self:_has_hang_body_clearance(
+										candidate_hang, corner_normal, candidate_allowed, true
+									)
+									if candidate_clear then
 									local turn_side_penalty = turn_normal:Dot(movement_tangent) >= 0 and 0 or 100
 									local score = turn_side_penalty
 										+ math.abs(along_movement)
@@ -616,6 +624,7 @@ function ParkourController:_traverse(dt)
 											Normal = corner_normal,
 										}
 										best_corner_score = score
+									end
 									end
 								end
 							end
