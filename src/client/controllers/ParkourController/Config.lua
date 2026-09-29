@@ -10,7 +10,7 @@ return {
 	TraverseSprintMultiplier = 1.5,
 	VaultEnabled = true,
 	VaultDetectionDistance = 3.5,
-	VaultDetectionHeight = 0.65,
+	VaultDetectionHeight = 0.4,
 	VaultMinHeight = 0.3,
 	VaultMaxHeight = 2.1,
 	VaultLandingGap = 0.75,
