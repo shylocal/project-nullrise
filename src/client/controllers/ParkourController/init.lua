@@ -19,7 +19,6 @@ local HANG_DROP = 2.35
 local WALL_GAP = 0.8
 local TRAVERSE_SPEED = 5
 local SURFACE_PROBE = 1.4
-local GROUND_PROBE_OFFSETS = { 0.75, 1.05, 1.35, 1.65, 2.0 }
 local MAX_TOP_SURFACE_HITS = 16
 -- Max ledge-to-ledge rise; root-to-top range also accounts for the hang drop below the ledge.
 local MANTLE_MAX_RISE = 12.5
@@ -28,7 +27,6 @@ local MANTLE_MAX_OUTWARD = 2
 local MANTLE_MAX_LATERAL = 5
 local MANTLE_MIN_RISE = 0.25
 local TRAVERSE_HEIGHT_TOLERANCE = 1.5
-local MAX_GROUND_DROP = 32
 
 local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
@@ -45,6 +43,7 @@ function ParkourController.new(character, input_controller, movement_controller)
 		Root = character:FindFirstChild("HumanoidRootPart"),
 		CurrentClimbable = nil,
 		Normal = nil,
+		HangDepthOffset = nil,
 		HangPosition = nil,
 		AutoRotateBeforeHang = nil,
 		PlatformStandBeforeHang = nil,
@@ -305,6 +304,7 @@ function ParkourController:_grab(guide, normal, position)
 	self.State = "Hanging"
 	self.CurrentClimbable = guide
 	self.Normal = normal
+	self.HangDepthOffset = flatten(normal).Unit * WALL_GAP
 	self.HangPosition = position
 
 	local humanoid = self.Humanoid
@@ -401,21 +401,23 @@ function ParkourController:_traverse(dt)
 			-- from the local hit so round surfaces can turn beneath the player.
 			-- Preserve the current root height to prevent per-step vertical drift.
 			self.Normal = horizontal_normal
+			self.HangDepthOffset = horizontal_normal * WALL_GAP
 			self.HangPosition = Vector3.new(
 				top.Position.X,
 				self.HangPosition.Y,
 				top.Position.Z
-			) + horizontal_normal * WALL_GAP
+			) + self.HangDepthOffset
 		elseif top and next_climbable and next_climbable ~= climbable and same_height then
 			-- Switch the cache only after the local probe confirms a distinct,
 			-- adjacent tagged guide at the same height.
 			self.CurrentClimbable = next_climbable
 			self.Normal = horizontal_normal
+			self.HangDepthOffset = horizontal_normal * WALL_GAP
 			self.HangPosition = Vector3.new(
 				top.Position.X,
 				self.HangPosition.Y,
 				top.Position.Z
-			) + horizontal_normal * WALL_GAP
+			) + self.HangDepthOffset
 		else
 			-- Invalid or missing support stops movement at the last valid hang
 			-- transform rather than drifting down or snapping to a guide center.
@@ -515,72 +517,27 @@ function ParkourController:_try_lower_ledge()
 		end
 	end
 
-	if best_top then
-		-- Re-sample at the player's intended landing column so the hang height
-		-- follows the actual top surface instead of the guide's center sample.
-		local target_sample = best_top.Position + tangent * best_lateral_offset
-		best_top = self:_get_guide_top(best_top.Guide, target_sample) or best_top
-		local target_normal = self:_get_guide_wall_normal(best_top.Guide, best_top, normal)
-		self:_debug(
-			"lower ledge selected; guide=%s drop=%.2f horizontal_distance=%.2f examined=%d",
-			best_top.Guide:GetFullName(),
-			best_drop,
-			best_distance,
-			examined
-		)
-		self:_transfer_hang_to_ledge(best_top, target_normal)
+	if not best_top then
+		-- S is strictly a lower-ledge transfer. Stay on the current guide
+		-- when no tagged lower ledge is reachable; never snap to the ground.
+		self:_debug("lower ledge: no eligible tagged guide found; remaining on current ledge")
 		return
 	end
 
-	-- Only dismount to ordinary collidable ground when no eligible tagged
-	-- lower guide exists. The guide blocks themselves may remain non-collidable.
-	local standing_height = self:_standing_height()
-	local ground = nil
-	local ground_offset = nil
-	for _, offset in ipairs(GROUND_PROBE_OFFSETS) do
-		local probe_origin = current_top
-			+ normal * offset
-			+ Vector3.new(0, 2, 0)
-		local candidate = self:_cast(
-			probe_origin,
-			Vector3.new(0, -(MAX_GROUND_DROP + 2), 0),
-			true
-		)
-		if candidate and candidate.Normal.Y >= 0.5
-			and not self:_is_climbable(candidate.Instance) then
-			local drop = current_top.Y - candidate.Position.Y
-			if drop >= -0.25 and drop <= MAX_GROUND_DROP then
-				ground = candidate
-				ground_offset = offset
-				break
-			end
-		end
-	end
-
-	if not ground then
-		self:_debug("lower ledge: no eligible tagged guide or reachable ground found")
-		return
-	end
-
-	local ground_position = Vector3.new(
-		ground.Position.X,
-		ground.Position.Y + standing_height - 0.05,
-		ground.Position.Z
-	)
+	-- Re-sample at the player's intended landing column so the hang height
+	-- follows the actual top surface instead of the guide's center sample.
+	local target_sample = best_top.Position + tangent * best_lateral_offset
+	best_top = self:_get_guide_top(best_top.Guide, target_sample) or best_top
+	local target_normal = self:_get_guide_wall_normal(best_top.Guide, best_top, normal)
 	self:_debug(
-		"ground dismount accepted; surface=%s drop=%.2f probe_offset=%.2f",
-		ground.Instance:GetFullName(),
-		current_top.Y - ground.Position.Y,
-		ground_offset
+		"lower ledge selected; guide=%s drop=%.2f horizontal_distance=%.2f examined=%d",
+		best_top.Guide:GetFullName(),
+		best_drop,
+		best_distance,
+		examined
 	)
-	self.GrabBlockedUntilJumpReleased = true
-	self:_release()
-	root.CFrame = CFrame.lookAt(ground_position, ground_position - normal)
-	root.AssemblyLinearVelocity = Vector3.zero
-	root.AssemblyAngularVelocity = Vector3.zero
-	if self.Humanoid then
-		self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
-	end
+	self:_transfer_hang_to_ledge(best_top, target_normal)
+
 end
 
 function ParkourController:_standing_height()
@@ -670,10 +627,24 @@ function ParkourController:_transfer_hang_to_ledge(top, normal)
 	local root = self.Root
 	if not root or not top or not normal then return false end
 
-	local hang_position = self:_get_hang_position_for_top(top, normal)
+	-- Preserve the current wall-depth vector when changing only ledge height.
+	-- Rebuilding this from the destination normal can shift the root into or
+	-- away from a same-depth ledge when its sampled normal differs slightly.
+	local depth_offset = self.HangDepthOffset
+	if not depth_offset or flatten(depth_offset).Magnitude < 0.05 then
+		local prior_normal = flatten(self.Normal or normal)
+		if prior_normal.Magnitude < 0.05 then
+			prior_normal = flatten(normal)
+		end
+		depth_offset = prior_normal.Unit * WALL_GAP
+	end
+	local hang_position = top.Position
+		+ depth_offset
+		- Vector3.new(0, HANG_DROP, 0)
 	self.State = "Hanging"
 	self.CurrentClimbable = top.Guide or self:_get_climbable_guide(top.Instance)
 	self.Normal = normal
+	self.HangDepthOffset = depth_offset
 	self.HangPosition = hang_position
 
 	-- Keep the existing hang lock and movement restriction; do not release
@@ -894,6 +865,7 @@ function ParkourController:_release()
 	self.State = "Grounded"
 	self.CurrentClimbable = nil
 	self.Normal = nil
+	self.HangDepthOffset = nil
 	self.HangPosition = nil
 
 	local humanoid = self.Humanoid
