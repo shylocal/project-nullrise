@@ -78,7 +78,7 @@ Parkour tuning lives in `src/client/controllers/ParkourController/Config.lua`. W
 
 On the ground, vaulting is explicitly requested with Space while sprinting and moving into a suitable collidable, non-climbable obstacle. It is not triggered automatically or restricted by the character's facing direction: detection follows movement direction and uses center-first detection with narrower side and height probes, plus a facing-direction fallback for diagonal approaches. The controller samples the obstacle top and checks available space before committing. Short obstacles use a brief hop to clear the far edge; longer obstacles can use a short hop onto a reachable, walkable top instead of forcing a long traverse. The character clearance envelope is sampled along the arc to reject blocked landing or overhead space. If checks fail, the regular jump and ledge-grab behavior remain available.
 
-Vault obstacle height and arc are configured up to about four studs by default. Detection distance, landing gap, top inset, timing, cooldown, and sprint traversal multiplier are also configurable.
+Vault obstacle height and arc are configured up to about four studs by default. The far-side hop distance is sized to allow narrow obstacles to be cleared even when detected near the full trigger range. Detection distance, landing gap, top inset, timing, cooldown, and sprint traversal multiplier are also configurable.
 
 ## Setup
 
