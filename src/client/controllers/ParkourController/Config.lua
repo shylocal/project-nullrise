@@ -24,6 +24,7 @@ return {
 	VaultCooldown = 0.55,
 	VaultDetectionHalfWidth = 1.25,
 	VaultForwardBoostSpeed = 6,
+	VaultHipHeightReduction = 0.5,
 	ClimbSmoothness = 18,
 	SurfaceProbe = 1.4,
 	MaxTopSurfaceHits = 16,
