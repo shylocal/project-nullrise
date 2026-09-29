@@ -12,9 +12,25 @@ local inventory_service = InventoryService.new(player_service)
 local weapon_service = WeaponService.new(player_service, inventory_service)
 local combat_service = CombatService.new(player_service, weapon_service, CombatRemote)
 
-return {
+local runtime = {
 	PlayerService = player_service,
 	InventoryService = inventory_service,
 	WeaponService = weapon_service,
 	CombatService = combat_service,
+	_destroyed = false,
 }
+
+-- Shut down consumers before the services they depend on.
+function runtime:Destroy()
+	if self._destroyed then
+		return
+	end
+	self._destroyed = true
+
+	self.CombatService:Destroy()
+	self.WeaponService:Destroy()
+	self.InventoryService:Destroy()
+	self.PlayerService:Destroy()
+end
+
+return runtime
