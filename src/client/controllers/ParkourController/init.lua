@@ -11,7 +11,6 @@ ParkourController.__index = ParkourController
 
 local CLIMBABLE_TAG = "Climbable"
 local WALL_REACH = 3.25
-local TOP_SCAN_HEIGHT = 3.5
 local MAX_GRAB_HEIGHT = 4.5
 local HANG_DROP = 2.35
 local WALL_GAP = 0.8
@@ -24,8 +23,8 @@ local JUMP_LANDING_DISTANCES = { 4, 6, 8, 10 }
 local JUMP_SCAN_HEIGHT = 3
 local JUMP_SCAN_DEPTH = 14
 local JUMP_MAX_DROP = 8
-local JUMP_MAX_RISE = 3.5
-local JUMP_OFF_VERTICAL_SPEED = 42
+local JUMP_MAX_RISE = 5.75
+local JUMP_OFF_VERTICAL_SPEED = 50
 
 local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
@@ -461,8 +460,10 @@ function ParkourController:_jump_toward_visible_ground()
 	end
 
 	local horizontal = flatten(landing.Position - root.Position)
-	if horizontal.Magnitude < 0.05 then
+	local horizontal_distance = horizontal.Magnitude
+	if horizontal_distance < 0.05 then
 		horizontal = direction
+		horizontal_distance = landing_distance
 	else
 		horizontal = horizontal.Unit
 	end
@@ -475,7 +476,7 @@ function ParkourController:_jump_toward_visible_ground()
 	) / gravity
 	if flight_time <= 0 then return false end
 
-	local horizontal_speed = math.clamp(landing_distance / flight_time, 10, 24)
+	local horizontal_speed = math.clamp(horizontal_distance / flight_time, 10, 24)
 	root.AssemblyLinearVelocity = horizontal * horizontal_speed
 		+ Vector3.new(0, JUMP_OFF_VERTICAL_SPEED, 0)
 	humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
