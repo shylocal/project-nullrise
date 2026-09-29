@@ -226,7 +226,9 @@ function ParkourController:_traverse(dt)
 			-normal * (WALL_GAP + SURFACE_PROBE)
 		)
 
-		if probe and self:_is_climbable(probe.Instance) then
+		-- The side probe can hit an untagged backing wall. Treat it only as
+		-- a geometric guide; the ledge's top surface is the climbability check.
+		if probe then
 			local top = self:_cast_top_surface(probe.Position, probe.Normal, root.Position)
 			if top and self:_is_climbable(top.Instance) then
 				local height_delta = root.Position.Y - top.Position.Y
