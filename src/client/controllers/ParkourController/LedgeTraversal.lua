@@ -125,7 +125,7 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 	end
 
 	local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, candidate_position.Y + Config.HangDrop)
-	if not top or ClimbableQuery.get_guide(top.Instance) ~= expected_guide then
+	if not top or (ClimbableQuery.get_guide(top.Instance) or top.Instance) ~= expected_guide then
 		return false
 	end
 	if expected_top_y and math.abs(top.Position.Y - expected_top_y) > Config.TraverseHeightTolerance then
@@ -157,8 +157,7 @@ function LedgeTraversal.get_ledge_outward_normal(self, top, reference_position)
 	end
 
 	local part = top.Instance
-	local guide = top.Guide or ClimbableQuery.get_guide(part)
-	if not guide then return nil end
+	local guide = top.Guide or ClimbableQuery.get_guide(part) or part
 
 	-- The top surface normal is vertical and cannot tell us which vertical
 	-- face the destination ledge presents. Probe outward from the actual
@@ -191,8 +190,8 @@ function LedgeTraversal.get_ledge_outward_normal(self, top, reference_position)
 	for _, outward in ipairs(axes) do
 		local origin = Vector3.new(top.Position.X, probe_y, top.Position.Z)
 			+ outward * probe_length
-		local hit = self:_cast_climbable_side(origin, -outward * probe_length)
-		if hit and ClimbableQuery.get_guide(hit.Instance) == guide then
+		local hit = self:_cast_grabbable_side(origin, -outward * probe_length)
+		if hit and (ClimbableQuery.get_guide(hit.Instance) or hit.Instance) == guide then
 			local face_normal = Vector.flatten(hit.Normal)
 			if face_normal.Magnitude >= 0.05 then
 				face_normal = face_normal.Unit
@@ -237,8 +236,7 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 	elseif not depth_offset or Vector.flatten(depth_offset).Magnitude < 0.05 then
 		depth_offset = destination_normal * Config.WallGap
 	end
-	local target_guide = top.Guide or ClimbableQuery.get_guide(top.Instance)
-	if not target_guide then return false end
+	local target_guide = top.Guide or ClimbableQuery.get_guide(top.Instance) or top.Instance
 
 	local planned_position = top.Position
 		+ depth_offset
@@ -389,6 +387,35 @@ function LedgeTraversal.get_guide_tops(self, guide, sample_position)
 
 	return tops
 end
+local function cast_mantle_ground(self, origin, direction)
+	local params = self._mantleGroundParams or RaycastParams.new()
+	self._mantleGroundParams = params
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.IgnoreWater = true
+	params.RespectCanCollide = true
+
+	local exclusions = { self.Character }
+	for _ = 1, Config.MaxTopSurfaceHits do
+		params.FilterDescendantsInstances = exclusions
+		local hit = Workspace:Raycast(origin, direction, params)
+		if not hit then
+			return nil
+		end
+
+		local is_climbable_group = hit.Instance:IsA("BasePart")
+			and hit.Instance.CollisionGroup == Config.ClimbableCollisionGroup
+		if not is_climbable_group then
+			return hit
+		end
+
+		-- Climbable collision-group parts are query helpers/proxies, not mantle
+		-- destinations. Skip them and continue looking for the real surface.
+		table.insert(exclusions, hit.Instance)
+	end
+
+	return nil
+end
+
 function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 	local root = self.Root
 	if not root or not current_top or not normal or not tangent then
@@ -404,11 +431,12 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 	sideways = sideways.Unit
 
 	local standing_height = self:_standing_height()
+	local max_rise = Config.GroundMantleMaxRise
 	local lateral_step = math.max(root.Size.X * 0.45, 0.4)
 	local inward_offsets = { 0.5, 1, 1.75, 2.75, 4, 5.5, 7 }
 	local lateral_factors = { 0, -1, 1 }
-	local ray_origin_y = current_top.Y + Config.GroundMantleMaxRise + standing_height + 2
-	local ray_length = Config.GroundMantleMaxRise + standing_height + 4
+	local ray_origin_y = current_top.Y + max_rise + standing_height + 2
+	local ray_length = max_rise + standing_height + 4
 	local best_ground = nil
 	local best_score = math.huge
 
@@ -420,40 +448,37 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 			local sample = current_top
 				- outward_normal * inward_offset
 				+ sideways * (lateral_step * lateral_factor)
-			local ground = self:_cast(
+			local ground = cast_mantle_ground(
+				self,
 				Vector3.new(sample.X, ray_origin_y, sample.Z),
-				Vector3.new(0, -ray_length, 0),
-				true
+				Vector3.new(0, -ray_length, 0)
 			)
 			if ground and ground.Normal.Y >= 0.5 then
 				local ground_guide = ClimbableQuery.get_guide(ground.Instance)
-				local is_current_guide = ground_guide ~= nil
-					and ground_guide == self.CurrentClimbable
-				if not ground_guide or is_current_guide then
-					local rise = ground.Position.Y - current_top.Y
-					local relative = ground.Position - current_top
-					local inward_distance = relative:Dot(-outward_normal)
-					local lateral_distance = math.abs(Vector.flatten(relative):Dot(sideways))
-					local root_to_floor = root.Position.Y - ground.Position.Y
-					-- A ledge grab already places the root below the ledge's top.
-					-- Permit landing on that same top, while ordinary ground mantles
-					-- retain the configured minimum rise.
-					local minimum_rise = if is_current_guide then -0.25 else Config.MantleMinRise
-					local reachable = rise >= minimum_rise
-						and rise <= Config.GroundMantleMaxRise
-						and inward_distance >= 0.25
-						and inward_distance <= Config.MantleMaxInward
-						and lateral_distance <= Config.MantleMaxLateral
-						and root_to_floor <= Config.GroundMantleMaxRise + Config.HangDrop
+				local is_current_guide = ground.Instance == self.CurrentClimbable
+					or (ground_guide ~= nil and ground_guide == self.CurrentClimbable)
+				local rise = ground.Position.Y - current_top.Y
+				local relative = ground.Position - current_top
+				local inward_distance = relative:Dot(-outward_normal)
+				local lateral_distance = math.abs(Vector.flatten(relative):Dot(sideways))
+				local root_to_floor = root.Position.Y - ground.Position.Y
+				-- The current ledge may be level with the hang point; other
+				-- surfaces must still rise enough to be a meaningful mantle.
+				local minimum_rise = if is_current_guide then -0.25 else Config.MantleMinRise
+				local reachable = rise >= minimum_rise
+					and rise <= max_rise
+					and inward_distance >= 0.25
+					and inward_distance <= Config.MantleMaxInward
+					and lateral_distance <= Config.MantleMaxLateral
+					and root_to_floor <= max_rise + Config.HangDrop
 
-					if reachable then
-						local score = inward_distance * inward_distance
-							+ lateral_distance * lateral_distance
-							+ rise * rise * 0.15
-						if score < best_score then
-							best_ground = ground
-							best_score = score
-						end
+				if reachable then
+					local score = inward_distance * inward_distance
+						+ lateral_distance * lateral_distance
+						+ rise * rise * 0.15
+					if score < best_score then
+						best_ground = ground
+						best_score = score
 					end
 				end
 			end
@@ -551,6 +576,10 @@ function LedgeTraversal.try_mantle(self)
 
 	local function consider_higher_top(guide, top)
 		if not top or top.Normal.Y < 0.5 then return end
+		if top.Instance:IsA("BasePart")
+			and top.Instance.CollisionGroup == Config.ClimbableCollisionGroup then
+			return
+		end
 		local relative = top.Position - current_top
 		local inward = relative:Dot(-normal)
 		local lateral = math.abs(Vector.flatten(relative):Dot(tangent))
