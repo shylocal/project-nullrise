@@ -1,7 +1,5 @@
-local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
 
 local Trove = require(ReplicatedStorage.packages.Trove)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
@@ -12,7 +10,6 @@ ParkourController.__index = ParkourController
 
 local Config = require(script.Config)
 local VaultMath = require(script.VaultMath)
-local ClimbableQuery = require(script.ClimbableQuery)
 local Queries = require(script.Queries)
 local Traversal = require(script.Traversal)
 local LedgeTraversal = require(script.LedgeTraversal)
