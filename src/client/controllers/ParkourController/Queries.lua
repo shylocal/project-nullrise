@@ -125,7 +125,6 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 	local first_candidate = nil
 	local first_walkable_surface = nil
 	local candidate_count = 0
-	local best_candidate_info = nil
 	for _, sample_offset in ipairs(sample_offsets) do
 		local sample_origin = origin + sample_offset
 		local exclusions = { self.Character }
@@ -166,7 +165,6 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 			if valid_surface and walkable and reachable and height_distance < best_height_distance then
 				best = candidate
 				best_height_distance = height_distance
-				best_candidate_info = candidate_info
 			end
 
 			table.insert(exclusions, candidate.Instance)
