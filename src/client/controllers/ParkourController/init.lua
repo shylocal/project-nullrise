@@ -44,7 +44,7 @@ function ParkourController.new(character, input_controller, movement_controller)
 		State = "Grounded",
 		Humanoid = character:FindFirstChildOfClass("Humanoid"),
 		Root = character:FindFirstChild("HumanoidRootPart"),
-		Surface = nil,
+		CurrentClimbable = nil,
 		Normal = nil,
 		HangPosition = nil,
 		AutoRotateBeforeHang = nil,
@@ -149,15 +149,19 @@ function ParkourController:_cast(origin, direction, respect_can_collide)
 	return Workspace:Raycast(origin, direction, params)
 end
 
-function ParkourController:_is_climbable(instance)
+function ParkourController:_get_climbable_guide(instance)
 	local current = instance
 	while current and current ~= Workspace do
 		if CollectionService:HasTag(current, CLIMBABLE_TAG) then
-			return true
+			return current
 		end
 		current = current.Parent
 	end
-	return false
+	return nil
+end
+
+function ParkourController:_is_climbable(instance)
+	return self:_get_climbable_guide(instance) ~= nil
 end
 
 function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, root_position)
@@ -287,14 +291,14 @@ function ParkourController:_detect_surface()
 		top.Instance:GetFullName(),
 		height_delta
 	)
-	return wall.Instance, wall.Normal, hang_position
+	return self:_get_climbable_guide(top.Instance), wall.Normal, hang_position
 end
 
-function ParkourController:_grab(surface, normal, position)
-	if self.State ~= "Grounded" then return end
-	self:_debug("grabbed; surface=%s position=%s", surface:GetFullName(), tostring(position))
+function ParkourController:_grab(guide, normal, position)
+	if self.State ~= "Grounded" or not guide then return end
+	self:_debug("grabbed; guide=%s position=%s", guide:GetFullName(), tostring(position))
 	self.State = "Hanging"
-	self.Surface = surface
+	self.CurrentClimbable = guide
 	self.Normal = normal
 	self.HangPosition = position
 
@@ -324,8 +328,8 @@ end
 function ParkourController:_step(dt)
 	if self.State == "Grounded" then
 		if self.InputController:IsDown(Actions.Jump) and not self.GrabBlockedUntilJumpReleased then
-			local surface, normal, position = self:_detect_surface()
-			if surface then self:_grab(surface, normal, position) end
+			local climbable, normal, position = self:_detect_surface()
+			if climbable then self:_grab(climbable, normal, position) end
 		end
 	elseif self.State == "Hanging" then
 		self:_traverse(dt)
@@ -334,9 +338,15 @@ end
 
 function ParkourController:_traverse(dt)
 	local root = self.Root
-	local surface = self.Surface
+	local climbable = self.CurrentClimbable
 	local normal = self.Normal
-	if not root or not surface or not normal or not surface:IsDescendantOf(Workspace) then
+	if not root or not climbable or not normal or not climbable:IsDescendantOf(Workspace) then
+		self:_release()
+		return
+	end
+
+	local active_top = self:_get_guide_top(climbable)
+	if not active_top then
 		self:_release()
 		return
 	end
@@ -346,9 +356,6 @@ function ParkourController:_traverse(dt)
 	if self.InputController:IsDown(Actions.Left) then direction -= 1 end
 
 	if direction ~= 0 then
-		-- Use the character's local right vector so A/D always match the
-		-- direction the character is facing, then re-sample the surface each
-		-- frame to follow curved walls instead of a fixed world-space axis.
 		local tangent = flatten(root.CFrame.RightVector)
 		if tangent.Magnitude < 0.05 then
 			tangent = flatten(Vector3.yAxis:Cross(normal))
@@ -361,68 +368,56 @@ function ParkourController:_traverse(dt)
 
 		local candidate_position = root.Position
 			+ tangent * direction * TRAVERSE_SPEED * math.max(dt, 0)
-		local probe_origin = candidate_position
-			+ Vector3.new(0, 1.5, 0)
-			+ normal * 0.3
-		local probe = self:_cast(
-			probe_origin,
-			-normal * (WALL_GAP + SURFACE_PROBE)
+		local active_half_extent = self:_get_guide_half_extent(active_top, tangent)
+		local lateral_margin = math.max(root.Size.X * 0.5, 0.5)
+		local active_safe_extent = math.max(0, active_half_extent - lateral_margin)
+		local active_lateral_offset = flatten(candidate_position - active_top.Position):Dot(tangent)
+		local clamped_active_offset = math.clamp(
+			active_lateral_offset,
+			-active_safe_extent,
+			active_safe_extent
 		)
 
-		-- The side probe can hit an untagged backing wall. Treat it only as
-		-- a geometric guide; the ledge's top surface is the climbability check.
-		if not probe then
-			self:_debug_traversal("side probe missed")
+		if math.abs(active_lateral_offset) <= active_safe_extent then
+			-- Use the cached guide as the traversal anchor. Preserve the existing
+			-- wall offset and move only along the tangent; do not re-center on the
+			-- guide's bounding-box origin each frame.
+			self.HangPosition = candidate_position
 		else
-			local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position)
-			if not top then
-				self:_debug_traversal("side hit %s; top ray missed", probe.Instance:GetFullName())
-			elseif not self:_is_climbable(top.Instance) then
-				self:_debug_traversal(
-					"side hit %s; top hit %s (not climbable)",
-					probe.Instance:GetFullName(),
-					top.Instance:GetFullName()
-				)
+			-- At the active guide's edge, look for a connected, same-height guide.
+			-- Replace the cache only after this explicit transition is validated.
+			local probe_origin = candidate_position
+				+ Vector3.new(0, 1.5, 0)
+				+ normal * 0.3
+			local probe = self:_cast(
+				probe_origin,
+				-normal * (WALL_GAP + SURFACE_PROBE)
+			)
+			local next_top = probe
+				and self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position)
+			local next_climbable = next_top
+				and self:_get_climbable_guide(next_top.Instance)
+			local same_height = next_top
+				and math.abs(next_top.Position.Y - active_top.Position.Y) <= TRAVERSE_HEIGHT_TOLERANCE
+				and next_top.Normal.Y >= 0.5
+
+			if next_climbable and next_climbable ~= climbable and same_height then
+				-- The top ray is sampled at the player's attempted position, so
+				-- use its hit point rather than the new guide's center.
+				self.CurrentClimbable = next_climbable
+				self.Normal = probe.Normal
+				self.HangPosition = next_top.Position
+					+ self.Normal * WALL_GAP
+					- Vector3.new(0, HANG_DROP, 0)
 			else
-				local height_delta = root.Position.Y - top.Position.Y
-				local current_top_y = self.HangPosition.Y + HANG_DROP
-				local ledge_height_delta = top.Position.Y - current_top_y
-				if math.abs(ledge_height_delta) <= TRAVERSE_HEIGHT_TOLERANCE
-					and height_delta >= -MAX_GRAB_HEIGHT
-					and height_delta <= MAX_GRAB_HEIGHT then
-					self.LastTraversalDiagnostic = nil
-					-- Track the tagged top that was validated, not a possibly
-					-- unrelated backing wall hit by the lateral probe.
-					self.Surface = top.Instance
-					self.Normal = probe.Normal
-					self.HangPosition = top.Position
-						+ probe.Normal * WALL_GAP
-						- Vector3.new(0, HANG_DROP, 0)
-					local now = os.clock()
-					if now - self.LastTraversalSuccessLogAt >= 0.75 then
-						self:_debug(
-							"traversal progressing %s; side_hit=%s top=%s hang=%s",
-							direction > 0 and "right" or "left",
-							probe.Instance:GetFullName(),
-							top.Instance:GetFullName(),
-							tostring(self.HangPosition)
-						)
-						self.LastTraversalSuccessLogAt = now
-					end
-				else
-					self:_debug_traversal(
-						"top hit %s; height_delta=%.2f ledge_delta=%.2f out of range",
-						top.Instance:GetFullName(),
-						height_delta,
-						ledge_height_delta
-					)
-				end
+				-- No connected same-height guide: stop at the current guide edge,
+				-- retaining this guide in the cache.
+				self.HangPosition = candidate_position
+					+ tangent * (clamped_active_offset - active_lateral_offset)
 			end
 		end
 	end
 
-	-- If the probe reaches the end of a ledge or finds an invalid surface,
-	-- keep the last valid hang transform rather than dropping unexpectedly.
 	self:_position_hanging()
 end
 
@@ -437,8 +432,8 @@ function ParkourController:_on_jump()
 	end
 
 	if self.State == "Grounded" then
-		local surface, normal, position = self:_detect_surface()
-		if surface then self:_grab(surface, normal, position) end
+		local climbable, normal, position = self:_detect_surface()
+		if climbable then self:_grab(climbable, normal, position) end
 	end
 end
 
@@ -558,7 +553,7 @@ function ParkourController:_try_lower_ledge()
 		drop,
 		lower_offset
 	)
-	self.Surface = lower.Instance
+	self.CurrentClimbable = self:_get_climbable_guide(lower.Instance)
 	self.HangPosition = lower.Position + normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
 	self:_position_hanging()
 end
@@ -601,7 +596,7 @@ function ParkourController:_transfer_hang_to_ledge(top, normal, tangent, lateral
 
 	local hang_position = self:_get_hang_position_for_top(top, normal, tangent, lateral_offset)
 	self.State = "Hanging"
-	self.Surface = top.Guide or top.Instance
+	self.CurrentClimbable = top.Guide or self:_get_climbable_guide(top.Instance)
 	self.Normal = normal
 	self.HangPosition = hang_position
 
@@ -654,8 +649,10 @@ end
 
 function ParkourController:_try_mantle()
 	self:_debug("mantle requested; state=%s", self.State)
-	if self.State ~= "Hanging" or not self.Root or not self.HangPosition or not self.Normal then
-		self:_debug("mantle aborted; missing hanging state or character parts")
+	if self.State ~= "Hanging" or not self.Root or not self.CurrentClimbable
+		or not self.HangPosition or not self.Normal
+		or not self.CurrentClimbable:IsDescendantOf(Workspace) then
+		self:_debug("mantle aborted; missing active guide or character parts")
 		return
 	end
 
@@ -785,7 +782,7 @@ function ParkourController:_release()
 	end
 	self:_debug("released from hanging; Space release or controller cleanup")
 	self.State = "Grounded"
-	self.Surface = nil
+	self.CurrentClimbable = nil
 	self.Normal = nil
 	self.HangPosition = nil
 
