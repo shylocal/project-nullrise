@@ -4,7 +4,7 @@ local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local Signal = require(Packages.Signal)
 
-local WeaponsFolder = ReplicatedStorage.shared.weapons
+local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local UITemplates = ReplicatedStorage.ui
 local WeaponRemote = ReplicatedStorage.remotes.Weapon
 local InventoryRemote = ReplicatedStorage.remotes.Inventory
@@ -45,13 +45,8 @@ function WeaponMenu:_start()
 			continue
 		end
 
-		local weapon_module = WeaponsFolder:FindFirstChild(weapon_id)
-		if not weapon_module or not weapon_module:IsA("ModuleScript") then
-			continue
-		end
-
-		local weapon = require(weapon_module)
-		if weapon.Type ~= "Melee" then
+		local weapon = Catalog.Get(weapon_id)
+		if not weapon then
 			continue
 		end
 
