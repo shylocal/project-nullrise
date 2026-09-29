@@ -144,7 +144,7 @@ function ParkourController:_detect_surface()
 		hang_position + Vector3.new(0, 0.8, 0),
 		-wall.Normal * 0.35
 	)
-	if body_clearance and body_clearance.Instance ~= wall.Instance then return nil end
+	if body_clearance and not self:_is_climbable(body_clearance.Instance) then return nil end
 
 	return wall.Instance, wall.Normal, hang_position
 end
