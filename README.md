@@ -72,6 +72,12 @@ default.project.json
 
 Large responsibilities are split by domain rather than by arbitrary size. For example, animation has separate movement, weapon, and combat modules; combat owns its hitbox adapter; and server services delegate focused validation, session, and attachment work.
 
+## Parkour
+
+Parkour tuning lives in `src/client/controllers/ParkourController/Config.lua`. While hanging, holding Sprint increases A/D traversal speed without changing the existing ledge-clearance and corner-lock checks.
+
+On the ground, sprinting forward into a small, collidable, non-climbable obstacle can trigger an automatic vault. The controller samples the obstacle top, finds walkable ground beyond it, and checks the swept character envelope for clear landing and overhead space before starting the vault. If any check fails, normal movement and jumping remain available. Vault dimensions, timing, clearance, and probe cadence are configurable.
+
 ## Setup
 
 Use Rojo to sync the project into Roblox Studio.
