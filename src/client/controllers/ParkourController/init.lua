@@ -335,8 +335,8 @@ end
 function ParkourController:_step(dt)
 	if self.State == "Grounded" then
 		if self.InputController:IsDown(Actions.Jump) and not self.GrabBlockedUntilJumpReleased then
-			local surface, normal, position = self:_detect_surface()
-			if surface then self:_grab(surface, normal, position) end
+			local climbable, normal, position = self:_detect_surface()
+			if climbable then self:_grab(climbable, normal, position) end
 		end
 	elseif self.State == "Hanging" then
 		self:_traverse(dt)
@@ -375,21 +375,21 @@ function ParkourController:_traverse(dt)
 
 		local candidate_position = root.Position
 			+ tangent * direction * TRAVERSE_SPEED * math.max(dt, 0)
-		local guide_half_extent = self:_get_guide_half_extent(active_top, tangent)
+		local active_half_extent = self:_get_guide_half_extent(active_top, tangent)
 		local lateral_margin = math.max(root.Size.X * 0.5, 0.5)
-		local safe_lateral_extent = math.max(0, guide_half_extent - lateral_margin)
+		local active_safe_extent = math.max(0, active_half_extent - lateral_margin)
 		local active_lateral_offset = flatten(candidate_position - active_top.Position):Dot(tangent)
 
-		if math.abs(active_lateral_offset) <= safe_lateral_extent then
-			-- Stay anchored to the cached guide while traversing across its
-			-- footprint. Do not reselect a different vertical guide every frame.
+		if math.abs(active_lateral_offset) <= active_safe_extent then
+			-- Keep using the cached active guide while moving inside its footprint.
+			-- No global guide scan or vertical reselection is needed for A/D.
 			self.HangPosition = active_top.Position
 				+ tangent * active_lateral_offset
 				+ normal * WALL_GAP
 				- Vector3.new(0, HANG_DROP, 0)
 		else
-			-- At a guide edge, look for a connected guide at the same height.
-			-- Only this explicit ledge transition is allowed to replace the cache.
+			-- At the active guide's edge, look for a connected, same-height guide.
+			-- Replace the cache only after this explicit transition is validated.
 			local probe_origin = candidate_position
 				+ Vector3.new(0, 1.5, 0)
 				+ normal * 0.3
@@ -404,10 +404,11 @@ function ParkourController:_traverse(dt)
 			local next_guide_top = next_climbable
 				and self:_get_guide_top(next_climbable)
 
-			if next_guide_top
-				and next_climbable ~= climbable
-				and math.abs(next_guide_top.Position.Y - active_top.Position.Y) <= TRAVERSE_HEIGHT_TOLERANCE
-				and next_top.Normal.Y >= 0.5 then
+			local same_height = next_top
+				and next_guide_top
+				and math.abs(next_top.Position.Y - active_top.Position.Y) <= TRAVERSE_HEIGHT_TOLERANCE
+				and next_top.Normal.Y >= 0.5
+			if next_climbable and next_climbable ~= climbable and same_height then
 				local next_half_extent = self:_get_guide_half_extent(next_guide_top, tangent)
 				local next_safe_extent = math.max(0, next_half_extent - lateral_margin)
 				local next_lateral_offset = flatten(candidate_position - next_guide_top.Position):Dot(tangent)
@@ -420,15 +421,15 @@ function ParkourController:_traverse(dt)
 						- Vector3.new(0, HANG_DROP, 0)
 				else
 					self.HangPosition = active_top.Position
-						+ tangent * math.clamp(active_lateral_offset, -safe_lateral_extent, safe_lateral_extent)
+						+ tangent * math.clamp(active_lateral_offset, -active_safe_extent, active_safe_extent)
 						+ normal * WALL_GAP
 						- Vector3.new(0, HANG_DROP, 0)
 				end
 			else
-				-- Stop at the current guide's edge rather than snapping to a
-				-- vertically stacked or unrelated guide found by the probe.
+				-- Stop at this guide's edge instead of snapping to a vertically
+				-- stacked guide found by the probe.
 				self.HangPosition = active_top.Position
-					+ tangent * math.clamp(active_lateral_offset, -safe_lateral_extent, safe_lateral_extent)
+					+ tangent * math.clamp(active_lateral_offset, -active_safe_extent, active_safe_extent)
 					+ normal * WALL_GAP
 					- Vector3.new(0, HANG_DROP, 0)
 			end
