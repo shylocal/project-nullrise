@@ -3,6 +3,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local CombatValidation = require(script.Parent.CombatValidation)
+local Protocol = require(ReplicatedStorage.shared.network.Protocol)
+local CombatActions = Protocol.Combat
 
 local CombatService = {}
 CombatService.__index = CombatService
@@ -12,11 +14,11 @@ local CHARGE_TIMEOUT = 10
 local TIMING_TOLERANCE = 0.05
 
 local REMOTE_MIN_INTERVAL = {
-	Attack = 0.08,
-	Charge = 0.08,
-	HitStart = 0.02,
-	Hit = 0.02,
-	HitStop = 0.02,
+	[CombatActions.Attack] = 0.08,
+	[CombatActions.Charge] = 0.08,
+	[CombatActions.HitStart] = 0.02,
+	[CombatActions.Hit] = 0.02,
+	[CombatActions.HitStop] = 0.02,
 }
 
 local function is_valid_duration(value)
@@ -55,15 +57,15 @@ function CombatService:_start()
 				return
 			end
 
-			if action == "Attack" then
+			if action == CombatActions.Attack then
 				self:_attack(player, attack_key)
-			elseif action == "Charge" then
+			elseif action == CombatActions.Charge then
 				self:_charge(player)
-			elseif action == "HitStart" then
+			elseif action == CombatActions.HitStart then
 				self:_hit_start(player, attack_key)
-			elseif action == "Hit" then
+			elseif action == CombatActions.Hit then
 				self:_hit(player, attack_key, hit_character, segment_instance, hit_position)
-			elseif action == "HitStop" then
+			elseif action == CombatActions.HitStop then
 				self:_hit_stop(player, attack_key)
 			end
 		end
