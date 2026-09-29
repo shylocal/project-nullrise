@@ -411,7 +411,8 @@ function ParkourController:_has_hang_body_clearance(position, normal, allowed_su
 	end
 	probe.Size = root.Size + Vector3.new(0.08, 0.08, 0.08)
 	probe.CFrame = target_cframe
-	local overlap_params = OverlapParams.new()
+	local overlap_params = self._hangOverlapParams or OverlapParams.new()
+	self._hangOverlapParams = overlap_params
 	overlap_params.FilterType = Enum.RaycastFilterType.Exclude
 	overlap_params.FilterDescendantsInstances = { character, probe }
 	-- Collision filtering excludes Climbable geometry from this clearance query.
@@ -1122,7 +1123,8 @@ function ParkourController:_get_guide_top(guide, sample_position)
 	-- Sample the actual highest walkable surface at the guide's horizontal
 	-- center. This handles cylinders whose long axis is local X, including
 	-- cylinders rotated upright, without assuming local Y is their top.
-	local params = RaycastParams.new()
+	local params = self._guideTopParams or RaycastParams.new()
+	self._guideTopParams = params
 	params.FilterType = Enum.RaycastFilterType.Include
 	params.FilterDescendantsInstances = { guide }
 	params.IgnoreWater = true
@@ -1172,7 +1174,8 @@ function ParkourController:_get_guide_tops(guide, sample_position)
 	if not first_top then return {} end
 
 	local tops = { first_top }
-	local params = RaycastParams.new()
+	local params = self._guideTopParams or RaycastParams.new()
+	self._guideTopParams = params
 	params.FilterType = Enum.RaycastFilterType.Include
 	params.FilterDescendantsInstances = { guide }
 	params.IgnoreWater = true
