@@ -152,17 +152,21 @@ function ParkourController:_is_climbable(instance)
 	return false
 end
 
-function ParkourController:_cast_top_surface(wall_position, wall_normal, root_position)
+function ParkourController:_cast_top_surface(wall_position, wall_normal, root_position, respect_can_collide)
 	-- Start above the maximum reachable ledge, then sample just inside the wall
-	-- footprint. Starting outside the footprint can miss narrow tops; starting
-	-- below the top can leave the ray origin inside the wall and miss it.
+	-- footprint. For mantling, callers can request collidable geometry so
+	-- non-collidable Climbable guide volumes do not mask the real landing top.
 	local top_origin = Vector3.new(
 		wall_position.X,
 		root_position.Y + MAX_GRAB_HEIGHT + 0.25,
 		wall_position.Z
 	) - wall_normal * 0.1
 	local scan_depth = MAX_GRAB_HEIGHT * 2 + 1
-	return self:_cast(top_origin, Vector3.new(0, -scan_depth, 0))
+	return self:_cast(
+		top_origin,
+		Vector3.new(0, -scan_depth, 0),
+		respect_can_collide
+	)
 end
 
 function ParkourController:_detect_surface()
@@ -614,9 +618,19 @@ function ParkourController:_try_mantle()
 	for sample_index = 0, MANTLE_SAMPLE_COUNT do
 		local offset = sample_index * MANTLE_SAMPLE_STEP
 		local sample_position = current_top - normal * offset
-		local top = self:_cast_top_surface(sample_position, normal, root.Position)
+		local top = self:_cast_top_surface(sample_position, normal, root.Position, true)
 		if not top then
-			self:_debug("mantle sample %.2f: top ray missed", offset)
+			local guide_top = self:_cast_top_surface(sample_position, normal, root.Position)
+			if guide_top then
+				self:_debug(
+					"mantle sample %.2f: only non-collidable guide hit=%s CanCollide=%s; no solid top",
+					offset,
+					guide_top.Instance:GetFullName(),
+					tostring(guide_top.Instance.CanCollide)
+				)
+			else
+				self:_debug("mantle sample %.2f: solid and guide top rays missed", offset)
+			end
 		else
 			local climbable = self:_is_climbable(top.Instance)
 			local height_delta = root.Position.Y - top.Position.Y
