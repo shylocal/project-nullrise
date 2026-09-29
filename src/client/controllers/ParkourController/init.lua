@@ -462,7 +462,7 @@ function ParkourController:_step(dt)
 		local eased = linear * linear * (3 - 2 * linear)
 		local base = self._vaultStart:Lerp(self._vaultTarget, eased)
 		local horizontal = self._vaultStart.Position:Lerp(self._vaultTarget.Position, linear)
-		local arc = math.sin(math.pi * vault_arc_weight(linear, self._vaultArcPeakProgress)) * self._vaultArcHeight
+		local arc = vault_arc_weight(linear, self._vaultArcPeakProgress) * self._vaultArcHeight
 		local position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
 		root.CFrame = CFrame.new(position + Vector3.new(0, arc, 0)) * base.Rotation
 
