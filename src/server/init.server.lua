@@ -7,10 +7,25 @@ local CombatService = require(script.services.CombatService)
 
 local CombatRemote = ReplicatedStorage.remotes.Combat
 
-local player_service = PlayerService.new()
-local inventory_service = InventoryService.new(player_service)
-local weapon_service = WeaponService.new(player_service, inventory_service)
-local combat_service = CombatService.new(player_service, weapon_service, CombatRemote)
+local player_service
+local inventory_service
+local weapon_service
+local combat_service
+
+local ok, err = pcall(function()
+	player_service = PlayerService.new()
+	inventory_service = InventoryService.new(player_service)
+	weapon_service = WeaponService.new(player_service, inventory_service)
+	combat_service = CombatService.new(player_service, weapon_service, CombatRemote)
+end)
+
+if not ok then
+	if combat_service then combat_service:Destroy() end
+	if weapon_service then weapon_service:Destroy() end
+	if inventory_service then inventory_service:Destroy() end
+	if player_service then player_service:Destroy() end
+	error(err, 0)
+end
 
 local runtime = {
 	PlayerService = player_service,
