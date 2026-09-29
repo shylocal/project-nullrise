@@ -27,6 +27,8 @@ local MANTLE_MAX_OUTWARD = 2
 local MANTLE_MAX_LATERAL = 5
 local MANTLE_MIN_RISE = 0.25
 local TRAVERSE_HEIGHT_TOLERANCE = 1.5
+local LEDGE_EDGE_MARGIN = 0.02
+local MAX_GROUND_DROP = 32
 
 local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
@@ -373,8 +375,6 @@ function ParkourController:_traverse(dt)
 
 		local candidate_position = root.Position
 			+ tangent * direction * TRAVERSE_SPEED * math.max(dt, 0)
-		-- Re-sample locally every step so traversal can follow curved guides
-		-- (especially cylinders) instead of moving along a stale tangent.
 		local probe_origin = candidate_position
 			+ Vector3.new(0, 1.5, 0)
 			+ normal * 0.3
@@ -390,6 +390,47 @@ function ParkourController:_traverse(dt)
 			and math.abs(top.Position.Y - active_top.Position.Y) <= TRAVERSE_HEIGHT_TOLERANCE
 			and top.Normal.Y >= 0.5
 		local horizontal_normal = probe and flatten(probe.Normal) or Vector3.zero
+
+		-- If the current face ends at a sharp corner, test both sideways
+		-- directions for a perpendicular tagged face at this ledge height.
+		-- A validated face normal rotates the character and reorients future
+		-- A/D movement around the corner.
+		if not (top and next_climbable and same_height) then
+			local movement_tangent = tangent * direction
+			for _, outward in ipairs({ movement_tangent, -movement_tangent }) do
+				local corner_origin = candidate_position
+					+ Vector3.new(0, 1.5, 0)
+					+ outward * 0.3
+				local corner_probe = self:_cast(
+					corner_origin,
+					-outward * (WALL_GAP + SURFACE_PROBE)
+				)
+				if corner_probe and self:_is_climbable(corner_probe.Instance) then
+					local corner_top = self:_cast_reachable_grab_top(
+						corner_probe.Position,
+						corner_probe.Normal,
+						root.Position
+					)
+					local corner_guide = corner_top
+						and self:_get_climbable_guide(corner_top.Instance)
+					local corner_normal = flatten(corner_probe.Normal)
+					local corner_height_ok = corner_top
+						and math.abs(corner_top.Position.Y - active_top.Position.Y) <= TRAVERSE_HEIGHT_TOLERANCE
+						and corner_top.Normal.Y >= 0.5
+					local facing_ok = corner_normal.Magnitude >= 0.05
+						and corner_normal.Unit:Dot(outward) >= 0.25
+					if corner_top and corner_guide and corner_height_ok and facing_ok then
+						probe = corner_probe
+						top = corner_top
+						next_climbable = corner_guide
+						same_height = true
+						horizontal_normal = corner_normal
+						break
+					end
+				end
+			end
+		end
+
 		if horizontal_normal.Magnitude >= 0.05 then
 			horizontal_normal = horizontal_normal.Unit
 		else
@@ -397,9 +438,6 @@ function ParkourController:_traverse(dt)
 		end
 
 		if top and next_climbable == climbable and same_height then
-			-- Keep the cache on the active guide, but refresh the contact normal
-			-- from the local hit so round surfaces can turn beneath the player.
-			-- Preserve the current root height to prevent per-step vertical drift.
 			self.Normal = horizontal_normal
 			self.HangDepthOffset = horizontal_normal * WALL_GAP
 			self.HangPosition = Vector3.new(
@@ -408,8 +446,6 @@ function ParkourController:_traverse(dt)
 				top.Position.Z
 			) + self.HangDepthOffset
 		elseif top and next_climbable and next_climbable ~= climbable and same_height then
-			-- Switch the cache only after the local probe confirms a distinct,
-			-- adjacent tagged guide at the same height.
 			self.CurrentClimbable = next_climbable
 			self.Normal = horizontal_normal
 			self.HangDepthOffset = horizontal_normal * WALL_GAP
@@ -419,14 +455,13 @@ function ParkourController:_traverse(dt)
 				top.Position.Z
 			) + self.HangDepthOffset
 		else
-			-- Invalid or missing support stops movement at the last valid hang
-			-- transform rather than drifting down or snapping to a guide center.
-			self:_debug_traversal("local surface probe did not validate the active guide")
+			self:_debug_traversal("local surface probe did not validate the active guide or corner")
 		end
 	end
 
 	self:_position_hanging()
 end
+
 
 function ParkourController:_on_jump()
 	self:_debug("jump pressed; state=%s", self.State)
@@ -488,8 +523,8 @@ function ParkourController:_try_lower_ledge()
 				local guide_center_lateral = flatten(relative):Dot(tangent)
 				local guide_half_extent = self:_get_guide_half_extent(top, tangent)
 				local lateral_gap = math.max(0, math.abs(guide_center_lateral) - guide_half_extent)
-				local lateral_margin = math.max(root.Size.X * 0.5, 0.5)
-				local safe_lateral_extent = math.max(0, guide_half_extent - lateral_margin)
+				
+				local safe_lateral_extent = math.max(0, guide_half_extent - LEDGE_EDGE_MARGIN)
 				local player_lateral = flatten(root.Position - current_top):Dot(tangent)
 				local target_lateral_offset = math.clamp(
 					player_lateral - guide_center_lateral,
@@ -831,8 +866,8 @@ function ParkourController:_try_mantle()
 					0,
 					math.abs(player_lateral - guide_center_lateral) - guide_half_extent
 				)
-				local lateral_margin = math.max(root.Size.X * 0.5, 0.5)
-				local safe_lateral_extent = math.max(0, guide_half_extent - lateral_margin)
+				
+				local safe_lateral_extent = math.max(0, guide_half_extent - LEDGE_EDGE_MARGIN)
 				local target_lateral_offset = math.clamp(
 					player_lateral - guide_center_lateral,
 					-safe_lateral_extent,
