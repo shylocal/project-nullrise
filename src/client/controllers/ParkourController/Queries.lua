@@ -8,6 +8,14 @@ local ClimbableQuery = require(script.Parent.ClimbableQuery)
 
 local Queries = {}
 
+local function debug_log(self, key, interval, ...)
+	local now = os.clock()
+	self._parkourDebugTimes = self._parkourDebugTimes or {}
+	if now - (self._parkourDebugTimes[key] or 0) < interval then return end
+	self._parkourDebugTimes[key] = now
+	print("[ParkourDebug][" .. key .. "]", ...)
+end
+
 function Queries.cast(self, origin, direction, respect_can_collide)
 	local params = self._castParams or RaycastParams.new()
 	self._castParams = params
@@ -54,8 +62,15 @@ function Queries.cast_grabbable_side(self, origin, direction)
 		if hit.Instance:IsA("BasePart")
 			and (not hit.Instance.CanCollide
 				or hit.Instance.CollisionGroup == Config.ClimbableCollisionGroup) then
+			debug_log(self, "side-skip", 0.8, "part", hit.Instance:GetFullName(),
+				"group", hit.Instance.CollisionGroup, "canCollide", hit.Instance.CanCollide,
+				"tagged", ClimbableQuery.is_climbable(hit.Instance), "origin", origin, "direction", direction)
 			table.insert(exclusions, hit.Instance)
 		else
+			debug_log(self, "side-block", 0.8, "part", hit.Instance:GetFullName(),
+				"group", hit.Instance:IsA("BasePart") and hit.Instance.CollisionGroup or "nonpart",
+				"canCollide", hit.Instance:IsA("BasePart") and hit.Instance.CanCollide or "n/a",
+				"tagged", ClimbableQuery.is_climbable(hit.Instance), "origin", origin, "direction", direction)
 			return nil
 		end
 	end
@@ -134,6 +149,8 @@ function Queries.detect_surface(self)
 	local origin = root.Position + Vector3.new(0, 1.1, 0)
 	local wall = Queries.cast_grabbable_side(self, origin, direction * Config.WallReach)
 	if not wall then
+		debug_log(self, "detect", 0.8, "no wall hit", "root", root.Position,
+			"look", direction, "move", humanoid.MoveDirection, "reach", Config.WallReach)
 		return nil
 	end
 
@@ -142,8 +159,12 @@ function Queries.detect_surface(self)
 	-- into the detected face; this still permits diagonal approaches.
 	local approach = Vector.flatten(humanoid.MoveDirection)
 	local toward_wall = Vector.flatten(-wall.Normal)
-	if approach.Magnitude < 0.05 or toward_wall.Magnitude < 0.05
-		or approach.Unit:Dot(toward_wall.Unit) < 0.15 then
+	local approach_dot = if approach.Magnitude >= 0.05 and toward_wall.Magnitude >= 0.05
+		then approach.Unit:Dot(toward_wall.Unit) else -1
+	if approach_dot < 0.15 then
+		debug_log(self, "detect", 0.8, "movement gate rejected wall", wall.Instance:GetFullName(),
+			"group", wall.Instance.CollisionGroup, "move", approach, "towardWall", toward_wall,
+			"dot", approach_dot)
 		return nil
 	end
 
@@ -156,12 +177,18 @@ function Queries.detect_surface(self)
 		Config.GrabTopProximity
 	)
 	if not top then
-				return nil
+		debug_log(self, "detect", 0.8, "no reachable top", "wall", wall.Instance:GetFullName(),
+			"wallPosition", wall.Position, "rootY", root.Position.Y,
+			"nearTopLimit", Config.GrabTopProximity, "maxBelow", Config.MaxGrabHeight)
+		return nil
 	end
 
 	local height_delta = root.Position.Y - top.Position.Y
 	if height_delta < -Config.GrabTopProximity or height_delta > Config.MaxGrabHeight then
-				return nil
+		debug_log(self, "detect", 0.8, "top outside height range", "wall", wall.Instance:GetFullName(),
+			"top", top.Instance:GetFullName(), "delta", height_delta, "topY", top.Position.Y,
+			"rootY", root.Position.Y)
+		return nil
 	end
 
 	local hang_normal = Vector.flatten(wall.Normal)
@@ -170,12 +197,19 @@ function Queries.detect_surface(self)
 	end
 	hang_normal = hang_normal.Unit
 	local hang_position = top.Position + hang_normal * Config.WallGap - Vector3.new(0, Config.HangDrop, 0)
-	local body_clear = Queries.has_hang_body_clearance(self, hang_position, hang_normal)
+	local body_clear, blocker = Queries.has_hang_body_clearance(self, hang_position, hang_normal)
 	if not body_clear then
-				return nil
+		debug_log(self, "detect", 0.8, "hang clearance rejected", "blocker",
+			blocker and blocker:GetFullName(), "hangPosition", hang_position, "normal", hang_normal)
+		return nil
 	end
 
-		return ClimbableQuery.get_guide(top.Instance) or top.Instance, hang_normal, hang_position
+	local guide = ClimbableQuery.get_guide(top.Instance) or top.Instance
+	debug_log(self, "detect", 0.8, "surface accepted", "wall", wall.Instance:GetFullName(),
+		"wallGroup", wall.Instance.CollisionGroup, "top", top.Instance:GetFullName(),
+		"topGroup", top.Instance.CollisionGroup, "guide", guide:GetFullName(),
+		"root", root.Position, "topPosition", top.Position, "move", humanoid.MoveDirection)
+	return guide, hang_normal, hang_position
 end
 function Queries.has_hang_body_clearance(self, position, normal)
 	local root = self.Root
