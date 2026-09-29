@@ -41,8 +41,8 @@ function ParkourController.new(character, input_controller, movement_controller)
 end
 
 function ParkourController:_start()
-		self.Trove:Connect(self.InputController.ActionBegan, function(action)
-				if action == Actions.Forward and self.State == "Hanging" then
+	self.Trove:Connect(self.InputController.ActionBegan, function(action)
+		if action == Actions.Forward and self.State == "Hanging" then
 			self:_try_mantle()
 		elseif action == Actions.Backward and self.State == "Hanging" then
 			self:_try_lower_ledge()
@@ -50,10 +50,10 @@ function ParkourController:_start()
 	end)
 
 	self.Trove:Connect(self.InputController.ActionEnded, function(action)
-				if action == Actions.Jump then
+		if action == Actions.Jump then
 			if self.GrabBlockedUntilJumpReleased then
 				self.GrabBlockedUntilJumpReleased = false
-							end
+			end
 			if self.State == "Hanging" then
 				-- Releasing Space simply lets go; normal gravity handles the drop.
 				self:_release()
@@ -67,9 +67,9 @@ function ParkourController:_start()
 
 	self:_bind_character_parts()
 	self.Trove:Connect(self.Character.ChildAdded, function(child)
-				if child.Name == "HumanoidRootPart" then
+		if child.Name == "HumanoidRootPart" then
 			self.Root = child
-					elseif child:IsA("Humanoid") then
+		elseif child:IsA("Humanoid") then
 			self:_bind_humanoid(child)
 		end
 	end)
@@ -78,14 +78,16 @@ end
 function ParkourController:_bind_character_parts()
 	self.Root = self.Character:FindFirstChild("HumanoidRootPart")
 	local humanoid = self.Character:FindFirstChildOfClass("Humanoid")
-		if humanoid then self:_bind_humanoid(humanoid) end
+	if humanoid then
+		self:_bind_humanoid(humanoid)
+	end
 end
 
 function ParkourController:_bind_humanoid(humanoid)
 	if self.BoundHumanoid == humanoid then return end
 	self.BoundHumanoid = humanoid
 	self.Humanoid = humanoid
-		self.Trove:Connect(humanoid.Died, function()
+	self.Trove:Connect(humanoid.Died, function()
 		self:_release()
 	end)
 end
