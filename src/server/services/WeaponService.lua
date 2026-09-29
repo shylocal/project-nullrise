@@ -4,10 +4,10 @@ local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local Signal = require(Packages.Signal)
 
-local WeaponsFolder = ReplicatedStorage.shared.weapons
+local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local WeaponModels = ReplicatedStorage.weapon_models
 local WeaponRemote = ReplicatedStorage.remotes.Weapon
-local Fists = require(WeaponsFolder.Fists)
+local Fists = Catalog.Get("Fists")
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
 local WeaponAttachment = require(script.Parent.WeaponAttachment)
@@ -183,13 +183,8 @@ function WeaponService:Equip(player, weapon_id)
 		return false
 	end
 
-	local weapon_module = WeaponsFolder:FindFirstChild(weapon_id)
-	if not weapon_module or not weapon_module:IsA("ModuleScript") then
-		return false
-	end
-
-	local weapon = require(weapon_module)
-	if not weapon or weapon.Type ~= "Melee" or not weapon.Model then
+	local weapon = Catalog.Get(weapon_id)
+	if not weapon or typeof(weapon.Model) ~= "string" or weapon.Model == "" then
 		return false
 	end
 
