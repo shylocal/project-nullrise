@@ -3,7 +3,7 @@
 return {
 	ClimbableTag = "Climbable",
 	ClimbableCollisionGroup = "Climbable",
-	WallReach = 3.25,
+	WallReach = 3.75,
 	MaxGrabHeight = 4.5,
 	GrabTopProximity = 2.5,
 	HangDrop = 2.35,
