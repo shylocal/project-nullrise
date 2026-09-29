@@ -1,6 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local WeaponsFolder = ReplicatedStorage.shared.weapons
+local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local FISTS_ID = "Fists"
 
 local WeaponController = {}
@@ -30,14 +30,8 @@ end
 function WeaponController:EquipById(weapon_id)
 	weapon_id = weapon_id or FISTS_ID
 
-	local weapon_module = WeaponsFolder:FindFirstChild(weapon_id)
-	if not weapon_module or not weapon_module:IsA("ModuleScript") then
-		return false
-	end
-
-	local weapon = require(weapon_module)
-
-	if weapon.Type ~= "Melee" then
+	local weapon = Catalog.Get(weapon_id)
+	if not weapon then
 		return false
 	end
 
@@ -45,7 +39,7 @@ function WeaponController:EquipById(weapon_id)
 end
 
 function WeaponController:Equip(weapon)
-	if not weapon or weapon.Type ~= "Melee" then
+	if not Catalog.IsMelee(weapon) then
 		return false
 	end
 
