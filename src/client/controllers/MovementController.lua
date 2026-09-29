@@ -5,12 +5,10 @@ local Trove = require(Packages.Trove)
 local Signal = require(Packages.Signal)
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
+local MovementConfig = require(ReplicatedStorage.shared.movement.Config)
 
 local MovementController = {}
 MovementController.__index = MovementController
-
-local WALK_SPEED = 16
-local SPRINT_SPEED = 24
 
 function MovementController.new(character, input_controller)
 	local self = setmetatable({
@@ -19,7 +17,7 @@ function MovementController.new(character, input_controller)
 		Trove = Trove.new(),
 
 		Humanoid = nil,
-		DefaultWalkSpeed = WALK_SPEED,
+		DefaultWalkSpeed = MovementConfig.WalkSpeed,
 		SprintBlocked = false,
 		Sprinting = false,
 
@@ -80,7 +78,7 @@ function MovementController:_update_sprinting()
 
 	local humanoid = self.Humanoid
 	if humanoid and humanoid.Parent ~= nil then
-		humanoid.WalkSpeed = sprinting and SPRINT_SPEED or self.DefaultWalkSpeed
+		humanoid.WalkSpeed = sprinting and MovementConfig.SprintSpeed or self.DefaultWalkSpeed
 	end
 
 	if changed then
