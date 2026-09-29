@@ -140,7 +140,7 @@ function CombatController:Charge()
 		return
 	end
 
-	self:_begin_attack("Charge", charge, track, Protocol.Combat.Charge)
+	AttackLifecycle.begin_attack(self, "Charge", charge, track, Protocol.Combat.Charge)
 end
 
 function CombatController:_can_begin_attack()
