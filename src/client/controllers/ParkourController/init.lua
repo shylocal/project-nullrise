@@ -497,6 +497,50 @@ function ParkourController:_traverse(dt)
 		end
 		tangent = tangent.Unit
 
+		-- A vertical Roblox cylinder has a continuously curved side, not discrete
+		-- planar faces. Advance around its local-X axis using arc length, then
+		-- derive the hang normal from the cylinder's radial geometry.
+		local cylinder = climbable:IsA("BasePart")
+			and climbable.Shape == Enum.PartType.Cylinder
+			and math.abs(climbable.CFrame.RightVector.Y) < 0.25
+			and math.abs(climbable.CFrame.UpVector.Y) > 0.75
+			and climbable
+		if cylinder then
+			local axis = cylinder.CFrame.RightVector
+			local center = cylinder.Position
+			local radial = flatten(root.Position - center)
+			if radial.Magnitude < 0.05 then
+				radial = -flatten(normal)
+			end
+			if radial.Magnitude >= 0.05 then
+				radial = radial.Unit
+				local radius = math.max(cylinder.Size.Y, cylinder.Size.Z) * 0.5
+				local arc = TRAVERSE_SPEED * math.max(dt, 0) * direction
+				local angle = arc / math.max(radius + WALL_GAP, 0.1)
+				local rotated = CFrame.fromAxisAngle(Vector3.yAxis, -angle):VectorToWorldSpace(radial)
+				local sample = center + rotated * radius
+				local top = self:_get_guide_top(climbable, sample)
+				if top and top.Normal.Y >= 0.5 then
+					local next_normal = flatten(sample - center)
+					if next_normal.Magnitude >= 0.05 then
+						next_normal = next_normal.Unit
+						local next_position = Vector3.new(top.Position.X, self.HangPosition.Y, top.Position.Z)
+							+ next_normal * WALL_GAP
+						local clear = self:_has_hang_body_clearance(next_position, next_normal, { cylinder }, false)
+						if clear then
+							self.Normal = next_normal
+							self.HangDepthOffset = next_normal * WALL_GAP
+							self.HangPosition = next_position
+						else
+							self:_restore_hang_pose(pose_snapshot)
+						end
+					end
+				end
+			end
+			self:_position_hanging()
+			return
+		end
+
 		local candidate_position = root.Position
 			+ tangent * direction * TRAVERSE_SPEED * math.max(dt, 0)
 		local probe_origin = candidate_position
