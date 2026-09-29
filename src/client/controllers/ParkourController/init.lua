@@ -132,11 +132,12 @@ function ParkourController:_bind_humanoid(humanoid)
 	end)
 end
 
-function ParkourController:_cast(origin, direction)
+function ParkourController:_cast(origin, direction, respect_can_collide)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { self.Character }
 	params.IgnoreWater = true
+	params.RespectCanCollide = respect_can_collide == true
 	return Workspace:Raycast(origin, direction, params)
 end
 
@@ -492,9 +493,13 @@ function ParkourController:_find_mantle_landing_position(top, normal)
 			- normal * inset
 			+ Vector3.new(0, standing_height + 0.05, 0)
 
+		-- Only accept physically collidable support. Tagged climb volumes can
+		-- be queryable but non-collidable, which looks like a valid floor to a
+		-- normal raycast yet cannot hold the character after the mantle.
 		local floor = self:_cast(
 			position + Vector3.new(0, 0.15, 0),
-			Vector3.new(0, -(standing_height + 0.65), 0)
+			Vector3.new(0, -(standing_height + 0.65), 0),
+			true
 		)
 		if not floor or floor.Normal.Y < 0.5 then
 			self:_debug(
@@ -514,9 +519,10 @@ function ParkourController:_find_mantle_landing_position(top, normal)
 			local clear, blocker = self:_has_standing_clearance(position, normal)
 			if clear then
 				self:_debug(
-					"landing inset %.2f valid; support=%s top=%s position=%s",
+					"landing inset %.2f valid; support=%s collidable=%s top=%s position=%s",
 					inset,
 					floor.Instance:GetFullName(),
+					tostring(floor.Instance.CanCollide),
 					top.Instance:GetFullName(),
 					tostring(position)
 				)
@@ -549,6 +555,13 @@ function ParkourController:_complete_mantle(top, normal, standing_position)
 	if self.Humanoid then
 		self.Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 	end
+	self:_debug(
+		"mantle placement applied; root=%s floor=%s humanoid_state=%s platform_stand=%s",
+		tostring(root.Position),
+		top.Instance:GetFullName(),
+		self.Humanoid and self.Humanoid:GetState().Name or "missing",
+		tostring(self.Humanoid and self.Humanoid.PlatformStand)
+	)
 	return true
 end
 
