@@ -23,6 +23,7 @@ function CharacterController.new(character, input_controller, weapon_id)
 		ParkourController = nil,
 		CombatController = nil,
 		_destroyed = false,
+		_watchedHumanoids = {},
 	}, CharacterController)
 
 	-- Attach ownership before building dependent controllers so a failed
@@ -31,6 +32,15 @@ function CharacterController.new(character, input_controller, weapon_id)
 
 	local ok, err = pcall(function()
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			self:_watch_humanoid(humanoid)
+		end
+		trove:Connect(character.ChildAdded, function(child)
+			if child:IsA("Humanoid") then
+				self:_watch_humanoid(child)
+			end
+		end)
+
 		self.WeaponController = WeaponControllerModule.new(character)
 		self.AnimationController = AnimationControllerModule.new(character)
 		trove:Add(self.AnimationController)
@@ -57,12 +67,6 @@ function CharacterController.new(character, input_controller, weapon_id)
 			self.AnimationController:SetSprinting(sprinting)
 		end)
 
-		if humanoid then
-			trove:Connect(humanoid.Died, function()
-				self.CombatController:Reset()
-			end)
-		end
-
 		local equipped = self.WeaponController:EquipById(weapon_id or "Fists")
 		if not equipped then
 			self.WeaponController:EquipById("Fists")
@@ -77,6 +81,19 @@ function CharacterController.new(character, input_controller, weapon_id)
 	end
 
 	return self
+end
+
+function CharacterController:_watch_humanoid(humanoid)
+	if self._watchedHumanoids[humanoid] then
+		return
+	end
+	self._watchedHumanoids[humanoid] = true
+
+	self.Trove:Connect(humanoid.Died, function()
+		if self.CombatController then
+			self.CombatController:Reset()
+		end
+	end)
 end
 
 function CharacterController:SetWeapon(weapon_id)
@@ -99,6 +116,7 @@ function CharacterController:Destroy()
 	end
 	self._destroyed = true
 	self.Trove:Destroy()
+	table.clear(self._watchedHumanoids)
 end
 
 return CharacterController
