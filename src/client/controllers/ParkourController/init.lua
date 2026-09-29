@@ -873,8 +873,8 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 	-- same probe that has been correcting the position during A/D traversal.
 	local depth_offset = self.HangDepthOffset
 	if target_normal then
-		-- A downward transfer may land on a ledge whose wall faces another
-		-- direction. Use that detected destination normal for both facing and
+		-- A vertical transfer may land on a ledge whose wall faces another
+		-- direction. Use its detected destination normal for both facing and
 		-- stand-off depth instead of carrying the source wall's cached offset.
 		depth_offset = destination_normal * WALL_GAP
 	elseif not depth_offset or flatten(depth_offset).Magnitude < 0.05 then
@@ -1215,9 +1215,21 @@ function ParkourController:_try_mantle()
 			considered,
 			rejected
 		)
-		-- Keep the exact exposed surface selected by the local scan. Re-sampling
-		-- with _get_guide_top could jump back to a higher face in the same Model.
-		self:_transfer_hang_to_ledge(best_top)
+		-- Resolve the destination ledge's exposed vertical face as well as
+		-- its top. A higher ledge can face a different direction from the wall
+		-- we're leaving, so keep its own outward normal and depth offset.
+		local target_normal = self:_get_ledge_outward_normal(best_top, root.Position)
+		if target_normal then
+			self:_debug(
+				"higher ledge outward face resolved; guide=%s normal=%s",
+				best_top.Guide:GetFullName(),
+				tostring(target_normal)
+			)
+			self:_transfer_hang_to_ledge(best_top, target_normal)
+		else
+			self:_debug("higher ledge outward face not found; retaining current normal")
+			self:_transfer_hang_to_ledge(best_top)
+		end
 	else
 		-- No higher tagged guide was found. W may still mantle onto visible
 		-- ordinary ground above the current wall.
