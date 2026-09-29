@@ -89,9 +89,13 @@ function CombatValidation.ValidateHit(
 	end
 
 	if hit_position then
-		local raycast_params = RaycastParams.new()
+		local raycast_params = active.ValidationRaycastParams
+		if not raycast_params then
+			return nil
+		end
 		raycast_params.FilterType = Enum.RaycastFilterType.Exclude
 		raycast_params.FilterDescendantsInstances = {active.Character}
+		raycast_params.IgnoreWater = true
 
 		local origin = segment_instance and segment_instance.WorldPosition or attacker_root.Position
 		local direction = hit_position - origin
