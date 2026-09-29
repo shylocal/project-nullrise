@@ -626,30 +626,79 @@ function ParkourController:_refresh_hang_contact(expected_guide, expected_top_y)
 	return true
 end
 
+function ParkourController:_refresh_hang_contact(expected_guide, expected_top_y)
+	local root = self.Root
+	local normal = self.Normal
+	local candidate_position = root and self.HangPosition
+	if not root or not normal or not candidate_position or not expected_guide then
+		return false
+	end
+
+	-- Use the same local side probe as A/D traversal immediately after a
+	-- vertical transfer. The destination top-center sample alone can leave
+	-- the root a few tenths off the actual wall contact; lateral input used
+	-- to correct this on the next Heartbeat.
+	local probe_origin = candidate_position
+		+ Vector3.new(0, 1.5, 0)
+		+ normal * 0.3
+	local probe = self:_cast(
+		probe_origin,
+		-normal * (WALL_GAP + SURFACE_PROBE)
+	)
+	if not probe then
+		return false
+	end
+
+	local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position)
+	if not top or self:_get_climbable_guide(top.Instance) ~= expected_guide then
+		return false
+	end
+	if expected_top_y and math.abs(top.Position.Y - expected_top_y) > TRAVERSE_HEIGHT_TOLERANCE then
+		return false
+	end
+
+	local horizontal_normal = flatten(probe.Normal)
+	if horizontal_normal.Magnitude < 0.05 then
+		return false
+	end
+	horizontal_normal = horizontal_normal.Unit
+
+	-- Match successful A/D contact correction: anchor X/Z to the locally
+	-- sampled top, preserve the selected hang height, and face the actual
+	-- side normal. Do this during W/S so no sideways input is needed.
+	self.Normal = horizontal_normal
+	self.HangDepthOffset = horizontal_normal * WALL_GAP
+	self.HangPosition = Vector3.new(
+		top.Position.X,
+		candidate_position.Y,
+		top.Position.Z
+	) + self.HangDepthOffset
+	return true
+end
+
 function ParkourController:_transfer_hang_to_ledge(top)
 	local root = self.Root
 	local normal = self.Normal
 	if not root or not top or not normal then return false end
 
-	-- W/S change ledge height. Start with the existing cached orientation and
-	-- clearance, then immediately resolve the destination's actual side/top
-	-- contact using the same probe that corrects the character during A/D.
+	-- W/S change ledge height. Begin with the cached hang transform, then
+	-- immediately resolve the destination's actual side/top contact using the
+	-- same probe that has been correcting the position during A/D traversal.
 	local depth_offset = self.HangDepthOffset
 	if not depth_offset or flatten(depth_offset).Magnitude < 0.05 then
 		local flat_normal = flatten(normal)
 		if flat_normal.Magnitude < 0.05 then return false end
 		depth_offset = flat_normal.Unit * WALL_GAP
 	end
-	local hang_position = top.Position
-		+ depth_offset
-		- Vector3.new(0, HANG_DROP, 0)
 	local target_guide = top.Guide or self:_get_climbable_guide(top.Instance)
 	if not target_guide then return false end
 
 	self.State = "Hanging"
 	self.CurrentClimbable = target_guide
 	self.HangDepthOffset = depth_offset
-	self.HangPosition = hang_position
+	self.HangPosition = top.Position
+		+ depth_offset
+		- Vector3.new(0, HANG_DROP, 0)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 	self:_position_hanging()
@@ -669,6 +718,7 @@ function ParkourController:_transfer_hang_to_ledge(top)
 	)
 	return true
 end
+
 
 function ParkourController:_get_guide_top(guide, sample_position)
 	local box_cframe
