@@ -19,7 +19,8 @@ local WALL_GAP = 0.8
 local TRAVERSE_SPEED = 5
 local SURFACE_PROBE = 1.4
 local MANTLE_SAMPLE_STEP = 0.75
-local MANTLE_SAMPLE_COUNT = 4
+local MANTLE_SAMPLE_COUNT = 8
+local MANTLE_MAX_RISE = 9
 local MANTLE_LANDING_OFFSETS = { -0.6, -0.3, 0, 0.3, 0.6, 0.9, 1.2 }
 local LOWER_PROBE_OFFSETS = { 0.15, 0.45, 0.75, 1.05 }
 local MAX_TOP_SURFACE_HITS = 16
@@ -242,6 +243,39 @@ function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, 
 		self:_debug_detection("grab top scan found no reachable tagged top (searched %d hits)", #exclusions - 1)
 	end
 	return best
+end
+
+function ParkourController:_cast_top_surfaces(wall_position, wall_normal, root_position)
+	-- Collect successive vertical ray hits instead of letting the first,
+	-- potentially non-collidable guide mask higher/lower ledge guides.
+	local standing_height = self:_standing_height()
+	local origin = Vector3.new(
+		wall_position.X,
+		root_position.Y + MANTLE_MAX_RISE + standing_height + 2,
+		wall_position.Z
+	) - wall_normal * 0.1
+	local direction = Vector3.new(
+		0,
+		-(MANTLE_MAX_RISE + MAX_GRAB_HEIGHT + standing_height + 4),
+		0
+	)
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { self.Character }
+	params.IgnoreWater = true
+	params.RespectCanCollide = false
+
+	local exclusions = { self.Character }
+	local hits = {}
+	for _ = 1, MAX_TOP_SURFACE_HITS do
+		params.FilterDescendantsInstances = exclusions
+		local hit = Workspace:Raycast(origin, direction, params)
+		if not hit then break end
+		table.insert(hits, hit)
+		table.insert(exclusions, hit.Instance)
+	end
+	return hits
 end
 
 function ParkourController:_detect_surface()
@@ -697,53 +731,50 @@ function ParkourController:_try_mantle()
 	local best_height = -math.huge
 	local best_offset = math.huge
 	local best_standing_position = nil
+	local sampled_hits = 0
 
-	-- Sample from the current lip inward across the platform. This finds the
-	-- current ledge as well as a reachable higher tier behind it.
+	-- Search farther into the ledge and enumerate overlapping guide surfaces
+	-- at each sample. Mantling has a larger reach than the initial grab.
 	for sample_index = 0, MANTLE_SAMPLE_COUNT do
 		local offset = sample_index * MANTLE_SAMPLE_STEP
 		local sample_position = current_top - normal * offset
-		local top = self:_cast_top_surface(sample_position, normal, root.Position, true)
-		if not top then
-			local guide_top = self:_cast_top_surface(sample_position, normal, root.Position)
-			if guide_top then
-				self:_debug(
-					"mantle sample %.2f: only non-collidable guide hit=%s CanCollide=%s; no solid top",
-					offset,
-					guide_top.Instance:GetFullName(),
-					tostring(guide_top.Instance.CanCollide)
-				)
-			else
-				self:_debug("mantle sample %.2f: solid and guide top rays missed", offset)
-			end
-		else
+		local tops = self:_cast_top_surfaces(sample_position, normal, root.Position)
+		if #tops == 0 then
+			self:_debug("mantle sample %.2f: no top hits", offset)
+		end
+
+		for hit_index, top in ipairs(tops) do
+			sampled_hits += 1
 			local climbable = self:_is_climbable(top.Instance)
 			local height_delta = root.Position.Y - top.Position.Y
 			local height_above_lip = top.Position.Y - current_top.Y
-			if top.Normal.Y < 0.5 then
+			local walkable = top.Normal.Y >= 0.5
+			local within_vertical_reach = height_delta >= -MANTLE_MAX_RISE
+				and height_delta <= MAX_GRAB_HEIGHT
+			local at_or_above_lip = height_above_lip >= -0.25
+				and height_above_lip <= MANTLE_MAX_RISE
+
+			if not climbable then
+				-- Physical backing parts may provide support but are not grab guides;
+				-- keep them available to the support ray, not as mantle targets.
+			elseif not walkable then
 				self:_debug(
-					"mantle sample %.2f: hit %s with non-walkable normal=%s",
+					"mantle sample %.2f hit %d: %s has non-walkable normal=%s",
 					offset,
+					hit_index,
 					top.Instance:GetFullName(),
 					tostring(top.Normal)
 				)
-			elseif height_delta < -MAX_GRAB_HEIGHT or height_delta > MAX_GRAB_HEIGHT then
+			elseif not within_vertical_reach or not at_or_above_lip then
 				self:_debug(
-					"mantle sample %.2f: top=%s height_delta=%.2f out of range",
+					"mantle sample %.2f hit %d: %s height_delta=%.2f rise=%.2f outside mantle reach",
 					offset,
+					hit_index,
 					top.Instance:GetFullName(),
-					height_delta
-				)
-			elseif height_above_lip < -0.25 then
-				self:_debug(
-					"mantle sample %.2f: top=%s is %.2f below current lip",
-					offset,
-					top.Instance:GetFullName(),
+					height_delta,
 					height_above_lip
 				)
 			else
-				-- A mantle target must have a walkable support surface directly
-				-- beneath the standing root, as well as clear space for the body.
 				local standing_position = self:_find_mantle_landing_position(top, normal)
 				if standing_position
 					and (height_above_lip > best_height
@@ -753,10 +784,10 @@ function ParkourController:_try_mantle()
 					best_offset = offset
 					best_standing_position = standing_position
 					self:_debug(
-						"mantle candidate at %.2f: top=%s climbable=%s rise=%.2f landing=%s",
+						"mantle candidate at %.2f hit %d: top=%s rise=%.2f landing=%s",
 						offset,
+						hit_index,
 						top.Instance:GetFullName(),
-						tostring(climbable),
 						height_above_lip,
 						tostring(standing_position)
 					)
@@ -767,14 +798,20 @@ function ParkourController:_try_mantle()
 
 	if best_top then
 		self:_debug(
-			"mantle candidate selected; top=%s height_above_lip=%.2f sample_offset=%.2f",
+			"mantle candidate selected; top=%s rise=%.2f sample_offset=%.2f searched_hits=%d",
 			best_top.Instance:GetFullName(),
 			best_height,
-			best_offset
+			best_offset,
+			sampled_hits
 		)
 		self:_complete_mantle(best_top, normal, best_standing_position)
 	else
-		self:_debug("mantle found no valid standable top surface")
+		self:_debug(
+			"mantle found no valid standable tagged guide; samples=%d searched_hits=%d max_rise=%.2f",
+			MANTLE_SAMPLE_COUNT + 1,
+			sampled_hits,
+			MANTLE_MAX_RISE
+		)
 	end
 end
 
