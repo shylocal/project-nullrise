@@ -624,6 +624,7 @@ function ParkourController:_traverse(dt)
 											Top = cleared_top,
 											Guide = corner_guide,
 											Normal = corner_normal,
+											WallInstance = corner_probe.Instance,
 										}
 										best_corner_score = score
 									end
