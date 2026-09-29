@@ -142,7 +142,7 @@ function ParkourController:_detect_surface()
 	return Queries.detect_surface(self)
 end
 
-function ParkourController:_grab(guide, normal, position)
+function ParkourController:_grab(guide, normal, position, edge_gap)
 	local humanoid = self.Humanoid
 	if self.State ~= "Grounded" or not guide or not humanoid or humanoid.Health <= 0 or humanoid.Sit then return end
 	local humanoid_state = humanoid:GetState()
@@ -152,7 +152,7 @@ function ParkourController:_grab(guide, normal, position)
 		self.State = "Hanging"
 	self.CurrentClimbable = guide
 	self.Normal = normal
-	self.HangDepthOffset = Vector.flatten(normal).Unit * Config.WallGap
+	self.HangDepthOffset = Vector.flatten(normal).Unit * (edge_gap or Config.WallGap)
 	self.HangPosition = position
 
 	local humanoid = self.Humanoid
@@ -226,8 +226,8 @@ function ParkourController:_step(dt)
 
 	if self.State == "Grounded" then
 		if self.InputController:IsDown(Actions.Jump) and not self.GrabBlockedUntilJumpReleased then
-			local climbable, normal, position = self:_detect_surface()
-			if climbable then self:_grab(climbable, normal, position) end
+			local climbable, normal, position, edge_gap = self:_detect_surface()
+			if climbable then self:_grab(climbable, normal, position, edge_gap) end
 		end
 	elseif self.State == "Hanging" then
 		if not self.InputController:IsDown(Actions.Jump) then
