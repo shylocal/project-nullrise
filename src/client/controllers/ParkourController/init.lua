@@ -316,7 +316,12 @@ function ParkourController:_detect_surface()
 	local body_clear, blocking_part = self:_has_hang_body_clearance(
 		hang_position,
 		hang_normal,
-		{ wall.Instance, top.Instance }
+		{
+			wall.Instance,
+			top.Instance,
+			self:_get_climbable_guide(wall.Instance),
+			self:_get_climbable_guide(top.Instance),
+		}
 	)
 	if not body_clear then
 		self:_debug_detection(
@@ -387,10 +392,19 @@ function ParkourController:_has_hang_body_clearance(position, normal, allowed_su
 	local overlap_params = OverlapParams.new()
 	overlap_params.FilterType = Enum.RaycastFilterType.Exclude
 	local exclusions = { character }
-	for _, instance in ipairs(allowed_surfaces or {}) do
-		if instance then
-			table.insert(exclusions, instance)
+	local function allow_contact_surface(instance)
+		if not instance then return end
+		table.insert(exclusions, instance)
+		-- A tagged Climbable Model can contain separate marker/side/top parts.
+		-- Exclude its tagged guide ancestor too, otherwise sibling parts from
+		-- the same intended hang surface falsely block the root at tight turns.
+		local guide = self:_get_climbable_guide(instance)
+		if guide and guide ~= instance then
+			table.insert(exclusions, guide)
 		end
+	end
+	for _, instance in ipairs(allowed_surfaces or {}) do
+		allow_contact_surface(instance)
 	end
 	overlap_params.FilterDescendantsInstances = exclusions
 	overlap_params.RespectCanCollide = true
@@ -567,7 +581,13 @@ function ParkourController:_traverse(dt)
 									body_clearance_valid, blocking_part = self:_has_hang_body_clearance(
 										proposed_hang_position,
 										corner_normal,
-										{ active_top.Instance, corner_probe.Instance, cleared_top.Instance }
+										{
+											climbable,
+											corner_guide,
+											active_top.Instance,
+											corner_probe.Instance,
+											cleared_top.Instance,
+										}
 									)
 								end
 								if clearance_valid and body_clearance_valid then
@@ -962,7 +982,11 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 		root.Position + Vector3.new(0, 1.5, 0) + normal * 0.3,
 		-normal * (WALL_GAP + SURFACE_PROBE)
 	)
-	local allowed_surfaces = { top.Instance }
+	local allowed_surfaces = {
+		target_guide,
+		self.CurrentClimbable,
+		top.Instance,
+	}
 	if source_contact then
 		table.insert(allowed_surfaces, source_contact.Instance)
 	end
