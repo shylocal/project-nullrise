@@ -144,8 +144,16 @@ function ParkourController:_cast_grabbable_side(origin, direction)
 	return Queries.cast_grabbable_side(self, origin, direction)
 end
 
-function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, root_position, reference_y)
-	return Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_position, reference_y)
+function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, root_position, reference_y, max_above_height, wall_instance)
+	return Queries.cast_reachable_grab_top(
+		self,
+		wall_position,
+		wall_normal,
+		root_position,
+		reference_y,
+		max_above_height,
+		wall_instance
+	)
 end
 
 function ParkourController:_detect_surface()
