@@ -680,13 +680,9 @@ function ParkourController:_try_lower_ledge()
 		return
 	end
 
-	-- Sample at the player's selected lateral column; this avoids transferring
-	-- to a model-center top when the lower ledge is offset or curved.
-	local target_sample = best_top.Position + tangent * best_lateral_offset
-	local sampled_top = self:_get_guide_top(best_top.Guide, target_sample)
-	if sampled_top and flatten(sampled_top.Position - target_sample).Magnitude <= 1.25 then
-		best_top = sampled_top
-	end
+	-- best_top is already the actual exposed lower surface hit at the
+	-- selected column. Do not replace it with _get_guide_top here: that returns
+	-- the highest surface in a stacked Model and can undo the lower selection.
 	self:_debug(
 		"lower ledge selected; guide=%s drop=%.2f horizontal_distance=%.2f",
 		best_top.Guide:GetFullName(),
@@ -1112,10 +1108,9 @@ function ParkourController:_try_mantle()
 					local sample_position = current_top
 						+ tangent * lateral_offset
 						- normal * inward_offset
-					-- One downward surface sample per column is sufficient for
-					-- ascent; avoid rescanning every stacked surface at each column.
-					local top = self:_get_guide_top(guide, sample_position)
-					if top then
+					-- Enumerate the exposed tops in this column. A broad backing
+					-- part can be the first hit while a reachable ledge sits below it.
+					for _, top in ipairs(self:_get_guide_tops(guide, sample_position)) do
 						consider_higher_top(guide, top)
 					end
 				end
@@ -1132,8 +1127,8 @@ function ParkourController:_try_mantle()
 			considered,
 			rejected
 		)
-		-- Re-sample exactly at the chosen supported column before transferring.
-		best_top = self:_get_guide_top(best_top.Guide, best_top.Position) or best_top
+		-- Keep the exact exposed surface selected by the local scan. Re-sampling
+		-- with _get_guide_top could jump back to a higher face in the same Model.
 		self:_transfer_hang_to_ledge(best_top)
 	else
 		-- No higher tagged guide was found. W may still mantle onto visible
