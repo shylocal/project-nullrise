@@ -651,13 +651,16 @@ function ParkourController:_try_vault()
 	if forward_speed < sprint_speed then
 		horizontal_velocity += forward * (sprint_speed - forward_speed)
 	end
+	local forward_boost = math.max(0, Config.VaultForwardBoostSpeed or 0)
+	horizontal_velocity += forward * forward_boost
 	-- Scale the scripted traversal time to the active sprint speed. A small
 	-- floor keeps very short vaults from snapping, while longer hops retain
 	-- approximately the same horizontal pace as the approach.
 	local vault_distance = (target_position - start_cframe.Position).Magnitude
 	local vault_duration = Config.VaultDuration
-	if sprint_speed > 0.1 then
-		vault_duration = math.max(0.2, vault_distance / sprint_speed)
+	local vault_speed = sprint_speed + forward_boost
+	if vault_speed > 0.1 then
+		vault_duration = math.max(0.2, vault_distance / vault_speed)
 	end
 
 	self.NextVaultAt = now + Config.VaultCooldown
