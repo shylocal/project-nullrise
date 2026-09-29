@@ -44,6 +44,7 @@ function ParkourController.new(character, input_controller, movement_controller)
 		LastDetectionReason = nil,
 		LastDetectionLogAt = 0,
 		LastTraversalDiagnostic = nil,
+		LastTraversalSuccessLogAt = 0,
 	}, ParkourController)
 
 	self:_start()
@@ -318,6 +319,17 @@ function ParkourController:_traverse(dt)
 					self.HangPosition = top.Position
 						+ probe.Normal * WALL_GAP
 						- Vector3.new(0, HANG_DROP, 0)
+					local now = os.clock()
+					if now - self.LastTraversalSuccessLogAt >= 0.75 then
+						self:_debug(
+							"traversal progressing %s; side_hit=%s top=%s hang=%s",
+							direction > 0 and "right" or "left",
+							probe.Instance:GetFullName(),
+							top.Instance:GetFullName(),
+							tostring(self.HangPosition)
+						)
+						self.LastTraversalSuccessLogAt = now
+					end
 				else
 					self:_debug_traversal("top hit %s; height_delta=%.2f out of range", top.Instance:GetFullName(), height_delta)
 				end
@@ -527,8 +539,8 @@ function ParkourController:_try_mantle()
 					height_above_lip
 				)
 			else
-				-- A ledge top must be tagged, but ordinary visible walkable ground
-				-- is also a valid mantle destination when it has clear standing room.
+				-- Tagged ledges and ordinary visible walkable ground are both valid
+				-- mantle destinations when there is clear standing room.
 				local standing_position = top.Position
 					- normal * MANTLE_INSET
 					+ Vector3.new(0, self:_standing_height() + 0.05, 0)
