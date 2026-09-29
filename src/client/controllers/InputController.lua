@@ -22,7 +22,11 @@ function InputController.new()
 	self.Trove:Add(self.ActionBegan)
 	self.Trove:Add(self.ActionEnded)
 
-	self:_start()
+	local ok, err = pcall(self._start, self)
+	if not ok then
+		self:Destroy()
+		error(err, 0)
+	end
 
 	return self
 end
