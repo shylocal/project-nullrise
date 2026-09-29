@@ -172,7 +172,7 @@ function InventoryService:SetSlot(player, slot, weapon_id)
 			return false
 		end
 
-		if not Catalog.Get(weapon_id) then
+		if not Catalog.IsMelee(Catalog.Get(weapon_id)) then
 			return false
 		end
 	end
