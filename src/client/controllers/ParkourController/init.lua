@@ -40,25 +40,6 @@ function ParkourController.new(character, input_controller, movement_controller)
 	return self
 end
 
-function ParkourController:_debug(message, ...)
-	if not Config.Debug then return end
-	print("[Parkour] " .. string.format(message, ...))
-end
-
-function ParkourController:_debug_detection(reason, ...)
-	local now = os.clock()
-	if self.LastDetectionReason == reason and now - self.LastDetectionLogAt < 1 then
-		return
-	end
-	self.LastDetectionReason = reason
-	self.LastDetectionLogAt = now
-	end
-
-function ParkourController:_debug_traversal(reason, ...)
-	if self.LastTraversalDiagnostic == reason then return end
-	self.LastTraversalDiagnostic = reason
-	end
-
 function ParkourController:_start()
 		self.Trove:Connect(self.InputController.ActionBegan, function(action)
 				if action == Actions.Forward and self.State == "Hanging" then
