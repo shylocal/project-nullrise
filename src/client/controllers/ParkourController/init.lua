@@ -636,7 +636,7 @@ function ParkourController:_try_vault()
 	humanoid.Jump = false
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
 	self.State = "Vaulting"
-	self.MovementController:SetSprintBlocked(true)
+	self.MovementController:SetSprintBlocked(true, self)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 	return true
@@ -691,7 +691,7 @@ function ParkourController:_finish_vault(completed)
 		self.VaultJumpingEnabledBefore = nil
 	end
 	if self.MovementController then
-		self.MovementController:SetSprintBlocked(false)
+		self.MovementController:SetSprintBlocked(false, self)
 	end
 end
 
@@ -1660,7 +1660,7 @@ function ParkourController:_release()
 	self.AutoRotateBeforeHang = nil
 	self.PlatformStandBeforeHang = nil
 	if self.MovementController then
-		self.MovementController:SetSprintBlocked(false)
+		self.MovementController:SetSprintBlocked(false, self)
 	end
 end
 
