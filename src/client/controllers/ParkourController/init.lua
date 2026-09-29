@@ -888,19 +888,28 @@ function ParkourController:_try_vault()
 		Config.VaultMinTopHopDepth or 2.5,
 		root.Size.Z * 1.5
 	)
+	-- The projected travel depth grows when a long, thin wall is approached
+	-- diagonally. Measure the part's intrinsic horizontal footprint axes too,
+	-- so yaw/approach angle cannot make a narrow wall look like a landing deck.
+	local local_x_footprint_depth = flatten(obstacle.CFrame.RightVector).Magnitude * obstacle.Size.X
+	local local_z_footprint_depth = flatten(obstacle.CFrame.LookVector).Magnitude * obstacle.Size.Z
+	local minimum_footprint_depth = math.min(local_x_footprint_depth, local_z_footprint_depth)
 	local has_usable_top_depth = top_landing_depth >= minimum_top_hop_depth
+		and minimum_footprint_depth >= minimum_top_hop_depth
 	local is_long_obstacle = obstacle_length >= long_obstacle_threshold
+		and minimum_footprint_depth >= minimum_top_hop_depth
 	local use_top_hop = is_long_obstacle
 		or (has_continuous_ground_beneath and has_usable_top_depth)
 vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 		"hitDistance=", obstacle_hit.Distance, "height=", obstacle_height,
-		"travelDepth=", top_landing_depth, "support=", support_count, "/", support_total,
+		"travelDepth=", top_landing_depth, "minFootprintDepth=", minimum_footprint_depth,
+		"requiredDepth=", minimum_top_hop_depth, "support=", support_count, "/", support_total,
 		"continuousGround=", has_continuous_ground_beneath,
 		"usableTop=", has_usable_top_depth, "long=", is_long_obstacle,
 		"choice=", use_top_hop and "HOP_TO_TOP" or "VAULT_OVER")
-	-- Long obstacles retain their collision-respecting physics hop. For shorter
-	-- obstacles, choose the top only when continuous support and a usable top
-	-- landing area are both present; thin wall-like parts use the vault-over path.
+	-- Top-hops require a genuinely wide horizontal footprint, even for long
+	-- parts. This prevents diagonal approaches from inflating a thin wall's
+	-- projected travel depth and misclassifying it as a landing platform.
 	if use_top_hop then
 		local top_target = Vector3.new(
 			top.Position.X,
