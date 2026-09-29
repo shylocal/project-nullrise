@@ -30,6 +30,7 @@ function Hitmarker:_start()
 	gui.Parent = self.UIController.PlayerGui
 
 	self.Gui = gui
+	self.Trove:Add(gui)
 	self.Visual = gui:FindFirstChild("Hitmarker", true)
 
 	if self.Visual then
