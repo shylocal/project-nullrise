@@ -62,7 +62,7 @@ function Queries.cast_grabbable_side(self, origin, direction)
 
 	return nil
 end
-function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_position, reference_y)
+function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_position, reference_y, max_above_height)
 	-- Several surfaces can overlap vertically. A single downward ray hits the
 	-- highest one first, even when that top is outside grab range. Walk down
 	-- through successive hits and choose the nearest eligible walkable top.
@@ -97,9 +97,10 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 
 		local height_delta = (reference_y or root_position.Y) - candidate.Position.Y
 		local height_distance = math.abs(height_delta)
+		local allowed_above_height = max_above_height or Config.MaxGrabHeight
 		local valid_surface = is_grabbable_surface(candidate.Instance)
 		local walkable = candidate.Normal.Y >= 0.5
-		local reachable = height_delta >= -Config.MaxGrabHeight
+		local reachable = height_delta >= -allowed_above_height
 			and height_delta <= Config.MaxGrabHeight
 
 		if valid_surface and walkable and reachable and height_distance < best_height_distance then
@@ -136,13 +137,20 @@ function Queries.detect_surface(self)
 		return nil
 	end
 
-	local top = Queries.cast_reachable_grab_top(self, wall.Position, wall.Normal, root.Position, root.Position.Y)
+	local top = Queries.cast_reachable_grab_top(
+		self,
+		wall.Position,
+		wall.Normal,
+		root.Position,
+		root.Position.Y,
+		Config.GrabTopProximity
+	)
 	if not top then
 				return nil
 	end
 
 	local height_delta = root.Position.Y - top.Position.Y
-	if height_delta < -Config.MaxGrabHeight or height_delta > Config.MaxGrabHeight then
+	if height_delta < -Config.GrabTopProximity or height_delta > Config.MaxGrabHeight then
 				return nil
 	end
 
