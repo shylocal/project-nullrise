@@ -432,7 +432,7 @@ function ParkourController:_step(dt)
 		local root = self.Root
 		self._mantleElapsed = math.min((self._mantleElapsed or 0) + math.max(dt, 0), self._mantleDuration)
 		local linear = self._mantleElapsed / self._mantleDuration
-		local alpha = linear * linear * (3 - 2 * linear)
+		local alpha = VaultMath.smoothstep(linear)
 		if root and self._mantleStart and self._mantleTarget then
 			root.CFrame = self._mantleStart:Lerp(self._mantleTarget, alpha)
 			root.AssemblyLinearVelocity = Vector3.zero
@@ -469,7 +469,7 @@ function ParkourController:_step(dt)
 		if self._vaultDebugLastStage ~= debug_stage then
 			self._vaultDebugLastStage = debug_stage
 		end
-		local eased = linear * linear * (3 - 2 * linear)
+		local eased = VaultMath.smoothstep(linear)
 		local base = self._vaultStart:Lerp(self._vaultTarget, eased)
 		local horizontal = self._vaultStart.Position:Lerp(self._vaultTarget.Position, linear)
 		local arc = VaultMath.arc_weight(linear, self._vaultArcPeakProgress) * self._vaultArcHeight
