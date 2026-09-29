@@ -1112,7 +1112,10 @@ function ParkourController:_try_mantle()
 					local sample_position = current_top
 						+ tangent * lateral_offset
 						- normal * inward_offset
-					for _, top in ipairs(self:_get_guide_tops(guide, sample_position)) do
+					-- One downward surface sample per column is sufficient for
+					-- ascent; avoid rescanning every stacked surface at each column.
+					local top = self:_get_guide_top(guide, sample_position)
+					if top then
 						consider_higher_top(guide, top)
 					end
 				end
