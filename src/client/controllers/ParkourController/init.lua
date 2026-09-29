@@ -363,6 +363,83 @@ function ParkourController:_position_hanging()
 	root.CFrame = CFrame.lookAt(position, position - normal)
 end
 
+function ParkourController:_has_corner_body_clearance(position, new_normal, source_normal, allowed_surfaces)
+	local root = self.Root
+	local character = self.Character
+	if not root or not character or not position or not new_normal or not source_normal then
+		return false
+	end
+
+	local new_facing = flatten(new_normal)
+	local source_facing = flatten(source_normal)
+	if new_facing.Magnitude < 0.05 or source_facing.Magnitude < 0.05 then
+		return false
+	end
+	new_facing = new_facing.Unit
+	source_facing = source_facing.Unit
+
+	-- Test the character's full current bounds reoriented at the proposed
+	-- hanging pose, rather than checking only whether the ledge top exists.
+	local bounds_cframe, bounds_size = character:GetBoundingBox()
+	local root_to_bounds = root.CFrame:ToObjectSpace(bounds_cframe)
+	local target_root_cframe = CFrame.lookAt(position, position - new_facing)
+	local target_bounds_cframe = target_root_cframe * root_to_bounds
+
+	local overlap_params = OverlapParams.new()
+	overlap_params.FilterType = Enum.RaycastFilterType.Exclude
+	local exclusions = { character }
+	for _, instance in ipairs(allowed_surfaces or {}) do
+		if instance then
+			table.insert(exclusions, instance)
+		end
+	end
+	overlap_params.FilterDescendantsInstances = exclusions
+	overlap_params.RespectCanCollide = true
+
+	local bounds_padding = Vector3.new(0.1, 0.1, 0.1)
+	local overlaps = Workspace:GetPartBoundsInBox(
+		target_bounds_cframe,
+		bounds_size + bounds_padding,
+		overlap_params
+	)
+	for _, part in ipairs(overlaps) do
+		if part.CanCollide then
+			return false, part
+		end
+	end
+
+	-- Also require a small gap beyond the character's projected body extent
+	-- on the source-wall side. This catches a nearby wall even when its broad
+	-- part is also serving as the destination ledge's tagged surface.
+	local bounds_right = flatten(target_bounds_cframe.RightVector)
+	local bounds_look = flatten(target_bounds_cframe.LookVector)
+	local source_half_extent = math.abs(source_facing:Dot(bounds_right)) * bounds_size.X * 0.5
+		+ math.abs(source_facing:Dot(bounds_look)) * bounds_size.Z * 0.5
+	local source_clearance = 0.15
+	local ray_origin = target_bounds_cframe.Position
+		+ source_facing * (source_half_extent + source_clearance)
+	local ray_params = RaycastParams.new()
+	ray_params.FilterType = Enum.RaycastFilterType.Exclude
+	ray_params.FilterDescendantsInstances = { character }
+	ray_params.IgnoreWater = true
+	ray_params.RespectCanCollide = true
+	local source_wall_hit = Workspace:Raycast(
+		ray_origin,
+		-source_facing * source_clearance,
+		ray_params
+	)
+	if source_wall_hit then
+		local hit_normal = flatten(source_wall_hit.Normal)
+		if hit_normal.Magnitude >= 0.05
+			and hit_normal.Unit:Dot(source_facing) >= 0.65 then
+			return false, source_wall_hit.Instance
+		end
+	end
+
+	return true
+end
+
+
 function ParkourController:_step(dt)
 	if self.State == "Grounded" then
 		if self.InputController:IsDown(Actions.Jump) and not self.GrabBlockedUntilJumpReleased then
@@ -456,7 +533,13 @@ function ParkourController:_traverse(dt)
 		}
 		local best_corner = nil
 		local best_corner_score = math.huge
-		local corner_clearance = math.max(root.Size.X, root.Size.Z) * 0.5 + 0.1
+		local character_bounds_cframe, character_bounds_size = self.Character:GetBoundingBox()
+		local bounds_right = flatten(character_bounds_cframe.RightVector)
+		local bounds_look = flatten(character_bounds_cframe.LookVector)
+		local source_half_extent = math.abs(normal:Dot(bounds_right)) * character_bounds_size.X * 0.5
+			+ math.abs(normal:Dot(bounds_look)) * character_bounds_size.Z * 0.5
+		local corner_clearance = math.max(root.Size.X, root.Size.Z) * 0.5
+			+ math.max(0, source_half_extent - math.max(root.Size.X, root.Size.Z) * 0.5) + 0.2
 
 		for _, turn_normal in ipairs(corner_turn_normals) do
 			for _, longitudinal_offset in ipairs(corner_longitudinal_offsets) do
@@ -502,7 +585,22 @@ function ParkourController:_traverse(dt)
 								local cleared_top = self:_get_guide_top(corner_guide, cleared_sample)
 								local clearance_valid = cleared_top
 									and flatten(cleared_top.Position - cleared_sample).Magnitude <= 1.25
-								if clearance_valid then
+								local proposed_hang_position = cleared_top
+									and Vector3.new(
+										cleared_top.Position.X,
+										self.HangPosition.Y,
+										cleared_top.Position.Z
+									) + corner_normal * WALL_GAP
+								local body_clearance_valid, blocking_part = false, nil
+								if clearance_valid and proposed_hang_position then
+									body_clearance_valid, blocking_part = self:_has_corner_body_clearance(
+										proposed_hang_position,
+										corner_normal,
+										normal,
+										{ corner_probe.Instance, cleared_top.Instance }
+									)
+								end
+								if clearance_valid and body_clearance_valid then
 									local turn_side_penalty = turn_normal:Dot(movement_tangent) >= 0 and 0 or 100
 									local score = turn_side_penalty
 										+ math.abs(along_movement)
@@ -516,6 +614,11 @@ function ParkourController:_traverse(dt)
 										}
 										best_corner_score = score
 									end
+								else
+									self:_debug_traversal(
+										"corner candidate rejected by body clearance: %s",
+										tostring(blocking_part)
+									)
 								end
 							end
 						end
