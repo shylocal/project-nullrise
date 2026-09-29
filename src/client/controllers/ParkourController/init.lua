@@ -385,6 +385,9 @@ function ParkourController:_step(dt)
 			local climbable, normal, position = self:_detect_surface()
 			if climbable then self:_grab(climbable, normal, position) end
 		end
+		if self.State == "Grounded" then
+			self:_try_vault()
+		end
 	elseif self.State == "Hanging" then
 		if not self.InputController:IsDown(Actions.Jump) then
 			self:_release()
@@ -418,9 +421,281 @@ function ParkourController:_step(dt)
 			self.PlatformStandBeforeHang = nil
 			if self.MovementController then self.MovementController:SetSprintBlocked(false) end
 		end
+	elseif self.State == "Vaulting" then
+		local root = self.Root
+		local duration = self._vaultDuration
+		if not root or not duration or not self._vaultStart or not self._vaultTarget then
+			self:_finish_vault(false)
+			return
+		end
+
+		self._vaultElapsed = math.min((self._vaultElapsed or 0) + math.max(dt, 0), duration)
+		local linear = self._vaultElapsed / duration
+		local eased = linear * linear * (3 - 2 * linear)
+		local base = self._vaultStart:Lerp(self._vaultTarget, eased)
+		local arc = math.sin(math.pi * linear) * self._vaultArcHeight
+		root.CFrame = CFrame.new(base.Position + Vector3.new(0, arc, 0)) * base.Rotation
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+
+		if linear >= 1 then
+			self:_finish_vault(true)
+		end
 	end
 end
 
+
+function ParkourController:_has_vault_clearance(cframe, size, obstacle)
+	local params = self._vaultOverlapParams or OverlapParams.new()
+	self._vaultOverlapParams = params
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { self.Character, obstacle }
+	params.RespectCanCollide = true
+
+	local root = self.Root
+	if root then
+		params.CollisionGroup = root.CollisionGroup
+	end
+
+	for _, part in ipairs(Workspace:GetPartBoundsInBox(cframe, size, params)) do
+		if part.CanCollide then
+			return false, part
+		end
+	end
+
+	return true
+end
+
+function ParkourController:_try_vault()
+	if not Config.VaultEnabled
+		or self.State ~= "Grounded"
+		or self.GrabBlockedUntilJumpReleased
+		or os.clock() < (self.NextVaultAt or 0)
+		or not self.MovementController
+		or not self.MovementController:IsSprinting() then
+		return false
+	end
+
+	local root = self.Root
+	local humanoid = self.Humanoid
+	if not root or not humanoid or humanoid.Health <= 0
+		or humanoid.FloorMaterial == Enum.Material.Air then
+		return false
+	end
+
+	local forward = flatten(root.CFrame.LookVector)
+	local move_direction = flatten(humanoid.MoveDirection)
+	if forward.Magnitude < 0.05 or move_direction.Magnitude < 0.05 then
+		return false
+	end
+	forward = forward.Unit
+	if move_direction.Unit:Dot(forward) < Config.VaultForwardDot then
+		return false
+	end
+
+	local standing_height = self:_standing_height()
+	local current_ground = self:_cast(
+		root.Position + Vector3.new(0, 0.5, 0),
+		Vector3.new(0, -(standing_height + 2), 0),
+		true
+	)
+	if not current_ground or current_ground.Normal.Y < 0.5 then
+		return false
+	end
+
+	local detection_origin = Vector3.new(
+		root.Position.X,
+		current_ground.Position.Y + Config.VaultDetectionHeight,
+		root.Position.Z
+	)
+	local obstacle_hit = self:_cast(
+		detection_origin,
+		forward * Config.VaultDetectionDistance,
+		true
+	)
+	if not obstacle_hit then
+		return false
+	end
+
+	local obstacle = obstacle_hit.Instance
+	if not obstacle:IsA("BasePart") or not obstacle.CanCollide
+		or self:_is_climbable(obstacle) then
+		return false
+	end
+
+	local obstacle_model = obstacle:FindFirstAncestorOfClass("Model")
+	if obstacle_model and obstacle_model:FindFirstChildOfClass("Humanoid") then
+		return false
+	end
+
+	local top_params = self._vaultTopParams or RaycastParams.new()
+	self._vaultTopParams = top_params
+	top_params.FilterType = Enum.RaycastFilterType.Include
+	top_params.FilterDescendantsInstances = { obstacle }
+	top_params.IgnoreWater = true
+	top_params.RespectCanCollide = true
+
+	local top_origin = obstacle.Position + Vector3.new(0, obstacle.Size.Magnitude + 2, 0)
+	local top = Workspace:Raycast(
+		top_origin,
+		Vector3.new(0, -(obstacle.Size.Magnitude * 2 + 4), 0),
+		top_params
+	)
+	if not top or top.Normal.Y < 0.5 then
+		return false
+	end
+
+	local current_ground_y = current_ground.Position.Y
+	local obstacle_height = top.Position.Y - current_ground_y
+	if obstacle_height < Config.VaultMinHeight or obstacle_height > Config.VaultMaxHeight then
+		return false
+	end
+
+	-- Project the oriented part's half-extents along the travel direction so
+	-- the landing point is beyond its far edge, not merely beyond the ray hit.
+	local half_depth = (
+		math.abs(obstacle.CFrame.RightVector:Dot(forward)) * obstacle.Size.X
+		+ math.abs(obstacle.CFrame.UpVector:Dot(forward)) * obstacle.Size.Y
+		+ math.abs(obstacle.CFrame.LookVector:Dot(forward)) * obstacle.Size.Z
+	) * 0.5
+	local center_distance = (obstacle.Position - root.Position):Dot(forward)
+	local landing_distance = center_distance + half_depth + Config.VaultLandingGap
+	if landing_distance <= 0 then
+		return false
+	end
+
+	local landing_xz = root.Position + forward * landing_distance
+	local landing_origin_y = math.max(root.Position.Y, top.Position.Y)
+		+ standing_height + Config.VaultMaxHeight + 2
+	local landing_ground = self:_cast(
+		Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
+		Vector3.new(0, -(standing_height + Config.VaultMaxHeight + 5), 0),
+		true
+	)
+	if not landing_ground or landing_ground.Normal.Y < 0.5
+		or math.abs(landing_ground.Position.Y - current_ground_y) > Config.VaultLandingHeightTolerance
+		or landing_ground.Instance == obstacle then
+		return false
+	end
+
+	local target_position = Vector3.new(
+		landing_ground.Position.X,
+		landing_ground.Position.Y + standing_height - 0.05,
+		landing_ground.Position.Z
+	)
+	local start_cframe = root.CFrame
+	local target_cframe = CFrame.lookAt(target_position, target_position + forward)
+	local midpoint_y = (start_cframe.Position.Y + target_cframe.Position.Y) * 0.5
+	local required_apex_y = top.Position.Y + root.Size.Y * 0.5 + Config.VaultObstacleClearance
+	local arc_height = math.max(Config.VaultMinArcHeight, required_apex_y - midpoint_y)
+	if arc_height > Config.VaultMaxArcHeight then
+		return false
+	end
+
+	-- Check the swept body envelope at several points, including the landing.
+	-- This rejects low ceilings and blocked destination space before committing
+	-- to the scripted movement.
+	local clearance_size = Vector3.new(
+		root.Size.X + 0.5,
+		math.max(root.Size.Y + 0.25, standing_height * 1.6),
+		root.Size.Z + 0.5
+	)
+	for _, alpha in ipairs({ 0.35, 0.5, 0.65, 0.85, 1 }) do
+		local eased = alpha * alpha * (3 - 2 * alpha)
+		local base = start_cframe:Lerp(target_cframe, eased)
+		local arc = math.sin(math.pi * alpha) * arc_height
+		local sample_cframe = CFrame.new(
+			base.Position + Vector3.new(0, arc, 0)
+		) * base.Rotation
+		if not self:_has_vault_clearance(sample_cframe, clearance_size, obstacle) then
+			return false
+		end
+	end
+
+	self.NextVaultAt = os.clock() + Config.VaultCooldown
+	self._vaultStart = start_cframe
+	self._vaultTarget = target_cframe
+	self._vaultElapsed = 0
+	self._vaultDuration = Config.VaultDuration
+	self._vaultArcHeight = arc_height
+	self._vaultObstacle = obstacle
+	self.VaultAutoRotateBefore = humanoid.AutoRotate
+	self.VaultPlatformStandBefore = humanoid.PlatformStand
+	self.VaultJumpingEnabledBefore = humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping)
+	self.GrabBlockedUntilJumpReleased = self.InputController:IsDown(Actions.Jump)
+
+	humanoid.AutoRotate = false
+	humanoid.PlatformStand = true
+	humanoid.Jump = false
+	humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+	self.State = "Vaulting"
+	self.MovementController:SetSprintBlocked(true)
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	return true
+end
+
+function ParkourController:_finish_vault(completed)
+	if self.State ~= "Vaulting" then
+		return
+	end
+
+	self.State = "Grounded"
+	self._vaultStart = nil
+	self._vaultTarget = nil
+	self._vaultElapsed = nil
+	self._vaultDuration = nil
+	self._vaultArcHeight = nil
+	self._vaultObstacle = nil
+
+	local humanoid = self.Humanoid
+	if completed and self.InputController:IsDown(Actions.Jump) then
+		self.GrabBlockedUntilJumpReleased = true
+	end
+	if not completed then
+		self.GrabBlockedUntilJumpReleased = false
+	end
+
+	if humanoid and humanoid.Parent then
+		if self.VaultAutoRotateBefore ~= nil then
+			humanoid.AutoRotate = self.VaultAutoRotateBefore
+		end
+		if self.VaultPlatformStandBefore ~= nil then
+			humanoid.PlatformStand = self.VaultPlatformStandBefore
+		end
+		humanoid.Jump = false
+
+		if self.VaultJumpingEnabledBefore ~= nil and not self.GrabBlockedUntilJumpReleased then
+			humanoid:SetStateEnabled(
+				Enum.HumanoidStateType.Jumping,
+				self.VaultJumpingEnabledBefore
+			)
+			self.VaultJumpingEnabledBefore = nil
+		end
+
+		if completed and humanoid.Health > 0 then
+			humanoid:ChangeState(Enum.HumanoidStateType.Running)
+		end
+	end
+
+	self.VaultAutoRotateBefore = nil
+	self.VaultPlatformStandBefore = nil
+	if not self.GrabBlockedUntilJumpReleased then
+		self.VaultJumpingEnabledBefore = nil
+	end
+	if self.MovementController then
+		self.MovementController:SetSprintBlocked(false)
+	end
+end
+
+
+function ParkourController:_get_traverse_speed()
+	local speed = Config.TraverseSpeed
+	if self.InputController:IsDown(Actions.Sprint) then
+		speed *= Config.TraverseSprintMultiplier
+	end
+	return speed
+end
 
 function ParkourController:_snapshot_hang_pose()
 	local root = self.Root
@@ -494,7 +769,7 @@ function ParkourController:_traverse(dt)
 			if radial.Magnitude >= 0.05 then
 				radial = radial.Unit
 				local radius = math.max(cylinder.Size.Y, cylinder.Size.Z) * 0.5
-				local arc = Config.TraverseSpeed * math.max(dt, 0)
+				local arc = self:_get_traverse_speed() * math.max(dt, 0)
 				local angular_tangent = flatten(Vector3.yAxis:Cross(radial))
 				local travel_tangent = tangent * direction
 				local turn_sign = angular_tangent:Dot(travel_tangent) >= 0 and 1 or -1
@@ -527,7 +802,7 @@ function ParkourController:_traverse(dt)
 		-- the source and destination heights. Lateral contact probes must use
 		-- the logical hang target so they sample the destination ledge consistently.
 		local candidate_position = self.HangPosition
-			+ tangent * direction * Config.TraverseSpeed * math.max(dt, 0)
+			+ tangent * direction * self:_get_traverse_speed() * math.max(dt, 0)
 		local probe_origin = candidate_position
 			+ Vector3.new(0, 1.5, 0)
 			+ normal * 0.3
@@ -1351,6 +1626,10 @@ function ParkourController:_try_mantle()
 end
 
 function ParkourController:_release()
+	if self.State == "Vaulting" then
+		self:_finish_vault(false)
+		return
+	end
 	if self.State ~= "Hanging" then
 				return
 	end
