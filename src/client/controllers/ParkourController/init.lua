@@ -510,40 +510,34 @@ function ParkourController:_standing_height()
 	return hip_height + root.Size.Y * 0.5
 end
 
-function ParkourController:_find_mantle_landing_position(top, normal)
-	local standing_height = self:_standing_height()
-	-- The tagged guide is the ledge: land directly on its top, offset outward
-	-- from the wall. Do not require a separate collidable floor beneath it.
+function ParkourController:_get_hang_position_for_top(top, normal)
+	-- W transfers the hang to the next guide; the character remains below
+	-- the guide's top rather than being placed in a standing position.
 	return top.Position
 		+ normal * WALL_GAP
-		+ Vector3.new(0, standing_height - 0.05, 0)
+		- Vector3.new(0, HANG_DROP, 0)
 end
 
-function ParkourController:_complete_mantle(top, normal, standing_position)
+function ParkourController:_transfer_hang_to_ledge(top, normal)
 	local root = self.Root
-	if not root or not top or not standing_position then return false end
+	if not root or not top then return false end
 
-	self:_debug("mantle completed; top=%s position=%s", top.Instance:GetFullName(), tostring(standing_position))
-	-- Space is commonly still held from the grab. Do not let the grounded
-	-- detector immediately latch onto the ledge we just climbed past.
-	self.GrabBlockedUntilJumpReleased = true
-	self:_enable_guide_collision(top.Guide or top.Instance)
-	self:_release()
-	root.CFrame = CFrame.lookAt(standing_position, standing_position - normal)
+	local hang_position = self:_get_hang_position_for_top(top, normal)
+	self.State = "Hanging"
+	self.Surface = top.Guide or top.Instance
+	self.Normal = normal
+	self.HangPosition = hang_position
+
+	-- Keep the existing hang lock and movement restriction; do not release
+	-- the character or make the non-collidable guide physically solid.
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
-	if self.Humanoid then
-		-- The character has been placed onto the guide top; resume the normal
-		-- locomotion state instead of requesting GettingUp, which can fall
-		-- straight back to Freefall before the new floor contact is processed.
-		self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
-	end
+	self:_position_hanging()
 	self:_debug(
-		"mantle placement applied; root=%s floor=%s humanoid_state=%s platform_stand=%s",
-		tostring(root.Position),
+		"climbed to higher ledge; guide=%s hang=%s state=%s",
 		top.Instance:GetFullName(),
-		self.Humanoid and self.Humanoid:GetState().Name or "missing",
-		tostring(self.Humanoid and self.Humanoid.PlatformStand)
+		tostring(hang_position),
+		self.State
 	)
 	return true
 end
@@ -569,36 +563,14 @@ function ParkourController:_get_guide_top(guide)
 		return nil
 	end
 
-	-- Use a BasePart as the diagnostic/support reference, while the tagged
-	-- Model ancestor still makes the guide climbable.
+	-- Keep the tagged guide itself so a Model guide can be retained as the
+	-- hanging surface even when its diagnostic BasePart is nested inside it.
 	return {
 		Instance = hit_instance,
 		Guide = guide,
 		Position = box_cframe.Position + up * (box_size.Y * 0.5),
 		Normal = up,
 	}
-end
-
-function ParkourController:_enable_guide_collision(guide)
-	-- Guides are authored as non-collidable markers, but once used as a
-	-- mantle destination they must physically support the character.
-	local enabled = 0
-	if guide:IsA("BasePart") then
-		if not guide.CanCollide then
-			guide.CanCollide = true
-			enabled += 1
-		end
-	elseif guide:IsA("Model") then
-		for _, descendant in ipairs(guide:GetDescendants()) do
-			if descendant:IsA("BasePart") and not descendant.CanCollide then
-				descendant.CanCollide = true
-				enabled += 1
-			end
-		end
-	end
-	if enabled > 0 then
-		self:_debug("enabled collision on %d part(s) in mantle guide %s", enabled, guide:GetFullName())
-	end
 end
 
 function ParkourController:_try_mantle()
@@ -625,13 +597,11 @@ function ParkourController:_try_mantle()
 	-- one at a time instead of teleporting to the highest reachable guide.
 	local best_height = math.huge
 	local best_distance = math.huge
-	local best_standing_position = nil
 	local considered = 0
 	local rejected = 0
 
-	-- Tagged guide tops define the ledges directly. No separate floor/support
-	-- ray is required; the selected guide is made collidable when the mantle
-	-- completes so the character can remain on it.
+	-- Tagged guide tops define the ledges directly. W moves the character's
+	-- hang point to the next higher guide without requiring floor support.
 	for _, guide in ipairs(CollectionService:GetTagged(CLIMBABLE_TAG)) do
 		if guide:IsDescendantOf(Workspace) then
 			local top = self:_get_guide_top(guide)
@@ -651,24 +621,21 @@ function ParkourController:_try_mantle()
 
 				if in_vertical_range and in_reach and top.Normal.Y >= 0.5 then
 					considered += 1
-					local standing_position = self:_find_mantle_landing_position(top, normal)
-					if standing_position then
-						local horizontal_distance = flatten(top.Position - current_top).Magnitude
-						if rise < best_height
-							or (rise == best_height and horizontal_distance < best_distance) then
-							best_top = top
-							best_height = rise
-							best_distance = horizontal_distance
-							best_standing_position = standing_position
-							self:_debug(
-								"mantle guide candidate; guide=%s rise=%.2f inward=%.2f lateral=%.2f landing=%s",
-								guide:GetFullName(),
-								rise,
-								inward,
-								lateral,
-								tostring(standing_position)
-							)
-						end
+					local hang_position = self:_get_hang_position_for_top(top, normal)
+					local horizontal_distance = flatten(top.Position - current_top).Magnitude
+					if rise < best_height
+						or (rise == best_height and horizontal_distance < best_distance) then
+						best_top = top
+						best_height = rise
+						best_distance = horizontal_distance
+						self:_debug(
+							"mantle guide candidate; guide=%s rise=%.2f inward=%.2f lateral=%.2f hang=%s",
+							guide:GetFullName(),
+							rise,
+							inward,
+							lateral,
+							tostring(hang_position)
+						)
 					end
 				else
 					rejected += 1
@@ -697,7 +664,7 @@ function ParkourController:_try_mantle()
 			considered,
 			rejected
 		)
-		self:_complete_mantle(best_top, normal, best_standing_position)
+		self:_transfer_hang_to_ledge(best_top, normal)
 	else
 		self:_debug(
 			"mantle found no reachable higher guide; tagged_guides=%d considered=%d rejected=%d max_rise=%.2f",
