@@ -42,7 +42,8 @@ function ParkourController.new(character, input_controller, movement_controller)
 		MovementController = movement_controller,
 		Trove = Trove.new(),
 		State = "Grounded",
-		Humanoid = character:FindFirstChildOfClass("Humanoid"),
+		Humanoid = nil,
+		BoundHumanoid = nil,
 		Root = character:FindFirstChild("HumanoidRootPart"),
 		CurrentClimbable = nil,
 		Normal = nil,
@@ -135,7 +136,8 @@ function ParkourController:_bind_character_parts()
 end
 
 function ParkourController:_bind_humanoid(humanoid)
-	if self.Humanoid == humanoid then return end
+	if self.BoundHumanoid == humanoid then return end
+	self.BoundHumanoid = humanoid
 	self.Humanoid = humanoid
 	self:_debug("humanoid bound: %s", humanoid:GetFullName())
 	self.Trove:Connect(humanoid.Died, function()
@@ -357,7 +359,9 @@ function ParkourController:_grab(guide, normal, position)
 		humanoid.PlatformStand = true
 	end
 
-	self.MovementController:SetSprintBlocked(true)
+	if self.MovementController and self.MovementController.SetSprintBlocked then
+		self.MovementController:SetSprintBlocked(true)
+	end
 	self:_position_hanging()
 end
 
@@ -432,6 +436,10 @@ function ParkourController:_step(dt)
 			if climbable then self:_grab(climbable, normal, position) end
 		end
 	elseif self.State == "Hanging" then
+		if not self.InputController:IsDown(Actions.Jump) then
+			self:_release()
+			return
+		end
 		self:_traverse(dt)
 	end
 end
@@ -445,11 +453,7 @@ function ParkourController:_traverse(dt)
 		return
 	end
 
-	local active_top = self:_get_guide_top(climbable)
-	if not active_top then
-		self:_release()
-		return
-	end
+	local active_top_y = self.HangPosition.Y + HANG_DROP
 
 	local direction = 0
 	if self.InputController:IsDown(Actions.Right) then direction += 1 end
@@ -480,7 +484,7 @@ function ParkourController:_traverse(dt)
 		local next_climbable = top
 			and self:_get_climbable_guide(top.Instance)
 		local same_height = top
-			and math.abs(top.Position.Y - active_top.Position.Y) <= TRAVERSE_HEIGHT_TOLERANCE
+			and math.abs(top.Position.Y - active_top_y) <= TRAVERSE_HEIGHT_TOLERANCE
 			and top.Normal.Y >= 0.5
 		local horizontal_normal = probe and flatten(probe.Normal) or Vector3.zero
 
@@ -561,8 +565,17 @@ function ParkourController:_traverse(dt)
 								-- confirm that the destination guide actually covers that
 								-- landing column before accepting the corner.
 								local cleared_sample = corner_top.Position + normal * corner_clearance
-								local cleared_top = self:_get_guide_top(corner_guide, cleared_sample)
+								local cleared_top = nil
+								local cleared_distance = math.huge
+								for _, candidate_top in ipairs(self:_get_guide_tops(corner_guide, cleared_sample)) do
+									local distance = math.abs(candidate_top.Position.Y - active_top_y)
+									if distance < cleared_distance then
+										cleared_top = candidate_top
+										cleared_distance = distance
+									end
+								end
 								local clearance_valid = cleared_top
+									and cleared_distance <= TRAVERSE_HEIGHT_TOLERANCE
 									and flatten(cleared_top.Position - cleared_sample).Magnitude <= 1.25
 								if clearance_valid then
 									local turn_side_penalty = turn_normal:Dot(movement_tangent) >= 0 and 0 or 100
@@ -992,6 +1005,16 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 	self:_position_hanging()
 
 	local refreshed = self:_refresh_hang_contact(target_guide, top.Position.Y)
+	if not refreshed then
+		self.CurrentClimbable = previous_guide
+		self.Normal = previous_normal
+		self.HangDepthOffset = previous_depth_offset
+		self.HangPosition = previous_hang_position
+		root.CFrame = previous_cframe
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		return false
+	end
 	if refreshed then
 		self:_debug("vertical transfer contact refreshed; guide=%s", target_guide:GetFullName())
 	else
@@ -1377,8 +1400,12 @@ function ParkourController:_release()
 
 	local humanoid = self.Humanoid
 	if humanoid then
-		humanoid.AutoRotate = self.AutoRotateBeforeHang
-		humanoid.PlatformStand = self.PlatformStandBeforeHang
+		if self.AutoRotateBeforeHang ~= nil then
+			humanoid.AutoRotate = self.AutoRotateBeforeHang
+		end
+		if self.PlatformStandBeforeHang ~= nil then
+			humanoid.PlatformStand = self.PlatformStandBeforeHang
+		end
 	end
 	self.AutoRotateBeforeHang = nil
 	self.PlatformStandBeforeHang = nil
