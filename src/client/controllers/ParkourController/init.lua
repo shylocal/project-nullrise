@@ -623,10 +623,9 @@ function ParkourController:_try_mantle()
 	local considered = 0
 	local rejected = 0
 
-	-- Climbable parts are guide volumes and intentionally non-collidable, so
-	-- raycasting their top and expecting a solid hit is the wrong abstraction.
-	-- Inspect tagged guides directly, then use a separate collidable ray to
-	-- find real support under candidate standing positions.
+	-- Tagged guide tops define the ledges directly. No separate floor/support
+	-- ray is required; the selected guide is made collidable when the mantle
+	-- completes so the character can remain on it.
 	for _, guide in ipairs(CollectionService:GetTagged(CLIMBABLE_TAG)) do
 		if guide:IsDescendantOf(Workspace) then
 			local top = self:_get_guide_top(guide)
