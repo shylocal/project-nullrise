@@ -11,12 +11,6 @@ ParkourController.__index = ParkourController
 
 local Config = require(script.Config)
 
-local function vault_debug(...)
-	if Config.VaultDebug then
-		print("[ParkourVault]", ...)
-	end
-end
-
 local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
 end
@@ -84,16 +78,11 @@ end
 function ParkourController:_start()
 	self.Trove:Connect(self.InputController.ActionBegan, function(action)
 		if action == Actions.Jump then
-			vault_debug("INPUT", "action=Jump", "parkourState=", self.State,
-				"sprinting=", self.MovementController and self.MovementController:IsSprinting() or false,
-				"jumpHeld=", self.InputController:IsDown(Actions.Jump),
-				"jumpBlocked=", self.GrabBlockedUntilJumpReleased)
 			if self.State == "Grounded" then
 				-- Space explicitly requests a vault; if no valid vault is found,
 				-- the ordinary jump or ledge-grab flow remains available.
 				self:_try_vault()
 			else
-				vault_debug("Space action ignored: state is not Grounded", self.State)
 			end
 		elseif action == Actions.Forward and self.State == "Hanging" then
 			self:_try_mantle()
@@ -426,57 +415,14 @@ end
 function ParkourController:_step(dt)
 	self._stepDelta = dt
 
-	-- Sample the physics hop at a few milestones to show whether the Humanoid
-	-- accepts the jump, gains height, maintains momentum, and rotates to input.
+	-- Track the airborne phase to release the hop guard on landing.
 	local top_hop = self._topHopActive
 	if top_hop then
 		local humanoid = self.Humanoid
-		local root = self.Root
 		if humanoid and humanoid.FloorMaterial == Enum.Material.Air then
 			top_hop.SawAir = true
 		end
 		local elapsed = os.clock() - top_hop.StartedAt
-		if humanoid then
-			local state = humanoid:GetState()
-			if state ~= top_hop.LastState then
-				vault_debug("TOP HOP STATE", "from=", top_hop.LastState and top_hop.LastState.Name or "nil",
-					"to=", state.Name, "t=", math.floor(elapsed * 100) / 100,
-					"floor=", humanoid.FloorMaterial.Name, "jump=", humanoid.Jump)
-				top_hop.LastState = state
-			end
-		end
-		local milestones = top_hop.DebugMilestones
-		local next_milestone = milestones and milestones[top_hop.DebugMilestoneIndex or 1]
-		if elapsed >= (next_milestone or math.huge) then
-			top_hop.DebugMilestoneIndex = (top_hop.DebugMilestoneIndex or 1) + 1
-			if humanoid and root and root.Parent then
-				local facing = flatten(root.CFrame.LookVector)
-				local input_direction = flatten(humanoid.MoveDirection)
-				local facing_dot = 0
-				if facing.Magnitude > 0.05 and top_hop.LaunchForward.Magnitude > 0.05 then
-					facing_dot = facing.Unit:Dot(top_hop.LaunchForward.Unit)
-				end
-				local input_direction = flatten(humanoid.MoveDirection)
-				local facing_dot_to_move = 0
-				if facing.Magnitude > 0.05 and input_direction.Magnitude > 0.05 then
-					facing_dot_to_move = facing.Unit:Dot(input_direction.Unit)
-				end
-				vault_debug("TOP HOP SAMPLE", "t=", math.floor(elapsed * 100) / 100,
-					"parkour=", self.State, "humanoid=", humanoid:GetState().Name,
-					"floor=", humanoid.FloorMaterial.Name, "sawAir=", top_hop.SawAir,
-					"position=", root.Position, "deltaY=", root.Position.Y - top_hop.StartPosition.Y,
-					"velocity=", root.AssemblyLinearVelocity,
-					"moveDirection=", humanoid.MoveDirection, "look=", root.CFrame.LookVector,
-					"facingDotToLaunch=", math.floor(facing_dot * 1000) / 1000,
-					"facingDotToMove=", math.floor(facing_dot_to_move * 1000) / 1000,
-					"AutoRotate=", humanoid.AutoRotate, "PlatformStand=", humanoid.PlatformStand,
-					"Jump=", humanoid.Jump,
-					"jumpingEnabled=", humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping),
-					"UseJumpPower=", humanoid.UseJumpPower,
-					"JumpPower=", humanoid.JumpPower, "JumpHeight=", humanoid.JumpHeight,
-					"WalkSpeed=", humanoid.WalkSpeed, "rootAnchored=", root.Anchored)
-			end
-		end
 		local landed = top_hop.SawAir and humanoid
 			and humanoid.FloorMaterial ~= Enum.Material.Air
 		if landed or elapsed >= 3 then
@@ -593,31 +539,22 @@ end
 
 function ParkourController:_try_vault()
 	local sprinting = self.MovementController and self.MovementController:IsSprinting() or false
-	vault_debug("attempt", "enabled=", Config.VaultEnabled, "state=", self.State,
-		"sprinting=", sprinting, "jumpBlocked=", self.GrabBlockedUntilJumpReleased,
-		"cooldownRemaining=", math.max(0, (self.NextVaultAt or 0) - os.clock()))
 	if not Config.VaultEnabled then
-		vault_debug("REJECT: VaultEnabled is false")
 		return false
 	end
 	if self.State ~= "Grounded" then
-		vault_debug("REJECT: character state is", self.State, "not Grounded")
 		return false
 	end
 	if self.GrabBlockedUntilJumpReleased then
-		vault_debug("REJECT: jump/grab lock is active")
 		return false
 	end
 	if os.clock() < (self.NextVaultAt or 0) then
-		vault_debug("REJECT: cooldown active")
 		return false
 	end
 	if not self.MovementController then
-		vault_debug("REJECT: MovementController missing")
 		return false
 	end
 	if not sprinting then
-		vault_debug("REJECT: not sprinting")
 		return false
 	end
 
@@ -626,10 +563,6 @@ function ParkourController:_try_vault()
 	local humanoid = self.Humanoid
 	if not root or not humanoid or humanoid.Health <= 0
 		or humanoid.FloorMaterial == Enum.Material.Air then
-		vault_debug("REJECT: missing/dead character or not grounded",
-			"root=", root ~= nil, "humanoid=", humanoid ~= nil,
-			"health=", humanoid and humanoid.Health or "nil",
-			"floor=", humanoid and humanoid.FloorMaterial or "nil")
 		return false
 	end
 
@@ -641,8 +574,6 @@ function ParkourController:_try_vault()
 		forward = facing
 	end
 	if forward.Magnitude < 0.05 then
-		vault_debug("REJECT: no movement/facing direction",
-			"moveDirection=", humanoid.MoveDirection, "lookVector=", root.CFrame.LookVector)
 		return false
 	end
 	forward = forward.Unit
@@ -659,11 +590,6 @@ function ParkourController:_try_vault()
 		true
 	)
 	if not current_ground or current_ground.Normal.Y < 0.5 then
-		vault_debug("REJECT: ground probe failed",
-			"origin=", root.Position + Vector3.new(0, 0.5, 0),
-			"hit=", current_ground and current_ground.Instance:GetFullName() or "nil",
-			"normal=", current_ground and current_ground.Normal or "nil",
-			"floorMaterial=", humanoid.FloorMaterial)
 		return false
 	end
 
@@ -723,24 +649,17 @@ function ParkourController:_try_vault()
 		end
 	end
 	if not obstacle_hit then
-		vault_debug("REJECT: obstacle detection missed", "distance=", Config.VaultDetectionDistance,
-			"forward=", forward, "facing=", facing, "moveDirection=", humanoid.MoveDirection)
 		return false
 	end
 
 	local obstacle = obstacle_hit.Instance
 	if not obstacle:IsA("BasePart") or not obstacle.CanCollide
 		or self:_is_climbable(obstacle) then
-		vault_debug("REJECT: detected part is not a collidable, non-climbable BasePart",
-			"part=", obstacle:GetFullName(), "class=", obstacle.ClassName,
-			"canCollide=", obstacle:IsA("BasePart") and obstacle.CanCollide or false,
-			"climbable=", self:_is_climbable(obstacle))
 		return false
 	end
 
 	local obstacle_model = obstacle:FindFirstAncestorOfClass("Model")
 	if obstacle_model and obstacle_model:FindFirstChildOfClass("Humanoid") then
-		vault_debug("REJECT: detected obstacle belongs to a Humanoid model", obstacle_model:GetFullName())
 		return false
 	end
 
@@ -756,7 +675,6 @@ function ParkourController:_try_vault()
 	local near_edge_distance = center_distance - half_depth
 	local far_edge_distance = center_distance + half_depth
 	if far_edge_distance <= 0 then
-		vault_debug("REJECT: projected obstacle far edge is behind/equal to root")
 		return false
 	end
 
@@ -805,19 +723,12 @@ function ParkourController:_try_vault()
 		end
 	end
 	if not top then
-		vault_debug("REJECT: top surface sampling failed",
-			"part=", obstacle:GetFullName(), "size=", obstacle.Size,
-			"partPosition=", obstacle.Position, "hitPosition=", obstacle_hit.Position,
-			"testedSamples=", #top_samples)
 		return false
 	end
 
 	local current_ground_y = current_ground.Position.Y
 	local obstacle_height = top.Position.Y - current_ground_y
 	if obstacle_height < Config.VaultMinHeight or obstacle_height > Config.VaultMaxHeight then
-		vault_debug("REJECT: measured obstacle height outside configured range",
-			"measuredHeight=", obstacle_height, "min=", Config.VaultMinHeight,
-			"max=", Config.VaultMaxHeight)
 		return false
 	end
 
@@ -900,13 +811,6 @@ function ParkourController:_try_vault()
 		and minimum_footprint_depth >= minimum_top_hop_depth
 	local use_top_hop = is_long_obstacle
 		or (has_continuous_ground_beneath and has_usable_top_depth)
-vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
-		"hitDistance=", obstacle_hit.Distance, "height=", obstacle_height,
-		"travelDepth=", top_landing_depth, "minFootprintDepth=", minimum_footprint_depth,
-		"requiredDepth=", minimum_top_hop_depth, "support=", support_count, "/", support_total,
-		"continuousGround=", has_continuous_ground_beneath,
-		"usableTop=", has_usable_top_depth, "long=", is_long_obstacle,
-		"choice=", use_top_hop and "HOP_TO_TOP" or "VAULT_OVER")
 	-- Top-hops require a genuinely wide horizontal footprint, even for long
 	-- parts. This prevents diagonal approaches from inflating a thin wall's
 	-- projected travel depth and misclassifying it as a landing platform.
@@ -953,17 +857,10 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 
 		self.NextVaultAt = now + Config.VaultCooldown
 		self.GrabBlockedUntilJumpReleased = self.InputController:IsDown(Actions.Jump)
-		local launch_state = humanoid:GetState()
-		local launch_floor = humanoid.FloorMaterial
-		local launch_jump_enabled = humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping)
-		local launch_autorotate = humanoid.AutoRotate
-		local launch_platform_stand = humanoid.PlatformStand
-		local launch_use_jump_power = humanoid.UseJumpPower
+												local launch_use_jump_power = humanoid.UseJumpPower
 		local launch_jump_power = humanoid.JumpPower
 		local launch_jump_height = humanoid.JumpHeight
-		local launch_move_direction = humanoid.MoveDirection
-		local launch_look_vector = root.CFrame.LookVector
-		local requested_velocity = Vector3.new(
+						local requested_velocity = Vector3.new(
 			hop_horizontal_velocity.X,
 			hop_vertical_speed,
 			hop_horizontal_velocity.Z
@@ -973,31 +870,11 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 			SawAir = false,
 			StartPosition = root.Position,
 			LaunchForward = forward,
-			LastState = launch_state,
 			UseJumpPower = launch_use_jump_power,
 			JumpPowerBefore = launch_jump_power,
 			JumpHeightBefore = launch_jump_height,
-			DebugMilestones = { 0.05, 0.15, 0.35, 0.65, 1, 1.5, 2.25 },
-			DebugMilestoneIndex = 1,
 		}
 		self._topHopActive = top_hop
-		vault_debug("TOP HOP PRE-LAUNCH", "part=", obstacle:GetFullName(),
-			"parkour=", self.State, "humanoid=", launch_state.Name,
-			"floor=", launch_floor.Name, "jumpingEnabled=", launch_jump_enabled,
-			"AutoRotate=", launch_autorotate, "PlatformStand=", launch_platform_stand,
-			"Jump=", humanoid.Jump, "UseJumpPower=", launch_use_jump_power,
-			"JumpPowerBefore=", launch_jump_power, "JumpHeightBefore=", launch_jump_height,
-			"MoveDirection=", launch_move_direction,
-			"forward=", forward, "look=", launch_look_vector,
-			"WalkSpeed=", humanoid.WalkSpeed, "rootAnchored=", root.Anchored,
-			"velocityBefore=", current_velocity, "velocityRequested=", requested_velocity,
-			"targetRise=", target_rise, "obstacleHeight=", obstacle_height,
-			"topTarget=", top_target)
-		top_hop.StateConnection = humanoid.StateChanged:Connect(function(old_state, new_state)
-			vault_debug("TOP HOP STATE EVENT", "from=", old_state.Name, "to=", new_state.Name,
-				"t=", math.floor((os.clock() - top_hop.StartedAt) * 100) / 100,
-				"floor=", humanoid.FloorMaterial.Name, "jump=", humanoid.Jump)
-		end)
 		-- The default Humanoid jump impulse was overshooting the calculated
 		-- obstacle-relative launch speed. Temporarily zero the active native
 		-- jump setting while preserving the Jumping state transition/animation;
@@ -1012,15 +889,6 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 		-- Apply calculated vertical and forward velocity. The Humanoid physics
 		-- solver remains responsible for contact and landing.
 		root.AssemblyLinearVelocity = requested_velocity
-		vault_debug("TOP HOP LAUNCH APPLIED", "humanoid=", humanoid:GetState().Name,
-			"floor=", humanoid.FloorMaterial.Name, "Jump=", humanoid.Jump,
-			"jumpingEnabled=", humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping),
-			"UseJumpPower=", humanoid.UseJumpPower, "JumpPowerDuringHop=", humanoid.JumpPower,
-			"JumpHeightDuringHop=", humanoid.JumpHeight,
-			"AutoRotate=", humanoid.AutoRotate, "PlatformStand=", humanoid.PlatformStand,
-			"velocityNow=", root.AssemblyLinearVelocity, "velocityRequested=", requested_velocity,
-			"velocityError=", root.AssemblyLinearVelocity - requested_velocity,
-			"MoveDirection=", humanoid.MoveDirection, "look=", root.CFrame.LookVector)
 		return true
 	end
 
@@ -1132,18 +1000,6 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 	-- instead of silently changing its destination.
 	if not target_position
 		and obstacle_height >= (Config.VaultFarSideOnlyHeight or math.huge) then
-		vault_debug("REJECT: tall obstacle has no validated far-side landing",
-			"height=", obstacle_height, "threshold=", Config.VaultFarSideOnlyHeight,
-			"farEdge=", far_edge_distance, "landingGap=", Config.VaultLandingGap,
-			"initialHopDistance=", hop_distance, "maxHop=", max_vault_distance,
-			"configuredVaultCap=", Config.VaultMaxOverDistance or Config.VaultMaxHopDistance,
-			"landingProbeCount=", landing_stats.probes,
-			"overRange=", landing_stats.overRange, "noHit=", landing_stats.noHit,
-			"steep=", landing_stats.steep, "wrongHeight=", landing_stats.wrongHeight,
-			"hitObstaclePart=", landing_stats.obstaclePart,
-			"lastGroundHit=", last_landing_hit and last_landing_hit.Instance:GetFullName() or "nil",
-			"lastHitPosition=", last_landing_hit and last_landing_hit.Position or "nil",
-			"lastHitNormal=", last_landing_hit and last_landing_hit.Normal or "nil")
 		return false
 	end
 
@@ -1180,10 +1036,6 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 		+ Config.VaultObstacleClearance + tall_obstacle_clearance
 	local arc_height = math.max(Config.VaultMinArcHeight, required_apex_y - midpoint_y)
 	if arc_height > Config.VaultMaxArcHeight then
-		vault_debug("REJECT: required arc exceeds configured maximum",
-			"arcHeight=", arc_height, "maxArc=", Config.VaultMaxArcHeight,
-			"obstacleTopY=", top.Position.Y, "rootY=", root.Position.Y,
-			"rootSizeY=", root.Size.Y, "midpointY=", midpoint_y)
 		return false
 	end
 
@@ -1204,11 +1056,6 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 		) * base.Rotation
 		local clear, blocker = self:_has_vault_clearance(sample_cframe, clearance_size, obstacle)
 		if not clear then
-			vault_debug("REJECT: trajectory clearance blocked", "alpha=", alpha,
-				"samplePosition=", sample_cframe.Position,
-				"blocker=", blocker and blocker:GetFullName() or "unknown",
-				"blockerPosition=", blocker and blocker.Position or "unknown",
-				"obstacle=", obstacle:GetFullName())
 			return false
 		end
 	end
@@ -1262,8 +1109,6 @@ vault_debug("ROUTE", "part=", obstacle:GetFullName(), "size=", obstacle.Size,
 	self.MovementController:SetSprintBlocked(true, self)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
-	vault_debug("SCRIPTED VAULT START", "height=", obstacle_height,
-		"distance=", vault_distance, "duration=", vault_duration, "arcHeight=", arc_height)
 	return true
 end
 
@@ -1271,10 +1116,6 @@ function ParkourController:_finish_top_hop(landed)
 	local top_hop = self._topHopActive
 	if not top_hop then
 		return
-	end
-	if top_hop.StateConnection then
-		top_hop.StateConnection:Disconnect()
-		top_hop.StateConnection = nil
 	end
 	self._topHopActive = nil
 	local root = self.Root
@@ -1286,18 +1127,6 @@ function ParkourController:_finish_top_hop(landed)
 			humanoid.JumpHeight = top_hop.JumpHeightBefore
 		end
 	end
-	vault_debug("TOP HOP END", "result=", landed and "LANDED" or "TIMEOUT/NO LANDING",
-		"elapsed=", math.floor((os.clock() - top_hop.StartedAt) * 100) / 100,
-		"sawAir=", top_hop.SawAir,
-		"humanoid=", humanoid and humanoid:GetState().Name or "nil",
-		"floor=", humanoid and humanoid.FloorMaterial.Name or "nil",
-		"start=", top_hop.StartPosition, "finish=", root and root.Position or "nil",
-		"velocity=", root and root.AssemblyLinearVelocity or "nil",
-		"AutoRotate=", humanoid and humanoid.AutoRotate,
-		"PlatformStand=", humanoid and humanoid.PlatformStand,
-		"UseJumpPower=", humanoid and humanoid.UseJumpPower,
-		"JumpPowerRestored=", humanoid and humanoid.JumpPower,
-		"JumpHeightRestored=", humanoid and humanoid.JumpHeight)
 end
 
 function ParkourController:_finish_vault(completed)
@@ -1305,8 +1134,6 @@ function ParkourController:_finish_vault(completed)
 		return
 	end
 
-	vault_debug("SCRIPTED VAULT END", "completed=", completed,
-		"position=", self.Root and self.Root.Position or "nil")
 	self._vaultDebugLastStage = nil
 	self.State = "Grounded"
 	local exit_velocity = self._vaultExitVelocity
