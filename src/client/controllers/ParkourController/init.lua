@@ -425,7 +425,15 @@ function ParkourController:_standing_height()
 	local root = self.Root
 	local humanoid = self.Humanoid
 	if not root then return 3 end
-	return (humanoid and humanoid.HipHeight or 2) + root.Size.Y * 0.5
+
+	local hip_height = humanoid and humanoid.HipHeight or 2
+	if humanoid and humanoid.RigType == Enum.HumanoidRigType.R6 then
+		-- R6's HipHeight does not include the leg length needed to place the
+		-- root at its normal standing height. Include one extra root height.
+		return hip_height + root.Size.Y * 1.5
+	end
+
+	return hip_height + root.Size.Y * 0.5
 end
 
 function ParkourController:_has_standing_clearance(position, normal)
