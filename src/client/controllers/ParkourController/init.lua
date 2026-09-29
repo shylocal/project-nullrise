@@ -9,7 +9,8 @@ local Actions = require(ReplicatedStorage.shared.input.Actions)
 local ParkourController = {}
 ParkourController.__index = ParkourController
 
-local DEBUG_PARKOUR = true
+-- Keep verbose parkour diagnostics off during normal play; re-enable only when debugging.
+local DEBUG_PARKOUR = false
 
 local CLIMBABLE_TAG = "Climbable"
 local WALL_REACH = 3.25
@@ -26,6 +27,8 @@ local MANTLE_MAX_INWARD = 8
 local MANTLE_MAX_OUTWARD = 2
 local MANTLE_MAX_LATERAL = 5
 local MANTLE_MIN_RISE = 0.25
+local TRAVERSE_HEIGHT_TOLERANCE = 1.5
+local MAX_GROUND_DROP = 32
 
 local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
