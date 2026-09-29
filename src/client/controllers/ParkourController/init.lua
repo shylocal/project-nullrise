@@ -528,7 +528,7 @@ function ParkourController:_try_lower_ledge()
 			best_distance,
 			examined
 		)
-		self:_transfer_hang_to_ledge(best_top, target_normal, tangent, best_lateral_offset)
+		self:_transfer_hang_to_ledge(best_top, target_normal)
 		return
 	end
 
@@ -657,20 +657,20 @@ function ParkourController:_get_guide_wall_normal(guide, top, preferred_normal)
 	return preferred
 end
 
-function ParkourController:_get_hang_position_for_top(top, normal, tangent, lateral_offset)
-	-- W transfers the hang to the next guide; preserve the character's
-	-- sideways location on that guide instead of snapping to its center.
+function ParkourController:_get_hang_position_for_top(top, normal)
+	-- The caller samples top.Position at the intended landing column.
+	-- Do not apply a tangent offset here as well: doing so double-counts the
+	-- lateral adjustment and causes drift on repeated up/down transitions.
 	return top.Position
-		+ tangent * (lateral_offset or 0)
 		+ normal * WALL_GAP
 		- Vector3.new(0, HANG_DROP, 0)
 end
 
-function ParkourController:_transfer_hang_to_ledge(top, normal, tangent, lateral_offset)
+function ParkourController:_transfer_hang_to_ledge(top, normal)
 	local root = self.Root
-	if not root or not top or not tangent then return false end
+	if not root or not top or not normal then return false end
 
-	local hang_position = self:_get_hang_position_for_top(top, normal, tangent, lateral_offset)
+	local hang_position = self:_get_hang_position_for_top(top, normal)
 	self.State = "Hanging"
 	self.CurrentClimbable = top.Guide or self:_get_climbable_guide(top.Instance)
 	self.Normal = normal
@@ -820,12 +820,10 @@ function ParkourController:_try_mantle()
 
 				if in_vertical_range and in_reach and top.Normal.Y >= 0.5 then
 					considered += 1
-					local hang_position = self:_get_hang_position_for_top(
-						top,
-						normal,
-						tangent,
-						target_lateral_offset
-					)
+					local hang_position = top.Position
+						+ tangent * target_lateral_offset
+						+ normal * WALL_GAP
+						- Vector3.new(0, HANG_DROP, 0)
 					local target_top_position = top.Position + tangent * target_lateral_offset
 					local horizontal_distance = flatten(target_top_position - current_top).Magnitude
 					if rise < best_height
@@ -875,7 +873,7 @@ function ParkourController:_try_mantle()
 		local target_sample = best_top.Position + tangent * best_lateral_offset
 		best_top = self:_get_guide_top(best_top.Guide, target_sample) or best_top
 		local target_normal = self:_get_guide_wall_normal(best_top.Guide, best_top, normal)
-		self:_transfer_hang_to_ledge(best_top, target_normal, tangent, best_lateral_offset)
+		self:_transfer_hang_to_ledge(best_top, target_normal)
 	else
 		self:_debug(
 			"mantle found no reachable higher guide; tagged_guides=%d considered=%d rejected=%d max_rise=%.2f",
