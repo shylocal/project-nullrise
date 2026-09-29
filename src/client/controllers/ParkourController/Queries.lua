@@ -63,10 +63,9 @@ function Queries.cast_grabbable_side(self, origin, direction)
 	return nil
 end
 function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_position, reference_y)
-	-- Several climb guides can overlap vertically. A single downward ray hits
-	-- the highest one first, even when that ledge is outside grab range. Walk
-	-- down through successive hits and choose the eligible, walkable top closest
-	-- in height to the character.
+	-- Several surfaces can overlap vertically. A single downward ray hits the
+	-- highest one first, even when that top is outside grab range. Walk down
+	-- through successive hits and choose the nearest eligible walkable top.
 	local standing_height = self:_standing_height()
 	local origin = Vector3.new(
 		wall_position.X,
