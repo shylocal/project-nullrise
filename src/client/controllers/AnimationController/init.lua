@@ -105,7 +105,25 @@ function AnimationController:Load(definition)
 	local animation = Instance.new("Animation")
 	animation.AnimationId = definition.Id
 
-	ContentProvider:PreloadAsync({animation})
+	-- Capture the owning trove before PreloadAsync, which may yield. A weapon
+	-- swap or character teardown can replace that trove while assets load.
+	local animation_trove = self.AnimationTrove
+	animation_trove:Add(animation)
+
+	local preload_ok, preload_err = pcall(function()
+		ContentProvider:PreloadAsync({animation})
+	end)
+	if not preload_ok then
+		animation_trove:Remove(animation)
+		error(preload_err, 0)
+	end
+
+	if self.Animator ~= animator
+		or self.AnimationTrove ~= animation_trove
+		or animator.Parent == nil then
+		animation_trove:Remove(animation)
+		return nil
+	end
 
 	local track = animator:LoadAnimation(animation)
 
@@ -117,10 +135,8 @@ function AnimationController:Load(definition)
 		track.Looped = definition.Looped
 	end
 
-	self.AnimationTrove:Add(animation)
-	self.AnimationTrove:Add(track)
-
-	self.AnimationTrove:Connect(
+	animation_trove:Add(track)
+	animation_trove:Connect(
 		track.Ended,
 		function()
 			if self.ActionTrack == track then
