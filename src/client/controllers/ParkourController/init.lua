@@ -702,34 +702,52 @@ function ParkourController:_try_vault()
 	local landing_origin_y = math.max(root.Position.Y, top.Position.Y)
 		+ standing_height + Config.VaultMaxHeight + 2
 	local landing_ray = Vector3.new(0, -(standing_height + Config.VaultMaxHeight + 5), 0)
+	local hit_relative = obstacle_hit.Position - root.Position
+	-- Continue along the exact lane that detected the obstacle. Side probes
+	-- can hit a wall away from the character's centerline, so dropping this
+	-- offset would aim the far-side landing back into the wall footprint.
+	local landing_lateral = flatten(hit_relative) - forward * flatten(hit_relative):Dot(forward)
+	local function is_obstacle_part(instance)
+		return instance == obstacle
+			or (obstacle_model ~= nil and instance:IsDescendantOf(obstacle_model))
+	end
 
-	-- Prefer clearing the far edge. A single sample can still land on the
-	-- obstacle when bounds or an angled approach put the projected edge close
-	-- to its footprint, so test a few progressively farther landing points.
-	for _, extra_distance in ipairs({ 0, 0.65, 1.3, 2 }) do
+	-- Prefer ground beyond the far edge. Search farther and across a narrow
+	-- lateral fan so an oblique approach or multi-part wall cannot be mistaken
+	-- for a valid landing on the wall's own top.
+	for _, extra_distance in ipairs({ 0, 0.75, 1.5, 2.5, 4, 6 }) do
 		local landing_distance = hop_distance + extra_distance
 		if landing_distance <= Config.VaultMaxHopDistance then
-			local landing_xz = root.Position + forward * landing_distance
-			local landing_ground = self:_cast(
-				Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
-				landing_ray,
-				true
-			)
-			if landing_ground and landing_ground.Normal.Y >= 0.5
-				and math.abs(landing_ground.Position.Y - current_ground_y) <= Config.VaultLandingHeightTolerance
-				and landing_ground.Instance ~= obstacle then
-				target_position = Vector3.new(
-					landing_ground.Position.X,
-					landing_ground.Position.Y + standing_height - 0.05,
-					landing_ground.Position.Z
+			for _, lateral_adjustment in ipairs({ 0, -0.75, 0.75 }) do
+				local side = forward:Cross(Vector3.yAxis)
+				local landing_xz = root.Position + forward * landing_distance + landing_lateral
+				if side.Magnitude > 0.05 then
+					landing_xz += side.Unit * lateral_adjustment
+				end
+				local landing_ground = self:_cast(
+					Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
+					landing_ray,
+					true
 				)
+				if landing_ground and landing_ground.Normal.Y >= 0.5
+					and math.abs(landing_ground.Position.Y - current_ground_y) <= Config.VaultLandingHeightTolerance
+					and not is_obstacle_part(landing_ground.Instance) then
+					target_position = Vector3.new(
+						landing_ground.Position.X,
+						landing_ground.Position.Y + standing_height - 0.05,
+						landing_ground.Position.Z
+					)
+					break
+				end
+			end
+			if target_position then
 				break
 			end
 		end
 	end
 
-	-- Retain a top landing only when a validated far-side floor cannot be
-	-- reached within the configured hop range.
+	-- Retain a top landing only when no safe far-side floor is found within
+	-- the extended range.
 	if not target_position then
 		target_position = Vector3.new(
 			top.Position.X,
