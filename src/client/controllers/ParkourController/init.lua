@@ -25,6 +25,19 @@ local function vault_arc_progress(linear)
 	return 1 - 0.5 * ((1 - linear) * 2) ^ 0.8
 end
 
+local function vault_hip_height_weight(linear)
+	-- Lower the hips through the middle of the vault, then restore the
+	-- original HipHeight before the landing handoff.
+	local function smoothstep(value)
+		value = math.clamp(value, 0, 1)
+		return value * value * (3 - 2 * value)
+	end
+
+	local fade_in = smoothstep((linear - 0.2) / 0.2)
+	local fade_out = smoothstep((0.9 - linear) / 0.2)
+	return fade_in * fade_out
+end
+
 function ParkourController.new(character, input_controller, movement_controller)
 	local self = setmetatable({
 		Character = character,
@@ -45,6 +58,8 @@ function ParkourController.new(character, input_controller, movement_controller)
 		VaultJumpingEnabledBefore = nil,
 		VaultAutoRotateBefore = nil,
 		VaultPlatformStandBefore = nil,
+		VaultHipHeightBefore = nil,
+		VaultHipHeightHumanoid = nil,
 		_vaultExitVelocity = nil,
 		NextVaultAt = 0,
 		CornerLockPosition = nil,
@@ -449,6 +464,15 @@ function ParkourController:_step(dt)
 		local arc = math.sin(math.pi * vault_arc_progress(linear)) * self._vaultArcHeight
 		local position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
 		root.CFrame = CFrame.new(position + Vector3.new(0, arc, 0)) * base.Rotation
+
+		local vault_humanoid = self.VaultHipHeightHumanoid
+		local original_hip_height = self.VaultHipHeightBefore
+		if vault_humanoid and vault_humanoid.Parent and original_hip_height ~= nil then
+			local reduction = math.max(0, Config.VaultHipHeightReduction or 0)
+			local weight = vault_hip_height_weight(linear)
+			vault_humanoid.HipHeight = math.max(0, original_hip_height - reduction * weight)
+		end
+
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 
@@ -755,6 +779,8 @@ function ParkourController:_try_vault()
 	self._vaultObstacle = obstacle
 	self.VaultAutoRotateBefore = humanoid.AutoRotate
 	self.VaultPlatformStandBefore = humanoid.PlatformStand
+	self.VaultHipHeightBefore = humanoid.HipHeight
+	self.VaultHipHeightHumanoid = humanoid
 	self.VaultJumpingEnabledBefore = humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping)
 	self.GrabBlockedUntilJumpReleased = self.InputController:IsDown(Actions.Jump)
 
@@ -785,6 +811,14 @@ function ParkourController:_finish_vault(completed)
 	self._vaultObstacle = nil
 
 	local humanoid = self.Humanoid
+	local hip_height_humanoid = self.VaultHipHeightHumanoid
+	local original_hip_height = self.VaultHipHeightBefore
+	if hip_height_humanoid and hip_height_humanoid.Parent and original_hip_height ~= nil then
+		hip_height_humanoid.HipHeight = original_hip_height
+	end
+	self.VaultHipHeightHumanoid = nil
+	self.VaultHipHeightBefore = nil
+
 	if completed and self.InputController:IsDown(Actions.Jump) then
 		self.GrabBlockedUntilJumpReleased = true
 	end
