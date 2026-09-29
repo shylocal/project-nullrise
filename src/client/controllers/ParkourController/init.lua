@@ -424,6 +424,24 @@ end
 
 function ParkourController:_step(dt)
 	self._stepDelta = dt
+
+	-- Physics top-hops use the Humanoid's built-in jump animation. Temporarily
+	-- suppress sprinting so the higher-priority sprint track cannot mask it,
+	-- then restore sprint as soon as the character lands (with a timeout guard).
+	local top_hop = self._topHopActive
+	if top_hop then
+		local humanoid = self.Humanoid
+		if humanoid and humanoid.FloorMaterial == Enum.Material.Air then
+			top_hop.SawAir = true
+		end
+		local elapsed = os.clock() - top_hop.StartedAt
+		local landed = top_hop.SawAir and humanoid
+			and humanoid.FloorMaterial ~= Enum.Material.Air
+		if landed or elapsed >= 3 then
+			self:_finish_top_hop(landed)
+		end
+	end
+
 	if self.State == "Grounded" then
 		if self.InputController:IsDown(Actions.Jump) and not self.GrabBlockedUntilJumpReleased then
 			local climbable, normal, position = self:_detect_surface()
@@ -905,6 +923,10 @@ function ParkourController:_try_vault()
 
 		self.NextVaultAt = now + Config.VaultCooldown
 		self.GrabBlockedUntilJumpReleased = self.InputController:IsDown(Actions.Jump)
+		self._topHopActive = { StartedAt = os.clock(), SawAir = false }
+		-- SetSprintBlocked also stops the sprint animation track, allowing the
+		-- Humanoid's normal jump animation to show during this physics hop.
+		self.MovementController:SetSprintBlocked(true, self)
 		humanoid.Jump = true
 		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 		-- Preserve existing horizontal momentum without adding the vault boost.
@@ -914,12 +936,12 @@ function ParkourController:_try_vault()
 			hop_vertical_speed,
 			current_velocity.Z
 		)
-		vault_debug("LONG OBSTACLE: COLLISION-RESPECTING PHYSICS HOP TO TOP",
+		vault_debug("PHYSICS HOP TO TOP",
 			"part=", obstacle:GetFullName(), "horizontalLength=", obstacle_length,
 			"threshold=", long_obstacle_threshold, "height=", obstacle_height,
 			"topTarget=", top_target, "horizontalVelocityPreserved=", Vector3.new(current_velocity.X, 0, current_velocity.Z),
 			"verticalSpeed=", hop_vertical_speed, "requiredVerticalSpeed=", required_vertical_speed,
-			"customVaultAnimation=", false)
+			"sprintAnimationSuppressed=", true, "customVaultAnimation=", false)
 		return true
 	end
 
@@ -1170,6 +1192,20 @@ function ParkourController:_try_vault()
 		"height=", obstacle_height, "target=", target_position,
 		"duration=", vault_duration, "arcHeight=", arc_height)
 	return true
+end
+
+function ParkourController:_finish_top_hop(landed)
+	local top_hop = self._topHopActive
+	if not top_hop then
+		return
+	end
+	self._topHopActive = nil
+	if self.MovementController then
+		self.MovementController:SetSprintBlocked(false, self)
+	end
+	vault_debug("TOP HOP FINISHED", "landed=", landed,
+		"duration=", os.clock() - top_hop.StartedAt,
+		"rootPosition=", self.Root and self.Root.Position or "nil")
 end
 
 function ParkourController:_finish_vault(completed)
@@ -2192,6 +2228,9 @@ function ParkourController:_try_mantle()
 end
 
 function ParkourController:_release()
+	if self._topHopActive then
+		self:_finish_top_hop(false)
+	end
 	if self.State == "Vaulting" then
 		self:_finish_vault(false)
 		return
