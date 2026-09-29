@@ -287,7 +287,7 @@ function ParkourController:_detect_surface()
 		return nil
 	end
 
-	local top = self:_cast_reachable_grab_top(wall.Position, wall.Normal, root.Position)
+	local top = self:_cast_reachable_grab_top(wall.Position, wall.Normal, root.Position, root.Position.Y)
 	if not top then
 		self:_debug_detection("top ray missed; wall=%s", wall.Instance:GetFullName())
 		return nil
@@ -575,7 +575,8 @@ function ParkourController:_traverse(dt)
 							local corner_top = self:_cast_reachable_grab_top(
 								corner_probe.Position,
 								corner_probe.Normal,
-								root.Position
+								root.Position,
+								root.Position.Y + HANG_DROP
 							)
 							local corner_guide = corner_top
 								and self:_get_climbable_guide(corner_top.Instance)
@@ -880,7 +881,7 @@ function ParkourController:_refresh_hang_contact(expected_guide, expected_top_y)
 		return false
 	end
 
-	local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position)
+	local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, candidate_position.Y)
 	if not top or self:_get_climbable_guide(top.Instance) ~= expected_guide then
 		return false
 	end
