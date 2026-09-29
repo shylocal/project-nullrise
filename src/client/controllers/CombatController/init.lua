@@ -3,7 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local Signal = require(Packages.Signal)
-local Hitbox = require(script.Hitbox)
+local AttackLifecycle = require(script.AttackLifecycle)
 local AttackInput = require(script.AttackInput)
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
@@ -111,7 +111,7 @@ function CombatController:Attack()
 
 	self.NextAttack = attack_index == #weapon.Attacks and 1 or attack_index + 1
 
-	self:_begin_attack(attack_index, attack, track, Protocol.Combat.Attack)
+	AttackLifecycle.begin_attack(self, attack_index, attack, track, Protocol.Combat.Attack)
 end
 
 function CombatController:Charge()
@@ -147,65 +147,8 @@ function CombatController:_can_begin_attack()
 	return os.clock() >= self.AttackReadyAt
 end
 
-function CombatController:_begin_attack(attack_key, attack, track, remote_action)
-	self:_clear_attack_lifecycle()
-
-	self.Charging = attack_key == "Charge"
-	self.ChargeReady = false
-	self.CurrentAttackKey = attack_key
-	self.CurrentTrack = track
-
-	self.MovementController:SetSprintBlocked(
-		not self:_can_sprint_while_attacking(attack),
-		self
-	)
-
-	local attack_trove = Trove.new()
-	self.AttackTrove = attack_trove
-	self.Trove:Add(attack_trove)
-
-	attack_trove:Connect(
-		track:GetMarkerReachedSignal("HitStart"),
-		function()
-			if attack_key == "Charge" and self.PrimaryHeld then
-				self.ChargeReady = true
-				self.AnimationController.Combat:Pause(track)
-				return
-			end
-
-			CombatRemote:FireServer(Protocol.Combat.HitStart, attack_key)
-			self:_start_hitbox(attack_key, attack)
-		end
-	)
-
-	attack_trove:Connect(
-		track:GetMarkerReachedSignal("HitStop"),
-		function()
-			self:_stop_hitbox()
-			CombatRemote:FireServer(Protocol.Combat.HitStop, attack_key)
-		end
-	)
-
-	CombatRemote:FireServer(remote_action, attack_key)
-
-	self.AnimationController.Combat:Play(
-		track,
-		attack.Animation.TransitionTime or 0
-	)
-
-	local cooldown = attack.Cooldown
-	self.AttackReadyAt = os.clock() + cooldown
-
-	task.spawn(function()
-		track.Ended:Wait()
-		self:_finish_attack(attack_key, attack_trove)
-	end)
-
-	task.delay(cooldown, function()
-		if self.BufferedAttack and self.PrimaryHeld then
-			AttackInput.resolve_buffered_attack(self)
-		end
-	end)
+function CombatController:_resolve_buffered_attack()
+	AttackInput.resolve_buffered_attack(self)
 end
 
 function CombatController:_finish_attack(attack_key, attack_trove)
@@ -213,7 +156,7 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 		return
 	end
 
-	self:_stop_hitbox()
+	AttackLifecycle.stop_hitbox(self)
 	CombatRemote:FireServer(Protocol.Combat.HitStop, attack_key)
 
 	self.AttackTrove = nil
@@ -227,92 +170,8 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 
 	if self.BufferedAttack then
 		task.defer(function()
-			AttackInput.resolve_buffered_attack(self)
+			self:_resolve_buffered_attack()
 		end)
-	end
-end
-
-function CombatController:_clear_attack_lifecycle()
-	local attack_key = self.CurrentAttackKey
-	if attack_key then
-		CombatRemote:FireServer(Protocol.Combat.HitStop, attack_key)
-	end
-
-	self:_stop_hitbox()
-
-	local attack_trove = self.AttackTrove
-	self.AttackTrove = nil
-
-	if attack_trove then
-		self.Trove:Remove(attack_trove)
-	end
-
-	self.CurrentAttackKey = nil
-	self.CurrentTrack = nil
-	self.Charging = false
-	self.ChargeReady = false
-end
-
-function CombatController:_can_sprint_while_attacking(attack)
-	local weapon = self.WeaponController.Equipped
-
-	if attack.CanSprintWhileAttacking ~= nil then
-		return attack.CanSprintWhileAttacking
-	end
-
-	return weapon and weapon.CanSprintWhileAttacking == true
-end
-
-function CombatController:_start_hitbox(attack_key, attack)
-	if self.Hitbox then
-		return
-	end
-
-	local wielded = self.WeaponController:GetWielded(attack.Hitbox)
-	if not wielded then
-		return
-	end
-
-	local attack_trove = self.AttackTrove
-	if not attack_trove then
-		return
-	end
-
-	local hitbox = Hitbox.new(
-		self.WeaponController.Character,
-		wielded,
-		function(hit_character, raycast_result, segment_instance)
-			self.Hit:Fire(hit_character, raycast_result)
-
-			CombatRemote:FireServer(
-				Protocol.Combat.Hit,
-				attack_key,
-				hit_character,
-				segment_instance,
-				raycast_result.Position
-			)
-		end
-	)
-
-	self.Hitbox = hitbox
-	attack_trove:Add(hitbox)
-	hitbox:Start()
-end
-
-function CombatController:_stop_hitbox()
-	local hitbox = self.Hitbox
-	self.Hitbox = nil
-
-	if not hitbox then
-		return
-	end
-
-	hitbox:Stop()
-
-	if self.AttackTrove then
-		self.AttackTrove:Remove(hitbox)
-	else
-		hitbox:Destroy()
 	end
 end
 
@@ -322,17 +181,7 @@ function CombatController:Reset()
 	self.PrimaryPressAttackPending = false
 	self.BufferedAttack = nil
 
-	local attack_key = self.CurrentAttackKey
-	if attack_key then
-		CombatRemote:FireServer(Protocol.Combat.HitStop, attack_key)
-	end
-
-	self:_stop_hitbox()
-
-	if self.AttackTrove then
-		self.Trove:Remove(self.AttackTrove)
-		self.AttackTrove = nil
-	end
+	AttackLifecycle.clear_attack_lifecycle(self)
 
 	self.AnimationController:StopAction()
 	self.MovementController:SetSprintBlocked(false, self)
