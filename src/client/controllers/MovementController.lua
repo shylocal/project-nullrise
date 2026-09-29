@@ -27,7 +27,11 @@ function MovementController.new(character, input_controller)
 	}, MovementController)
 
 	self.Trove:Add(self.SprintingChanged)
-	self:_start()
+	local ok, err = pcall(self._start, self)
+	if not ok then
+		self:Destroy()
+		error(err, 0)
+	end
 
 	return self
 end
