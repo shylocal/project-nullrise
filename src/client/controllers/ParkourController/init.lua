@@ -9,6 +9,8 @@ local Actions = require(ReplicatedStorage.shared.input.Actions)
 local ParkourController = {}
 ParkourController.__index = ParkourController
 
+local DEBUG_PARKOUR = true
+
 local CLIMBABLE_TAG = "Climbable"
 local WALL_REACH = 3.25
 local MAX_GRAB_HEIGHT = 4.5
@@ -44,14 +46,40 @@ function ParkourController.new(character, input_controller, movement_controller)
 		HangPosition = nil,
 		AutoRotateBeforeHang = nil,
 		PlatformStandBeforeHang = nil,
+		LastDetectionReason = nil,
+		LastDetectionLogAt = 0,
+		LastTraversalDiagnostic = nil,
 	}, ParkourController)
 
 	self:_start()
 	return self
 end
 
+function ParkourController:_debug(message, ...)
+	if not DEBUG_PARKOUR then return end
+	print("[Parkour] " .. string.format(message, ...))
+end
+
+function ParkourController:_debug_detection(reason, ...)
+	local now = os.clock()
+	if self.LastDetectionReason == reason and now - self.LastDetectionLogAt < 1 then
+		return
+	end
+	self.LastDetectionReason = reason
+	self.LastDetectionLogAt = now
+	self:_debug("detect_surface: " .. reason, ...)
+end
+
+function ParkourController:_debug_traversal(reason, ...)
+	if self.LastTraversalDiagnostic == reason then return end
+	self.LastTraversalDiagnostic = reason
+	self:_debug("traversal: " .. reason, ...)
+end
+
 function ParkourController:_start()
+	self:_debug("controller initialized; root=%s humanoid=%s", tostring(self.Root ~= nil), tostring(self.Humanoid ~= nil))
 	self.Trove:Connect(self.InputController.ActionBegan, function(action)
+		self:_debug("input began: %s (state=%s)", tostring(action), self.State)
 		if action == Actions.Jump then
 			self:_on_jump()
 		elseif action == Actions.Forward and self.State == "Hanging" then
@@ -62,6 +90,7 @@ function ParkourController:_start()
 	end)
 
 	self.Trove:Connect(self.InputController.ActionEnded, function(action)
+		self:_debug("input ended: %s (state=%s)", tostring(action), self.State)
 		if action == Actions.Jump and self.State == "Hanging" then
 			-- Releasing Space simply lets go; normal gravity handles the drop.
 			self:_release()
@@ -130,35 +159,67 @@ end
 
 function ParkourController:_detect_surface()
 	local root = self.Root
-	if not root then return nil end
+	if not root then
+		self:_debug_detection("root missing")
+		return nil
+	end
 
 	local direction = flatten(root.CFrame.LookVector)
-	if direction.Magnitude < 0.1 then return nil end
+	if direction.Magnitude < 0.1 then
+		self:_debug_detection("look direction too small")
+		return nil
+	end
 	direction = direction.Unit
 
 	local origin = root.Position + Vector3.new(0, 1.1, 0)
 	local wall = self:_cast(origin, direction * WALL_REACH)
-	if not wall or not self:_is_climbable(wall.Instance) then return nil end
+	if not wall then
+		self:_debug_detection("wall ray missed")
+		return nil
+	end
+	if not self:_is_climbable(wall.Instance) then
+		self:_debug_detection("wall hit %s (not climbable)", wall.Instance:GetFullName())
+		return nil
+	end
 
 	local top = self:_cast_top_surface(wall.Position, wall.Normal, root.Position)
-	if not top then return nil end
-	if not self:_is_climbable(top.Instance) then return nil end
+	if not top then
+		self:_debug_detection("top ray missed; wall=%s", wall.Instance:GetFullName())
+		return nil
+	end
+	if not self:_is_climbable(top.Instance) then
+		self:_debug_detection("top hit %s (not climbable)", top.Instance:GetFullName())
+		return nil
+	end
 
 	local height_delta = root.Position.Y - top.Position.Y
-	if height_delta < -MAX_GRAB_HEIGHT or height_delta > MAX_GRAB_HEIGHT then return nil end
+	if height_delta < -MAX_GRAB_HEIGHT or height_delta > MAX_GRAB_HEIGHT then
+		self:_debug_detection("height out of range; delta=%.2f max=%.2f", height_delta, MAX_GRAB_HEIGHT)
+		return nil
+	end
 
 	local hang_position = top.Position + wall.Normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
 	local body_clearance = self:_cast(
 		hang_position + Vector3.new(0, 0.8, 0),
 		-wall.Normal * 0.35
 	)
-	if body_clearance and not self:_is_climbable(body_clearance.Instance) then return nil end
+	if body_clearance and not self:_is_climbable(body_clearance.Instance) then
+		self:_debug_detection("clearance blocked by %s (not climbable)", body_clearance.Instance:GetFullName())
+		return nil
+	end
 
+	self:_debug_detection(
+		"candidate accepted; wall=%s top=%s height_delta=%.2f",
+		wall.Instance:GetFullName(),
+		top.Instance:GetFullName(),
+		height_delta
+	)
 	return wall.Instance, wall.Normal, hang_position
 end
 
 function ParkourController:_grab(surface, normal, position)
 	if self.State ~= "Grounded" then return end
+	self:_debug("grabbed; surface=%s position=%s", surface:GetFullName(), tostring(position))
 	self.State = "Hanging"
 	self.Surface = surface
 	self.Normal = normal
@@ -237,16 +298,29 @@ function ParkourController:_traverse(dt)
 
 		-- The side probe can hit an untagged backing wall. Treat it only as
 		-- a geometric guide; the ledge's top surface is the climbability check.
-		if probe then
+		if not probe then
+			self:_debug_traversal("side probe missed")
+		else
 			local top = self:_cast_top_surface(probe.Position, probe.Normal, root.Position)
-			if top and self:_is_climbable(top.Instance) then
+			if not top then
+				self:_debug_traversal("side hit %s; top ray missed", probe.Instance:GetFullName())
+			elseif not self:_is_climbable(top.Instance) then
+				self:_debug_traversal(
+					"side hit %s; top hit %s (not climbable)",
+					probe.Instance:GetFullName(),
+					top.Instance:GetFullName()
+				)
+			else
 				local height_delta = root.Position.Y - top.Position.Y
 				if height_delta >= -MAX_GRAB_HEIGHT and height_delta <= MAX_GRAB_HEIGHT then
+					self.LastTraversalDiagnostic = nil
 					self.Surface = probe.Instance
 					self.Normal = probe.Normal
 					self.HangPosition = top.Position
 						+ probe.Normal * WALL_GAP
 						- Vector3.new(0, HANG_DROP, 0)
+				else
+					self:_debug_traversal("top hit %s; height_delta=%.2f out of range", top.Instance:GetFullName(), height_delta)
 				end
 			end
 		end
@@ -258,6 +332,7 @@ function ParkourController:_traverse(dt)
 end
 
 function ParkourController:_on_jump()
+	self:_debug("jump pressed; state=%s", self.State)
 	if self.State == "Hanging" then
 		return
 	end
@@ -269,7 +344,9 @@ function ParkourController:_on_jump()
 end
 
 function ParkourController:_try_lower_ledge()
+	self:_debug("lower ledge requested; state=%s", self.State)
 	if self.State ~= "Hanging" or not self.Root or not self.HangPosition or not self.Normal then
+		self:_debug("lower ledge aborted; missing hanging state or character parts")
 		return
 	end
 
@@ -280,15 +357,26 @@ function ParkourController:_try_lower_ledge()
 		+ self.Normal * (WALL_GAP + 0.2)
 		- Vector3.new(0, 0.15, 0)
 	local lower = self:_cast(probe_origin, Vector3.new(0, -(MAX_GRAB_HEIGHT + 0.5), 0))
-	if not lower or not self:_is_climbable(lower.Instance) or lower.Normal.Y < 0.5 then
+	if not lower then
+		self:_debug("lower ledge: downward ray missed")
+		return
+	end
+	if not self:_is_climbable(lower.Instance) then
+		self:_debug("lower ledge: hit %s (not climbable)", lower.Instance:GetFullName())
+		return
+	end
+	if lower.Normal.Y < 0.5 then
+		self:_debug("lower ledge: hit %s with non-walkable normal=%s", lower.Instance:GetFullName(), tostring(lower.Normal))
 		return
 	end
 
 	local drop = current_top.Y - lower.Position.Y
 	if drop < 0.5 or drop > MAX_GRAB_HEIGHT then
+		self:_debug("lower ledge: drop %.2f out of range", drop)
 		return
 	end
 
+	self:_debug("lower ledge accepted; surface=%s drop=%.2f", lower.Instance:GetFullName(), drop)
 	self.Surface = lower.Instance
 	self.HangPosition = lower.Position + self.Normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
 	self:_position_hanging()
@@ -340,9 +428,11 @@ function ParkourController:_complete_mantle(top, normal)
 		- normal * MANTLE_INSET
 		+ Vector3.new(0, self:_standing_height() + 0.05, 0)
 	if not self:_has_standing_clearance(standing_position, normal) then
+		self:_debug("mantle blocked by standing clearance; top=%s position=%s", top.Instance:GetFullName(), tostring(standing_position))
 		return false
 	end
 
+	self:_debug("mantle completed; top=%s position=%s", top.Instance:GetFullName(), tostring(standing_position))
 	self:_release()
 	root.CFrame = CFrame.lookAt(standing_position, standing_position - normal)
 	root.AssemblyLinearVelocity = Vector3.zero
@@ -354,7 +444,9 @@ function ParkourController:_complete_mantle(top, normal)
 end
 
 function ParkourController:_try_mantle()
+	self:_debug("mantle requested; state=%s", self.State)
 	if self.State ~= "Hanging" or not self.Root or not self.HangPosition or not self.Normal then
+		self:_debug("mantle aborted; missing hanging state or character parts")
 		return
 	end
 
@@ -394,12 +486,24 @@ function ParkourController:_try_mantle()
 	end
 
 	if best_top then
+		self:_debug(
+			"mantle candidate selected; top=%s height_above_lip=%.2f sample_offset=%.2f",
+			best_top.Instance:GetFullName(),
+			best_height,
+			best_offset
+		)
 		self:_complete_mantle(best_top, normal)
+	else
+		self:_debug("mantle found no valid standable top surface")
 	end
 end
 
 function ParkourController:_release()
-	if self.State ~= "Hanging" then return end
+	if self.State ~= "Hanging" then
+		self:_debug("release ignored; state=%s", self.State)
+		return
+	end
+	self:_debug("released from hanging; Space release or controller cleanup")
 	self.State = "Grounded"
 	self.Surface = nil
 	self.Normal = nil
