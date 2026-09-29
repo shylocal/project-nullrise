@@ -25,6 +25,7 @@ local MANTLE_MAX_RISE = 12.5
 local MANTLE_MAX_INWARD = 8
 local MANTLE_MAX_OUTWARD = 2
 local MANTLE_MAX_LATERAL = 5
+local MANTLE_MIN_RISE = 0.25
 
 local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
@@ -617,7 +618,9 @@ function ParkourController:_try_mantle()
 	end
 
 	local best_top = nil
-	local best_height = -math.huge
+	-- Prefer the nearest higher ledge so stacked guide blocks are climbed
+	-- one at a time instead of teleporting to the highest reachable guide.
+	local best_height = math.huge
 	local best_distance = math.huge
 	local best_standing_position = nil
 	local considered = 0
@@ -635,7 +638,7 @@ function ParkourController:_try_mantle()
 				local lateral = math.abs(flatten(relative):Dot(tangent))
 				local rise = top.Position.Y - current_top.Y
 				local root_height_delta = root.Position.Y - top.Position.Y
-				local in_vertical_range = rise >= -0.25
+				local in_vertical_range = rise > MANTLE_MIN_RISE
 					and rise <= MANTLE_MAX_RISE
 					and root_height_delta >= -(MANTLE_MAX_RISE + HANG_DROP)
 					and root_height_delta <= MAX_GRAB_HEIGHT
@@ -648,7 +651,7 @@ function ParkourController:_try_mantle()
 					local standing_position = self:_find_mantle_landing_position(top, normal)
 					if standing_position then
 						local horizontal_distance = flatten(top.Position - current_top).Magnitude
-						if rise > best_height
+						if rise < best_height
 							or (rise == best_height and horizontal_distance < best_distance) then
 							best_top = top
 							best_height = rise
@@ -694,7 +697,7 @@ function ParkourController:_try_mantle()
 		self:_complete_mantle(best_top, normal, best_standing_position)
 	else
 		self:_debug(
-			"mantle found no supported guide; tagged_guides=%d considered=%d rejected=%d max_rise=%.2f",
+			"mantle found no reachable higher guide; tagged_guides=%d considered=%d rejected=%d max_rise=%.2f",
 			#CollectionService:GetTagged(CLIMBABLE_TAG),
 			considered,
 			rejected,
