@@ -24,6 +24,7 @@ return {
 	VaultTallDurationPerStud = 0.08,
 	VaultFarSideOnlyHeight = 2.5,
 	VaultLongObstacleHopLength = 20,
+	VaultGroundSupportTolerance = 0.65,
 	VaultDuration = 0.38,
 	VaultDurationMultiplier = 0.88,
 	VaultCooldown = 0.3,
