@@ -22,7 +22,11 @@ function PlayerService.new()
 	self.Trove:Add(self.PlayerAdded)
 	self.Trove:Add(self.PlayerRemoving)
 
-	self:_start()
+	local ok, err = pcall(self._start, self)
+	if not ok then
+		self:Destroy()
+		error(err, 0)
+	end
 
 	return self
 end
