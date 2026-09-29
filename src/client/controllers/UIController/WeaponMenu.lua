@@ -34,6 +34,7 @@ function WeaponMenu:_start()
 	local gui = UITemplates.WeaponMenu:Clone()
 	gui.Parent = self.UIController.PlayerGui
 	self.Gui = gui
+	self.Trove:Add(gui)
 
 	for _, descendant in gui:GetDescendants() do
 		if not descendant:IsA("GuiButton") then
