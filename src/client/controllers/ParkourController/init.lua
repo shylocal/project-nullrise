@@ -629,26 +629,15 @@ function ParkourController:_try_vault()
 		return false
 	end
 
-	-- Project the full wall Model bounds when the ray hits one part of a
-	-- multi-part wall. Otherwise the far edge may be calculated from only a
-	-- small sub-part, placing the landing target back on top of its siblings.
-	local bounds_cframe = obstacle.CFrame
-	local bounds_size = obstacle.Size
-	if obstacle_model then
-		local bounds_ok, model_cframe, model_size = pcall(function()
-			return obstacle_model:GetBoundingBox()
-		end)
-		if bounds_ok and model_cframe and model_size then
-			bounds_cframe = model_cframe
-			bounds_size = model_size
-		end
-	end
+	-- Use the detected collidable part's own bounds. Its ancestor Model may
+	-- be a container for an entire map, so using GetBoundingBox() there can
+	-- inflate the far edge and push the landing point beyond the hop range.
 	local half_depth = (
-		math.abs(bounds_cframe.RightVector:Dot(forward)) * bounds_size.X
-		+ math.abs(bounds_cframe.UpVector:Dot(forward)) * bounds_size.Y
-		+ math.abs(bounds_cframe.LookVector:Dot(forward)) * bounds_size.Z
+		math.abs(obstacle.CFrame.RightVector:Dot(forward)) * obstacle.Size.X
+		+ math.abs(obstacle.CFrame.UpVector:Dot(forward)) * obstacle.Size.Y
+		+ math.abs(obstacle.CFrame.LookVector:Dot(forward)) * obstacle.Size.Z
 	) * 0.5
-	local center_distance = (bounds_cframe.Position - root.Position):Dot(forward)
+	local center_distance = (obstacle.Position - root.Position):Dot(forward)
 	local near_edge_distance = center_distance - half_depth
 	local far_edge_distance = center_distance + half_depth
 	if far_edge_distance <= 0 then
@@ -720,8 +709,9 @@ function ParkourController:_try_vault()
 	-- offset would aim the far-side landing back into the wall footprint.
 	local landing_lateral = flatten(hit_relative) - forward * flatten(hit_relative):Dot(forward)
 	local function is_obstacle_part(instance)
+		-- Exclude only the actual hit part. Its ancestor Model may also contain
+		-- legitimate floor geometry used by the far-side landing ray.
 		return instance == obstacle
-			or (obstacle_model ~= nil and instance:IsDescendantOf(obstacle_model))
 	end
 
 	-- Prefer ground beyond the far edge. Search farther and across a narrow
