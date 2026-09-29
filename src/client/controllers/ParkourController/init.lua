@@ -563,8 +563,8 @@ function ParkourController:_get_guide_top(guide)
 		return nil
 	end
 
-	-- Use a BasePart as the diagnostic/support reference, while the tagged
-	-- Model ancestor still makes the guide climbable.
+	-- Keep the tagged guide itself so a Model guide can be retained as the
+	-- hanging surface even when its diagnostic BasePart is nested inside it.
 	return {
 		Instance = hit_instance,
 		Guide = guide,
@@ -597,13 +597,11 @@ function ParkourController:_try_mantle()
 	-- one at a time instead of teleporting to the highest reachable guide.
 	local best_height = math.huge
 	local best_distance = math.huge
-	local best_hang_position = nil
 	local considered = 0
 	local rejected = 0
 
-	-- Tagged guide tops define the ledges directly. No separate floor/support
-	-- ray is required; the selected guide is made collidable when the mantle
-	-- completes so the character can remain on it.
+	-- Tagged guide tops define the ledges directly. W moves the character's
+	-- hang point to the next higher guide without requiring floor support.
 	for _, guide in ipairs(CollectionService:GetTagged(CLIMBABLE_TAG)) do
 		if guide:IsDescendantOf(Workspace) then
 			local top = self:_get_guide_top(guide)
@@ -630,7 +628,6 @@ function ParkourController:_try_mantle()
 						best_top = top
 						best_height = rise
 						best_distance = horizontal_distance
-						best_hang_position = hang_position
 						self:_debug(
 							"mantle guide candidate; guide=%s rise=%.2f inward=%.2f lateral=%.2f hang=%s",
 							guide:GetFullName(),
