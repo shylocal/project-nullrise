@@ -422,35 +422,6 @@ function ParkourController:_has_hang_body_clearance(position, normal)
 end
 
 
-function ParkourController:_prioritize_top_hop_jump_animation()
-	local top_hop = self._topHopActive
-	local humanoid = self.Humanoid
-	local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
-	if not top_hop or not animator then
-		return
-	end
-
-	top_hop.OriginalPriorities = top_hop.OriginalPriorities or {}
-	local jump_priority = Enum.AnimationPriority.Action4
-	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-		local animation = track.Animation
-		local animation_name = animation and string.lower(animation.Name) or ""
-		local track_name = string.lower(track.Name)
-		if string.find(animation_name, "jump", 1, true)
-			or string.find(track_name, "jump", 1, true) then
-			if top_hop.OriginalPriorities[track] == nil then
-				top_hop.OriginalPriorities[track] = track.Priority
-			end
-			if track.Priority ~= jump_priority then
-				track.Priority = jump_priority
-				vault_debug("jump animation priority raised", "track=", track.Name,
-					"animation=", animation_name, "priority=", jump_priority.Name)
-			end
-			top_hop.JumpTrackFound = true
-		end
-	end
-end
-
 function ParkourController:_step(dt)
 	self._stepDelta = dt
 
@@ -459,7 +430,6 @@ function ParkourController:_step(dt)
 	-- then restore sprint as soon as the character lands (with a timeout guard).
 	local top_hop = self._topHopActive
 	if top_hop then
-		self:_prioritize_top_hop_jump_animation()
 		local humanoid = self.Humanoid
 		if humanoid and humanoid.FloorMaterial == Enum.Material.Air then
 			top_hop.SawAir = true
@@ -1230,18 +1200,6 @@ function ParkourController:_finish_top_hop(landed)
 		return
 	end
 	self._topHopActive = nil
-	for track, original_priority in pairs(top_hop.OriginalPriorities or {}) do
-		pcall(function()
-			track.Priority = original_priority
-		end)
-	end
-	vault_debug("top-hop animation priority restored",
-		"jumpTrackFound=", top_hop.JumpTrackFound == true,
-		"restoredTrackCount=", (function()
-			local count = 0
-			for _ in pairs(top_hop.OriginalPriorities or {}) do count += 1 end
-			return count
-		end)())
 	if self.MovementController then
 		self.MovementController:SetSprintBlocked(false, self)
 	end
