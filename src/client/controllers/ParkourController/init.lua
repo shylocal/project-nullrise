@@ -528,11 +528,11 @@ function ParkourController:_get_hang_position_for_top(top, normal, tangent, late
 		- Vector3.new(0, HANG_DROP, 0)
 end
 
-function ParkourController:_transfer_hang_to_ledge(top, normal)
+function ParkourController:_transfer_hang_to_ledge(top, normal, tangent, lateral_offset)
 	local root = self.Root
-	if not root or not top then return false end
+	if not root or not top or not tangent then return false end
 
-	local hang_position = self:_get_hang_position_for_top(top, normal)
+	local hang_position = self:_get_hang_position_for_top(top, normal, tangent, lateral_offset)
 	self.State = "Hanging"
 	self.Surface = top.Guide or top.Instance
 	self.Normal = normal
@@ -609,6 +609,7 @@ function ParkourController:_try_mantle()
 	-- one at a time instead of teleporting to the highest reachable guide.
 	local best_height = math.huge
 	local best_distance = math.huge
+	local best_lateral_offset = 0
 	local considered = 0
 	local rejected = 0
 
@@ -661,6 +662,7 @@ function ParkourController:_try_mantle()
 						best_top = top
 						best_height = rise
 						best_distance = horizontal_distance
+						best_lateral_offset = target_lateral_offset
 						self:_debug(
 							"mantle guide candidate; guide=%s rise=%.2f inward=%.2f lateral=%.2f hang=%s",
 							guide:GetFullName(),
@@ -697,7 +699,7 @@ function ParkourController:_try_mantle()
 			considered,
 			rejected
 		)
-		self:_transfer_hang_to_ledge(best_top, normal)
+		self:_transfer_hang_to_ledge(best_top, normal, tangent, best_lateral_offset)
 	else
 		self:_debug(
 			"mantle found no reachable higher guide; tagged_guides=%d considered=%d rejected=%d max_rise=%.2f",
