@@ -496,15 +496,42 @@ function ParkourController:_find_mantle_landing_position(top, normal)
 		-- Only accept physically collidable support. Tagged climb volumes can
 		-- be queryable but non-collidable, which looks like a valid floor to a
 		-- normal raycast yet cannot hold the character after the mantle.
-		local floor = self:_cast(
-			position + Vector3.new(0, 0.15, 0),
-			Vector3.new(0, -(standing_height + 0.65), 0),
-			true
-		)
-		if not floor or floor.Normal.Y < 0.5 then
+		local support_origin = position + Vector3.new(0, 0.15, 0)
+		local support_direction = Vector3.new(0, -(standing_height + 0.65), 0)
+		local floor = self:_cast(support_origin, support_direction, true)
+		if not floor then
+			-- Compare the collidable-only ray with a normal query ray to identify
+			-- non-collidable climb markers versus a bad probe location.
+			local query_floor = self:_cast(support_origin, support_direction)
+			if query_floor then
+				self:_debug(
+					"landing inset %.2f: collidable ray missed; query hit=%s CanCollide=%s CanQuery=%s normal=%s top=%s topCanCollide=%s",
+					inset,
+					query_floor.Instance:GetFullName(),
+					tostring(query_floor.Instance.CanCollide),
+					tostring(query_floor.Instance.CanQuery),
+					tostring(query_floor.Normal),
+					top.Instance:GetFullName(),
+					tostring(top.Instance.CanCollide)
+				)
+			else
+				self:_debug(
+					"landing inset %.2f: both support rays missed; origin=%s direction=%s top=%s topCanCollide=%s topCanQuery=%s",
+					inset,
+					tostring(support_origin),
+					tostring(support_direction),
+					top.Instance:GetFullName(),
+					tostring(top.Instance.CanCollide),
+					tostring(top.Instance.CanQuery)
+				)
+			end
+		elseif floor.Normal.Y < 0.5 then
 			self:_debug(
-				"landing inset %.2f: no walkable support beneath top=%s",
+				"landing inset %.2f: collidable hit=%s CanCollide=%s normal=%s (not walkable); top=%s",
 				inset,
+				floor.Instance:GetFullName(),
+				tostring(floor.Instance.CanCollide),
+				tostring(floor.Normal),
 				top.Instance:GetFullName()
 			)
 		elseif math.abs(floor.Position.Y - top.Position.Y) > 0.5 then
