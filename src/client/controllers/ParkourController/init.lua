@@ -81,13 +81,17 @@ end
 
 function ParkourController:_start()
 	self.Trove:Connect(self.InputController.ActionBegan, function(action)
-		if action == Actions.Jump and self.State == "Grounded" then
-			-- Space explicitly requests a vault; if no valid vault is found,
-			-- the ordinary jump or ledge-grab flow remains available.
+		if action == Actions.Jump then
 			vault_debug("Space action received; state=", self.State,
 				"sprinting=", self.MovementController and self.MovementController:IsSprinting() or false,
 				"jumpBlocked=", self.GrabBlockedUntilJumpReleased)
-			self:_try_vault()
+			if self.State == "Grounded" then
+				-- Space explicitly requests a vault; if no valid vault is found,
+				-- the ordinary jump or ledge-grab flow remains available.
+				self:_try_vault()
+			else
+				vault_debug("Space action ignored: state is not Grounded", self.State)
+			end
 		elseif action == Actions.Forward and self.State == "Hanging" then
 			self:_try_mantle()
 		elseif action == Actions.Backward and self.State == "Hanging" then
@@ -466,6 +470,13 @@ function ParkourController:_step(dt)
 
 		self._vaultElapsed = math.min((self._vaultElapsed or 0) + math.max(dt, 0), duration)
 		local linear = self._vaultElapsed / duration
+		local debug_stage = math.min(4, math.floor(linear * 4))
+		if self._vaultDebugLastStage ~= debug_stage then
+			self._vaultDebugLastStage = debug_stage
+			vault_debug("progress", "stage=", debug_stage, "/4", "linear=", linear,
+				"rootPosition=", root.Position, "targetPosition=", self._vaultTarget.Position,
+				"obstacle=", self._vaultObstacle and self._vaultObstacle:GetFullName() or "nil")
+		end
 		local eased = linear * linear * (3 - 2 * linear)
 		local base = self._vaultStart:Lerp(self._vaultTarget, eased)
 		local horizontal = self._vaultStart.Position:Lerp(self._vaultTarget.Position, linear)
@@ -872,7 +883,10 @@ function ParkourController:_try_vault()
 			"height=", obstacle_height, "threshold=", Config.VaultFarSideOnlyHeight,
 			"farEdge=", far_edge_distance, "landingGap=", Config.VaultLandingGap,
 			"initialHopDistance=", hop_distance, "maxHop=", Config.VaultMaxHopDistance,
-			"landingStats=", landing_stats,
+			"landingProbeCount=", landing_stats.probes,
+			"overRange=", landing_stats.overRange, "noHit=", landing_stats.noHit,
+			"steep=", landing_stats.steep, "wrongHeight=", landing_stats.wrongHeight,
+			"hitObstaclePart=", landing_stats.obstaclePart,
 			"lastGroundHit=", last_landing_hit and last_landing_hit.Instance:GetFullName() or "nil",
 			"lastHitPosition=", last_landing_hit and last_landing_hit.Position or "nil",
 			"lastHitNormal=", last_landing_hit and last_landing_hit.Normal or "nil")
@@ -1009,6 +1023,11 @@ function ParkourController:_finish_vault(completed)
 		return
 	end
 
+	vault_debug("VAULT FINISHED", "completed=", completed,
+		"rootPosition=", self.Root and self.Root.Position or "nil",
+		"targetPosition=", self._vaultTarget and self._vaultTarget.Position or "nil",
+		"obstacle=", self._vaultObstacle and self._vaultObstacle:GetFullName() or "nil")
+	self._vaultDebugLastStage = nil
 	self.State = "Grounded"
 	local exit_velocity = self._vaultExitVelocity
 	self._vaultExitVelocity = nil
