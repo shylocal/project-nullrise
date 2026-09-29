@@ -44,8 +44,6 @@ function ParkourController.new(character, input_controller, movement_controller)
 		HangPosition = nil,
 		AutoRotateBeforeHang = nil,
 		PlatformStandBeforeHang = nil,
-		JumpOffArmed = false,
-		JumpOffNormal = nil,
 	}, ParkourController)
 
 	self:_start()
@@ -65,10 +63,7 @@ function ParkourController:_start()
 
 	self.Trove:Connect(self.InputController.ActionEnded, function(action)
 		if action == Actions.Jump and self.State == "Hanging" then
-			-- Releasing Space lets go. A fresh press then performs a directed
-			-- jump toward nearby walkable ground, when one is visible.
-			self.JumpOffArmed = true
-			self.JumpOffNormal = self.Normal
+			-- Releasing Space simply lets go; normal gravity handles the drop.
 			self:_release()
 		end
 	end)
@@ -267,13 +262,6 @@ function ParkourController:_on_jump()
 		return
 	end
 
-	if self.State == "Grounded" and self.JumpOffArmed then
-		self.JumpOffArmed = false
-		self:_jump_toward_visible_ground()
-		self.JumpOffNormal = nil
-		return
-	end
-
 	if self.State == "Grounded" then
 		local surface, normal, position = self:_detect_surface()
 		if surface then self:_grab(surface, normal, position) end
@@ -408,79 +396,6 @@ function ParkourController:_try_mantle()
 	if best_top then
 		self:_complete_mantle(best_top, normal)
 	end
-end
-
-function ParkourController:_jump_toward_visible_ground()
-	local root = self.Root
-	local humanoid = self.Humanoid
-	if not root or not humanoid then return false end
-
-	local normal = self.JumpOffNormal
-	local outward = normal and flatten(normal) or flatten(root.CFrame.LookVector)
-	if outward.Magnitude < 0.05 then
-		outward = flatten(root.CFrame.LookVector)
-	end
-	if outward.Magnitude < 0.05 then return false end
-	outward = outward.Unit
-
-	local forward = -outward
-	local right = flatten(root.CFrame.RightVector)
-	local input_direction = Vector3.zero
-	if self.InputController:IsDown(Actions.Forward) then input_direction += forward end
-	if self.InputController:IsDown(Actions.Backward) then input_direction -= forward end
-	if self.InputController:IsDown(Actions.Right) then input_direction += right end
-	if self.InputController:IsDown(Actions.Left) then input_direction -= right end
-	local direction = input_direction.Magnitude > 0.05 and input_direction.Unit or outward
-
-	local landing = nil
-	local landing_distance = nil
-	for _, distance in ipairs(JUMP_LANDING_DISTANCES) do
-		local sample = root.Position + direction * distance
-		local origin = Vector3.new(sample.X, root.Position.Y + JUMP_SCAN_HEIGHT, sample.Z)
-		local result = self:_cast(origin, Vector3.new(0, -JUMP_SCAN_DEPTH, 0))
-		if result and result.Normal.Y >= 0.5 then
-			local target_root_y = result.Position.Y + self:_standing_height()
-			local rise = target_root_y - root.Position.Y
-			if rise <= JUMP_MAX_RISE and rise >= -JUMP_MAX_DROP then
-				-- Only use ground with an unobstructed sightline from the player.
-				local sight_origin = root.Position + Vector3.new(0, 0.5, 0)
-				local sight_target = result.Position + Vector3.new(0, 0.25, 0)
-				local sight = self:_cast(sight_origin, sight_target - sight_origin)
-				if not sight or sight.Instance == result.Instance then
-					landing = result
-					landing_distance = distance
-					break
-				end
-			end
-		end
-	end
-
-	if not landing then
-		return false
-	end
-
-	local horizontal = flatten(landing.Position - root.Position)
-	local horizontal_distance = horizontal.Magnitude
-	if horizontal_distance < 0.05 then
-		horizontal = direction
-		horizontal_distance = landing_distance
-	else
-		horizontal = horizontal.Unit
-	end
-	local gravity = math.max(Workspace.Gravity, 1)
-	local rise = landing.Position.Y + self:_standing_height() - root.Position.Y
-	local discriminant = JUMP_OFF_VERTICAL_SPEED ^ 2 - 2 * gravity * rise
-	if discriminant < 0 then return false end
-	local flight_time = (
-		JUMP_OFF_VERTICAL_SPEED + math.sqrt(discriminant)
-	) / gravity
-	if flight_time <= 0 then return false end
-
-	local horizontal_speed = math.clamp(horizontal_distance / flight_time, 10, 24)
-	root.AssemblyLinearVelocity = horizontal * horizontal_speed
-		+ Vector3.new(0, JUMP_OFF_VERTICAL_SPEED, 0)
-	humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-	return true
 end
 
 function ParkourController:_release()
