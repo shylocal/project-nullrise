@@ -104,7 +104,7 @@ function ParkourController:_detect_surface()
 
 	local top_origin = wall.Position + Vector3.new(0, TOP_SCAN_HEIGHT, 0) - wall.Normal * 0.1
 	local top = self:_cast(top_origin, Vector3.new(0, -(TOP_SCAN_HEIGHT + MAX_GRAB_HEIGHT), 0))
-	if not top or top.Instance ~= wall.Instance then return nil end
+	if not top or not self:_is_climbable(top.Instance) then return nil end
 
 	local height_delta = root.Position.Y - top.Position.Y
 	if height_delta < -0.75 or height_delta > MAX_GRAB_HEIGHT then return nil end
@@ -169,7 +169,7 @@ function ParkourController:_traverse(dt)
 		return
 	end
 
-	local tangent = Vector3.yAxis:Cross(self.Normal)
+	local tangent = self.Normal:Cross(Vector3.yAxis)
 	if tangent.Magnitude < 0.05 then
 		tangent = flatten(root.CFrame.RightVector)
 	end
@@ -187,7 +187,7 @@ function ParkourController:_traverse(dt)
 		if probe and self:_is_climbable(probe.Instance) then
 			local top_origin = probe.Position + Vector3.new(0, TOP_SCAN_HEIGHT, 0)
 			local top = self:_cast(top_origin, Vector3.new(0, -(TOP_SCAN_HEIGHT + MAX_GRAB_HEIGHT), 0))
-			if top then
+			if top and self:_is_climbable(top.Instance) then
 				self.Surface = probe.Instance
 				self.Normal = probe.Normal
 				self.HangPosition = top.Position - probe.Normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
