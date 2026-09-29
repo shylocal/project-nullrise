@@ -852,21 +852,36 @@ function ParkourController:_try_vault()
 		end
 	end
 	local has_continuous_ground_beneath = support_count == support_total
-	local use_top_hop = obstacle_length >= long_obstacle_threshold or has_continuous_ground_beneath
+	-- Ground support alone is not enough to identify a platform: ordinary thin
+	-- walls also sit on continuous floor. Require enough top depth along the
+	-- travel axis for the character to land before routing a supported obstacle
+	-- to the physics hop. Very long obstacles retain their dedicated hop route.
+	local top_landing_depth = half_depth * 2
+	local minimum_top_hop_depth = math.max(
+		Config.VaultMinTopHopDepth or 2.5,
+		root.Size.Z * 1.5
+	)
+	local has_usable_top_depth = top_landing_depth >= minimum_top_hop_depth
+	local is_long_obstacle = obstacle_length >= long_obstacle_threshold
+	local use_top_hop = is_long_obstacle
+		or (has_continuous_ground_beneath and has_usable_top_depth)
 	vault_debug("obstacle ground support summary", "part=", obstacle:GetFullName(),
-		"partSize=", obstacle.Size, "lengthAlongTravel=", half_depth * 2,
+		"partSize=", obstacle.Size, "lengthAlongTravel=", top_landing_depth,
 		"lengthAcrossTravel=", lateral_half_depth * 2, "classifiedLength=", obstacle_length,
 		"longThreshold=", long_obstacle_threshold, "bottomY=", obstacle_bottom_y,
 		"tolerance=", support_tolerance, "supportHits=", support_count, "/", support_total,
-		"continuous=", has_continuous_ground_beneath, "route=", use_top_hop and "HOP_TO_TOP" or "VAULT_OVER")
+		"continuous=", has_continuous_ground_beneath, "topLandingDepth=", top_landing_depth,
+		"minimumTopHopDepth=", minimum_top_hop_depth, "usableTopDepth=", has_usable_top_depth,
+		"route=", use_top_hop and "HOP_TO_TOP" or "VAULT_OVER")
 
-	-- Long obstacles still use a physical hop, and any obstacle with continuous
-	-- ground beneath it now prioritizes hopping onto its top instead of vaulting
-	-- through to the far side.
+	-- Long obstacles retain their collision-respecting physics hop. For shorter
+	-- obstacles, choose the top only when continuous support and a usable top
+	-- landing area are both present; thin wall-like parts use the vault-over path.
 	if use_top_hop then
 		vault_debug("selected top-hop route", "part=", obstacle:GetFullName(),
-			"reasonLong=", obstacle_length >= long_obstacle_threshold,
-			"reasonContinuousGround=", has_continuous_ground_beneath)
+			"reasonLong=", is_long_obstacle,
+			"reasonContinuousGround=", has_continuous_ground_beneath,
+			"reasonUsableTopDepth=", has_usable_top_depth)
 		local top_target = Vector3.new(
 			top.Position.X,
 			top.Position.Y + standing_height - 0.05,
