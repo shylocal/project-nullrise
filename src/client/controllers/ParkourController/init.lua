@@ -286,7 +286,12 @@ function ParkourController:_position_hanging()
 	local dt = self._stepDelta or 1 / 60
 	local alpha = 1 - math.exp(-Config.ClimbSmoothness * math.max(dt, 0))
 	local current = root.CFrame
-	root.CFrame = current:Lerp(target, alpha)
+
+	-- Keep lateral traversal responsive: smoothing X/Z makes A/D lag behind
+	-- the validated hang point and can pull the body into a ledge during a
+	-- simultaneous vertical transfer. Smooth only the vertical component.
+	local smoothed_y = current.Position.Y + (position.Y - current.Position.Y) * alpha
+	root.CFrame = CFrame.new(position.X, smoothed_y, position.Z) * target.Rotation
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 end
