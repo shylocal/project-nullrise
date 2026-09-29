@@ -15,14 +15,15 @@ local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
 end
 
--- Bias the vault arc toward an earlier lift while keeping its apex centered.
--- The horizontal trajectory remains linear so the character does not stall
--- against a taller obstacle during the first part of the vault.
-local function vault_arc_progress(linear)
-	if linear <= 0.5 then
-		return 0.5 * (linear * 2) ^ 0.8
+-- Shape the vertical arc so its apex lines up with the obstacle,
+-- rather than always landing halfway through the entire scripted trajectory.
+-- This matters when detection starts the vault well before the wall.
+local function vault_arc_weight(linear, peak_progress)
+	local peak = math.clamp(peak_progress or 0.5, 0.2, 0.92)
+	if linear <= peak then
+		return math.sin((linear / peak) * math.pi * 0.5)
 	end
-	return 1 - 0.5 * ((1 - linear) * 2) ^ 0.8
+	return math.cos(((linear - peak) / (1 - peak)) * math.pi * 0.5)
 end
 
 local function vault_hip_height_weight(linear)
@@ -461,7 +462,7 @@ function ParkourController:_step(dt)
 		local eased = linear * linear * (3 - 2 * linear)
 		local base = self._vaultStart:Lerp(self._vaultTarget, eased)
 		local horizontal = self._vaultStart.Position:Lerp(self._vaultTarget.Position, linear)
-		local arc = math.sin(math.pi * vault_arc_progress(linear)) * self._vaultArcHeight
+		local arc = math.sin(math.pi * vault_arc_weight(linear, self._vaultArcPeakProgress)) * self._vaultArcHeight
 		local position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
 		root.CFrame = CFrame.new(position + Vector3.new(0, arc, 0)) * base.Rotation
 
@@ -740,7 +741,19 @@ function ParkourController:_try_vault()
 	local start_cframe = root.CFrame
 	local target_cframe = CFrame.lookAt(target_position, target_position + forward)
 	local midpoint_y = (start_cframe.Position.Y + target_cframe.Position.Y) * 0.5
-	local required_apex_y = top.Position.Y + root.Size.Y * 0.5 + Config.VaultObstacleClearance
+	local horizontal_vault_distance = math.max(
+		flatten(target_position - start_cframe.Position):Dot(forward),
+		0.1
+	)
+	-- Place the apex above the obstacle's center, even when the vault begins
+	-- several studs before it because of the longer detection range.
+	local arc_peak_progress = math.clamp(center_distance / horizontal_vault_distance, 0.2, 0.92)
+	-- Taller walls receive additional vertical margin so the root collider
+	-- clears them rather than scraping their face and losing forward motion.
+	local tall_obstacle_clearance = math.max(0, obstacle_height - 2)
+		* math.max(0, Config.VaultTallObstacleClearancePerStud or 0)
+	local required_apex_y = top.Position.Y + root.Size.Y * 0.5
+		+ Config.VaultObstacleClearance + tall_obstacle_clearance
 	local arc_height = math.max(Config.VaultMinArcHeight, required_apex_y - midpoint_y)
 	if arc_height > Config.VaultMaxArcHeight then
 		return false
@@ -756,7 +769,7 @@ function ParkourController:_try_vault()
 		local eased = alpha * alpha * (3 - 2 * alpha)
 		local base = start_cframe:Lerp(target_cframe, eased)
 		local horizontal = start_cframe.Position:Lerp(target_cframe.Position, alpha)
-		local arc = math.sin(math.pi * vault_arc_progress(alpha)) * arc_height
+		local arc = vault_arc_weight(alpha, arc_peak_progress) * arc_height
 		local sample_position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
 		local sample_cframe = CFrame.new(
 			sample_position + Vector3.new(0, arc, 0)
@@ -794,6 +807,7 @@ function ParkourController:_try_vault()
 	self._vaultElapsed = 0
 	self._vaultDuration = vault_duration
 	self._vaultArcHeight = arc_height
+	self._vaultArcPeakProgress = arc_peak_progress
 	self._vaultObstacle = obstacle
 	self.VaultAutoRotateBefore = humanoid.AutoRotate
 	self.VaultPlatformStandBefore = humanoid.PlatformStand
@@ -826,6 +840,7 @@ function ParkourController:_finish_vault(completed)
 	self._vaultElapsed = nil
 	self._vaultDuration = nil
 	self._vaultArcHeight = nil
+	self._vaultArcPeakProgress = nil
 	self._vaultObstacle = nil
 
 	local humanoid = self.Humanoid
