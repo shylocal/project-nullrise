@@ -156,12 +156,16 @@ function ParkourController:_cast_top_surface(wall_position, wall_normal, root_po
 	-- Start above the maximum reachable ledge, then sample just inside the wall
 	-- footprint. For mantling, callers can request collidable geometry so
 	-- non-collidable Climbable guide volumes do not mask the real landing top.
+	local standing_height = self:_standing_height()
+	-- The ray must start above the character-sized volume, not just above the
+	-- root. Otherwise it can originate inside a tall backing Wall and Roblox
+	-- will not report that part's top face on the downward cast.
 	local top_origin = Vector3.new(
 		wall_position.X,
-		root_position.Y + MAX_GRAB_HEIGHT + 0.25,
+		root_position.Y + MAX_GRAB_HEIGHT + standing_height + 2,
 		wall_position.Z
 	) - wall_normal * 0.1
-	local scan_depth = MAX_GRAB_HEIGHT * 2 + 1
+	local scan_depth = MAX_GRAB_HEIGHT * 2 + standing_height + 4
 	return self:_cast(
 		top_origin,
 		Vector3.new(0, -scan_depth, 0),
@@ -500,8 +504,18 @@ function ParkourController:_find_mantle_landing_position(top, normal)
 		-- Only accept physically collidable support. Tagged climb volumes can
 		-- be queryable but non-collidable, which looks like a valid floor to a
 		-- normal raycast yet cannot hold the character after the mantle.
-		local support_origin = position + Vector3.new(0, 0.15, 0)
-		local support_direction = Vector3.new(0, -(standing_height + 0.65), 0)
+		-- Start above the full reachable vertical span to avoid ray origins
+		-- inside tall backing geometry; still test the exact proposed root X/Z.
+		local support_origin = Vector3.new(
+			position.X,
+			top.Position.Y + MAX_GRAB_HEIGHT + standing_height + 2,
+			position.Z
+		)
+		local support_direction = Vector3.new(
+			0,
+			-(MAX_GRAB_HEIGHT + standing_height + 3),
+			0
+		)
 		local floor = self:_cast(support_origin, support_direction, true)
 		if not floor then
 			-- Compare the collidable-only ray with a normal query ray to identify
