@@ -258,6 +258,12 @@ function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, 
 end
 
 function ParkourController:_detect_surface()
+	local humanoid = self.Humanoid
+	if not humanoid or humanoid.Health <= 0 or humanoid.Sit then return nil end
+	local humanoid_state = humanoid:GetState()
+	if humanoid_state == Enum.HumanoidStateType.Dead
+		or humanoid_state == Enum.HumanoidStateType.Swimming
+		or humanoid_state == Enum.HumanoidStateType.Climbing then return nil end
 	local root = self.Root
 	if not root then
 				return nil
@@ -315,7 +321,12 @@ function ParkourController:_detect_surface()
 end
 
 function ParkourController:_grab(guide, normal, position)
-	if self.State ~= "Grounded" or not guide then return end
+	local humanoid = self.Humanoid
+	if self.State ~= "Grounded" or not guide or not humanoid or humanoid.Health <= 0 or humanoid.Sit then return end
+	local humanoid_state = humanoid:GetState()
+	if humanoid_state == Enum.HumanoidStateType.Dead
+		or humanoid_state == Enum.HumanoidStateType.Swimming
+		or humanoid_state == Enum.HumanoidStateType.Climbing then return end
 		self.State = "Hanging"
 	self.CurrentClimbable = guide
 	self.Normal = normal
@@ -550,6 +561,7 @@ function ParkourController:_has_vault_clearance(cframe, size, obstacle)
 end
 
 function ParkourController:_try_vault()
+	if self._topHopActive then return false end
 	local sprinting = self.MovementController and self.MovementController:IsSprinting() or false
 	if not Config.VaultEnabled then
 		return false
