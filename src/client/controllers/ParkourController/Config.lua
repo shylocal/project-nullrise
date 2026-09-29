@@ -22,7 +22,7 @@ return {
 	VaultObstacleClearance = 0.35,
 	VaultDuration = 0.38,
 	VaultCooldown = 0.55,
-	VaultDetectionHalfWidth = 2.25,
+	VaultDetectionHalfWidth = 1.25,
 	VaultForwardBoostSpeed = 6,
 	ClimbSmoothness = 18,
 	SurfaceProbe = 1.4,
