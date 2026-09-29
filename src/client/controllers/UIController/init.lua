@@ -13,9 +13,14 @@ function UIController.new()
 		Modules = {},
 		PlayerGui = Players.LocalPlayer:WaitForChild("PlayerGui"),
 		Character = nil,
+		_destroyed = false,
 	}, UIController)
 
-	self:_start()
+	local ok, err = pcall(self._start, self)
+	if not ok then
+		self:Destroy()
+		error(err, 0)
+	end
 
 	return self
 end
@@ -49,6 +54,10 @@ function UIController:BindCharacter(character_controller)
 end
 
 function UIController:Destroy()
+	if self._destroyed then
+		return
+	end
+	self._destroyed = true
 	self.Trove:Destroy()
 	self.Character = nil
 	table.clear(self.Modules)
