@@ -253,7 +253,7 @@ function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, 
 		self:_debug_detection(
 			"grab top scan selected %s at height_delta=%.2f (searched %d hits)",
 			best.Instance:GetFullName(),
-			root_position.Y - best.Position.Y,
+			(reference_y or root_position.Y) - best.Position.Y,
 			#exclusions - 1
 		)
 	else
@@ -520,7 +520,7 @@ function ParkourController:_traverse(dt)
 		local corner_locked = false
 		if self.CornerLockPosition then
 			corner_locked = flatten(root.Position - self.CornerLockPosition).Magnitude < CORNER_LOCK_DISTANCE
-			if direction ~= 0 and self.CornerLockInputDirection
+			if self.CornerLockInputDirection
 				and direction ~= self.CornerLockInputDirection then
 				-- An intentional left/right reversal means the player wants to
 				-- turn back now. Drop the seam lock immediately; same-direction
@@ -676,9 +676,10 @@ function ParkourController:_traverse(dt)
 			self:_debug_traversal("local surface probe did not validate the active guide or corner")
 		end
 
+		-- Exempt only the exact wall part supporting the hang; the top is below the root by HANG_DROP and must not mask a thick-wall collision.
 		local allowed_contact = {}
-		if top then table.insert(allowed_contact, top.Instance) end
-		if probe then table.insert(allowed_contact, probe.Instance) end
+		local contact_wall = is_corner_transfer and best_corner.WallInstance or (probe and probe.Instance)
+		if contact_wall then table.insert(allowed_contact, contact_wall) end
 		local midpoint_clear = true
 		if is_corner_transfer then
 			local midpoint = pose_snapshot.HangPosition:Lerp(self.HangPosition, 0.5)
@@ -703,22 +704,6 @@ function ParkourController:_traverse(dt)
 	self:_position_hanging()
 end
 
-
-function ParkourController:_on_jump()
-	self:_debug("jump pressed; state=%s", self.State)
-	if self.State == "Hanging" then
-		return
-	end
-	if self.GrabBlockedUntilJumpReleased then
-		self:_debug("jump grab ignored; waiting for Space release after mantle")
-		return
-	end
-
-	if self.State == "Grounded" then
-		local climbable, normal, position = self:_detect_surface()
-		if climbable then self:_grab(climbable, normal, position) end
-	end
-end
 
 function ParkourController:_try_lower_ledge()
 	self:_debug("lower ledge requested; state=%s", self.State)
@@ -750,7 +735,6 @@ function ParkourController:_try_lower_ledge()
 	local best_top = nil
 	local best_drop = math.huge
 	local best_distance = math.huge
-	local best_lateral_offset = 0
 
 	-- Search nearby columns and every exposed walkable surface on each tagged
 	-- guide. This also supports multi-part tagged models with several stacked
@@ -766,7 +750,6 @@ function ParkourController:_try_lower_ledge()
 		-- actual offset from the player's ledge instead of subtracting a
 		-- model-wide half extent that changes when another child is resized.
 		local lateral_gap = math.abs(flatten(relative):Dot(tangent))
-		local target_lateral_offset = 0
 		local in_vertical_range = drop >= 0.5 and drop <= MANTLE_MAX_RISE
 		local in_reach = inward >= -MANTLE_MAX_OUTWARD
 			and inward <= MANTLE_MAX_INWARD
@@ -779,7 +762,6 @@ function ParkourController:_try_lower_ledge()
 				best_top = top
 				best_drop = drop
 				best_distance = horizontal_distance
-				best_lateral_offset = target_lateral_offset
 			end
 		end
 	end
@@ -890,7 +872,7 @@ function ParkourController:_refresh_hang_contact(expected_guide, expected_top_y)
 		return false
 	end
 
-	local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, candidate_position.Y)
+	local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, candidate_position.Y + HANG_DROP)
 	if not top or self:_get_climbable_guide(top.Instance) ~= expected_guide then
 		return false
 	end
@@ -1016,9 +998,7 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 		-normal * (WALL_GAP + SURFACE_PROBE)
 	)
 	local allowed_surfaces = {
-		target_guide,
 		self.CurrentClimbable,
-		top.Instance,
 	}
 	if source_contact then
 		table.insert(allowed_surfaces, source_contact.Instance)
@@ -1029,7 +1009,8 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 	local planned_clear, planned_blocker = self:_has_hang_body_clearance(
 		planned_position,
 		destination_normal,
-		allowed_surfaces
+		allowed_surfaces,
+		true
 	)
 	if not planned_clear then
 		self:_debug(
@@ -1039,11 +1020,7 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 		return false
 	end
 
-	local previous_guide = self.CurrentClimbable
-	local previous_normal = self.Normal
-	local previous_depth_offset = self.HangDepthOffset
-	local previous_hang_position = self.HangPosition
-	local previous_cframe = root.CFrame
+	local pose_snapshot = self:_snapshot_hang_pose()
 	self.State = "Hanging"
 	self.CurrentClimbable = target_guide
 	self.Normal = destination_normal
@@ -1057,13 +1034,7 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 
 	local refreshed = self:_refresh_hang_contact(target_guide, top.Position.Y)
 	if not refreshed then
-		self.CurrentClimbable = previous_guide
-		self.Normal = previous_normal
-		self.HangDepthOffset = previous_depth_offset
-		self.HangPosition = previous_hang_position
-		root.CFrame = previous_cframe
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.AssemblyAngularVelocity = Vector3.zero
+		self:_restore_hang_pose(pose_snapshot)
 		return false
 	end
 	if refreshed then
@@ -1074,7 +1045,8 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 	local final_clear, final_blocker = self:_has_hang_body_clearance(
 		self.HangPosition,
 		self.Normal,
-		allowed_surfaces
+		allowed_surfaces,
+		true
 	)
 	if not final_clear then
 		self.CurrentClimbable = previous_guide
