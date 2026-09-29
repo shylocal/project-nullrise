@@ -128,6 +128,7 @@ function VaultTraversal.try_vault(self)
 
 	local obstacle = obstacle_hit.Instance
 	if not obstacle:IsA("BasePart") or not obstacle.CanCollide
+		or obstacle.CollisionGroup == Config.ClimbableCollisionGroup
 		or ClimbableQuery.is_climbable(obstacle) then
 		return false
 	end
