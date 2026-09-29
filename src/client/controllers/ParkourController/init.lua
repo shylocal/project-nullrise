@@ -56,6 +56,7 @@ function ParkourController.new(character, input_controller, movement_controller)
 		LastTraversalDiagnostic = nil,
 		LastTraversalSuccessLogAt = 0,
 		CornerLockPosition = nil,
+		CornerLockInputDirection = nil,
 	}, ParkourController)
 
 	self:_start()
@@ -428,8 +429,17 @@ function ParkourController:_traverse(dt)
 		local corner_locked = false
 		if self.CornerLockPosition then
 			corner_locked = flatten(root.Position - self.CornerLockPosition).Magnitude < CORNER_LOCK_DISTANCE
-			if not corner_locked then
+			if direction ~= 0 and self.CornerLockInputDirection
+				and direction ~= self.CornerLockInputDirection then
+				-- An intentional left/right reversal means the player wants to
+				-- turn back now. Drop the seam lock immediately; same-direction
+				-- movement remains locked until the character clears the corner.
+				corner_locked = false
 				self.CornerLockPosition = nil
+				self.CornerLockInputDirection = nil
+			elseif not corner_locked then
+				self.CornerLockPosition = nil
+				self.CornerLockInputDirection = nil
 			end
 		end
 		local corner_turn_normals = {}
@@ -560,6 +570,7 @@ function ParkourController:_traverse(dt)
 			-- from the seam. This prevents the fan from immediately reacquiring
 			-- the face we just left and flipping the character back and forth.
 			self.CornerLockPosition = self.HangPosition
+			self.CornerLockInputDirection = direction
 		end
 	end
 
@@ -1166,6 +1177,7 @@ function ParkourController:_release()
 	self.HangDepthOffset = nil
 	self.HangPosition = nil
 	self.CornerLockPosition = nil
+	self.CornerLockInputDirection = nil
 
 	local humanoid = self.Humanoid
 	if humanoid then
