@@ -890,22 +890,16 @@ function ParkourController:_try_vault()
 		-- Let the Humanoid's normal sprint movement provide horizontal
 		-- travel. Previously forcing a large X/Z velocity here could tunnel
 		-- through broad collidable parts instead of letting physics resolve
-		-- contact with their side. Only raise vertical speed when the sampled
-		-- top requires more jump height than the character's configured jump.
+		-- contact with their side. Set vertical speed from the exact rise to
+		-- this obstacle's top, rather than using the character's default jump
+		-- speed, which can launch much higher than shorter obstacles require.
 		local gravity = math.max(Workspace.Gravity, 1)
 		local target_rise = math.max(0, top_target.Y - root.Position.Y + 0.25)
 		local required_vertical_speed = math.sqrt(2 * gravity * target_rise)
-		local configured_jump_speed
-		if humanoid.UseJumpPower then
-			configured_jump_speed = humanoid.JumpPower
-		else
-			configured_jump_speed = math.sqrt(2 * gravity * math.max(0, humanoid.JumpHeight))
-		end
 		local current_velocity = root.AssemblyLinearVelocity
 		local hop_vertical_speed = math.max(
 			0,
 			current_velocity.Y,
-			configured_jump_speed,
 			required_vertical_speed
 		)
 
