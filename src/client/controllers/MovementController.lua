@@ -21,6 +21,7 @@ function MovementController.new(character, input_controller)
 		SprintSpeed = MovementConfig.SprintSpeed,
 		HasSpeedOverride = false,
 		SprintBlocked = false,
+		SprintBlockers = {},
 		Sprinting = false,
 
 		SprintingChanged = Signal.new(),
@@ -110,12 +111,20 @@ function MovementController:SetSpeeds(walk_speed, sprint_speed)
 	return true
 end
 
-function MovementController:SetSprintBlocked(blocked)
-	if self.SprintBlocked == blocked then
+function MovementController:SetSprintBlocked(blocked, reason)
+	reason = reason or self
+	if blocked then
+		self.SprintBlockers[reason] = true
+	else
+		self.SprintBlockers[reason] = nil
+	end
+
+	local sprint_blocked = next(self.SprintBlockers) ~= nil
+	if self.SprintBlocked == sprint_blocked then
 		return
 	end
 
-	self.SprintBlocked = blocked
+	self.SprintBlocked = sprint_blocked
 	self:_update_sprinting()
 end
 
@@ -124,6 +133,8 @@ function MovementController:IsSprinting()
 end
 
 function MovementController:Destroy()
+	table.clear(self.SprintBlockers)
+	self.SprintBlocked = false
 	self.Trove:Destroy()
 end
 
