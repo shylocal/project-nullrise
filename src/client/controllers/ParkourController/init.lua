@@ -32,6 +32,10 @@ function ParkourController.new(character, input_controller, movement_controller)
 		AutoRotateBeforeHang = nil,
 		PlatformStandBeforeHang = nil,
 		GrabBlockedUntilJumpReleased = false,
+		VaultJumpingEnabledBefore = nil,
+		VaultAutoRotateBefore = nil,
+		VaultPlatformStandBefore = nil,
+		NextVaultAt = 0,
 		CornerLockPosition = nil,
 		CornerLockInputDirection = nil,
 	}, ParkourController)
@@ -57,9 +61,16 @@ function ParkourController:_start()
 		if action == Actions.Jump then
 			if self.GrabBlockedUntilJumpReleased then
 				self.GrabBlockedUntilJumpReleased = false
-				if self.Humanoid and self.JumpingEnabledBeforeMantle ~= nil then
-					self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, self.JumpingEnabledBeforeMantle)
-					self.JumpingEnabledBeforeMantle = nil
+				if self.Humanoid and self.State ~= "Vaulting" then
+					local jumping_enabled = self.JumpingEnabledBeforeMantle
+					if jumping_enabled == nil then
+						jumping_enabled = self.VaultJumpingEnabledBefore
+					end
+					if jumping_enabled ~= nil then
+						self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, jumping_enabled)
+						self.JumpingEnabledBeforeMantle = nil
+						self.VaultJumpingEnabledBefore = nil
+					end
 				end
 				if self.State == "Grounded" and self.Humanoid then
 					if self.AutoRotateBeforeHang ~= nil then self.Humanoid.AutoRotate = self.AutoRotateBeforeHang end
