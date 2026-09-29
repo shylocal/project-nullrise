@@ -414,6 +414,18 @@ end
 
 function ParkourController:_step(dt)
 	self._stepDelta = dt
+	-- Recover from a lost Jump ActionEnded event (focus changes or UI capture).
+	if self.GrabBlockedUntilJumpReleased and not self.InputController:IsDown(Actions.Jump) then
+		self.GrabBlockedUntilJumpReleased = false
+		local humanoid = self.Humanoid
+		if humanoid and self.State ~= "Vaulting" then
+			local enabled = self.JumpingEnabledBeforeMantle
+			if enabled == nil then enabled = self.VaultJumpingEnabledBefore end
+			if enabled ~= nil then humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, enabled) end
+		end
+		self.JumpingEnabledBeforeMantle = nil
+		self.VaultJumpingEnabledBefore = nil
+	end
 
 	-- Track the airborne phase to release the hop guard on landing.
 	local top_hop = self._topHopActive
@@ -2152,10 +2164,31 @@ function ParkourController:_release()
 		self:_finish_vault(false)
 		return
 	end
-	if self.State ~= "Hanging" then
-				return
-	end
+	if self.State == "Mantling" then
 		self.State = "Grounded"
+		self._mantleStart = nil
+		self._mantleTarget = nil
+		self._mantleElapsed = nil
+		self._mantleDuration = nil
+		local humanoid = self.Humanoid
+		if humanoid then
+			if self.JumpingEnabledBeforeMantle ~= nil then
+				humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, self.JumpingEnabledBeforeMantle)
+				self.JumpingEnabledBeforeMantle = nil
+			end
+			if self.AutoRotateBeforeHang ~= nil then humanoid.AutoRotate = self.AutoRotateBeforeHang end
+			if self.PlatformStandBeforeHang ~= nil then humanoid.PlatformStand = self.PlatformStandBeforeHang end
+		end
+		self.AutoRotateBeforeHang = nil
+		self.PlatformStandBeforeHang = nil
+		self.GrabBlockedUntilJumpReleased = false
+		if self.MovementController then self.MovementController:SetSprintBlocked(false, self) end
+		return
+	end
+	if self.State ~= "Hanging" then
+		return
+	end
+	self.State = "Grounded"
 	self.CurrentClimbable = nil
 	self.Normal = nil
 	self.HangDepthOffset = nil
@@ -2181,6 +2214,18 @@ end
 
 function ParkourController:Destroy()
 	self:_release()
+	if self.Humanoid then
+		if self.JumpingEnabledBeforeMantle ~= nil then
+			self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, self.JumpingEnabledBeforeMantle)
+		end
+		if self.VaultJumpingEnabledBefore ~= nil then
+			self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, self.VaultJumpingEnabledBefore)
+		end
+		if self.AutoRotateBeforeHang ~= nil then self.Humanoid.AutoRotate = self.AutoRotateBeforeHang end
+		if self.PlatformStandBeforeHang ~= nil then self.Humanoid.PlatformStand = self.PlatformStandBeforeHang end
+	end
+	if self.MovementController then self.MovementController:SetSprintBlocked(false, self) end
+	self.GrabBlockedUntilJumpReleased = false
 	if self.HangClearanceProbe then
 		self.HangClearanceProbe:Destroy()
 		self.HangClearanceProbe = nil
