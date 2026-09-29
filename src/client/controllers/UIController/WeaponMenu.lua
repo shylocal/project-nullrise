@@ -51,7 +51,7 @@ function WeaponMenu:_start()
 		end
 
 		local weapon = Catalog.Get(weapon_id)
-		if not weapon then
+		if not Catalog.IsMelee(weapon) then
 			continue
 		end
 
