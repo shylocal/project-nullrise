@@ -12,8 +12,23 @@ local player_controller = PlayerController.new(
 	ui_controller
 )
 
-return {
+local runtime = {
 	InputController = input_controller,
 	UIController = ui_controller,
 	PlayerController = player_controller,
+	_destroyed = false,
 }
+
+-- Tear down dependents before the shared services they reference.
+function runtime:Destroy()
+	if self._destroyed then
+		return
+	end
+	self._destroyed = true
+
+	self.PlayerController:Destroy()
+	self.UIController:Destroy()
+	self.InputController:Destroy()
+end
+
+return runtime
