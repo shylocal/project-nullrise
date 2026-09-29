@@ -123,7 +123,7 @@ function Traversal.traverse(self, dt)
 		local probe_origin = candidate_position
 			+ Vector3.new(0, 1.5, 0)
 			+ normal * 0.3
-		local probe = self:_cast(
+		local probe = self:_cast_grabbable_side(
 			probe_origin,
 			-normal * (Config.WallGap + Config.SurfaceProbe)
 		)
