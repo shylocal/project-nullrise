@@ -78,9 +78,10 @@ function Queries.cast_grabbable_side(self, origin, direction)
 	return nil
 end
 function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_position, reference_y, max_above_height)
-	-- Several surfaces can overlap vertically. A single downward ray hits the
-	-- highest one first, even when that top is outside grab range. Walk down
-	-- through successive hits and choose the nearest eligible walkable top.
+	-- Sample a few nearby columns because the side hit can land on the wall's
+	-- edge or on query-only helper geometry rather than over its walkable top.
+	-- Candidate tops must also be near/above the side-hit height so the floor
+	-- behind a tall wall cannot be mistaken for that wall's ledge.
 	local standing_height = self:_standing_height()
 	local origin = Vector3.new(
 		wall_position.X,
@@ -93,6 +94,25 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 		0
 	)
 
+	local allowed_above_height = max_above_height or Config.MaxGrabHeight
+	local sample_offsets = { Vector3.zero }
+	local horizontal_normal = Vector.flatten(wall_normal)
+	if max_above_height ~= nil and horizontal_normal.Magnitude >= 0.05 then
+		horizontal_normal = horizontal_normal.Unit
+		local tangent = Vector3.new(-horizontal_normal.Z, 0, horizontal_normal.X)
+		local side_step = 0.35
+		sample_offsets = {
+			Vector3.zero,
+			-horizontal_normal * 0.25,
+			-horizontal_normal * 0.5,
+			-horizontal_normal * 0.85,
+			tangent * side_step,
+			-tangent * side_step,
+			-horizontal_normal * 0.5 + tangent * side_step,
+			-horizontal_normal * 0.5 - tangent * side_step,
+		}
+	end
+
 	local params = self._reachableTopParams or RaycastParams.new()
 	self._reachableTopParams = params
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -100,49 +120,57 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 	params.IgnoreWater = true
 	params.RespectCanCollide = false
 
-	local exclusions = { self.Character }
 	local best = nil
 	local best_height_distance = math.huge
 	local first_candidate = nil
 	local first_walkable_surface = nil
 	local candidate_count = 0
-	for hit_index = 1, Config.MaxTopSurfaceHits do
-		params.FilterDescendantsInstances = exclusions
-		local candidate = Workspace:Raycast(origin, direction, params)
-		if not candidate then
-			break
-		end
+	local best_candidate_info = nil
+	for _, sample_offset in ipairs(sample_offsets) do
+		local sample_origin = origin + sample_offset
+		local exclusions = { self.Character }
+		for hit_index = 1, Config.MaxTopSurfaceHits do
+			params.FilterDescendantsInstances = exclusions
+			local candidate = Workspace:Raycast(sample_origin, direction, params)
+			if not candidate then
+				break
+			end
 
-		local height_delta = (reference_y or root_position.Y) - candidate.Position.Y
-		local height_distance = math.abs(height_delta)
-		local allowed_above_height = max_above_height or Config.MaxGrabHeight
-		local valid_surface = is_grabbable_surface(candidate.Instance)
-		local walkable = candidate.Normal.Y >= 0.5
-		local reachable = height_delta >= -allowed_above_height
-			and height_delta <= Config.MaxGrabHeight
-		candidate_count += 1
-		local candidate_info = {
-			Instance = candidate.Instance,
-			Group = candidate.Instance:IsA("BasePart") and candidate.Instance.CollisionGroup or "nonpart",
-			CanCollide = candidate.Instance:IsA("BasePart") and candidate.Instance.CanCollide or false,
-			Tagged = ClimbableQuery.is_climbable(candidate.Instance),
-			Normal = candidate.Normal,
-			HeightDelta = height_delta,
-			ValidSurface = valid_surface,
-			Walkable = walkable,
-			Reachable = reachable,
-		}
-		if not first_candidate then first_candidate = candidate_info end
-		if valid_surface and walkable and not first_walkable_surface then
-			first_walkable_surface = candidate_info
-		end
+			local height_delta = (reference_y or root_position.Y) - candidate.Position.Y
+			local height_distance = math.abs(height_delta)
+			local valid_surface = is_grabbable_surface(candidate.Instance)
+			local walkable = candidate.Normal.Y >= 0.5
+			local above_side_hit = candidate.Position.Y >= wall_position.Y - 0.5
+			local reachable = height_delta >= -allowed_above_height
+				and height_delta <= Config.MaxGrabHeight
+				and above_side_hit
+			candidate_count += 1
+			local candidate_info = {
+				Instance = candidate.Instance,
+				Group = candidate.Instance:IsA("BasePart") and candidate.Instance.CollisionGroup or "nonpart",
+				CanCollide = candidate.Instance:IsA("BasePart") and candidate.Instance.CanCollide or false,
+				Tagged = ClimbableQuery.is_climbable(candidate.Instance),
+				Normal = candidate.Normal,
+				HeightDelta = height_delta,
+				ValidSurface = valid_surface,
+				Walkable = walkable,
+				AboveSideHit = above_side_hit,
+				Reachable = reachable,
+				SampleOffset = sample_offset,
+			}
+			if not first_candidate then first_candidate = candidate_info end
+			if valid_surface and walkable and not first_walkable_surface then
+				first_walkable_surface = candidate_info
+			end
 
-		if valid_surface and walkable and reachable and height_distance < best_height_distance then
-			best = candidate
-			best_height_distance = height_distance
-		end
+			if valid_surface and walkable and reachable and height_distance < best_height_distance then
+				best = candidate
+				best_height_distance = height_distance
+				best_candidate_info = candidate_info
+			end
 
-		table.insert(exclusions, candidate.Instance)
+			table.insert(exclusions, candidate.Instance)
+		end
 	end
 
 	if not best then
@@ -163,7 +191,9 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 			"candidateHeightDelta", diagnostic and diagnostic.HeightDelta,
 			"candidateValidSurface", diagnostic and diagnostic.ValidSurface,
 			"candidateWalkable", diagnostic and diagnostic.Walkable,
-			"candidateReachable", diagnostic and diagnostic.Reachable)
+			"candidateAboveSideHit", diagnostic and diagnostic.AboveSideHit,
+			"candidateReachable", diagnostic and diagnostic.Reachable,
+			"sampleOffset", diagnostic and diagnostic.SampleOffset)
 	end
 	return best
 end
