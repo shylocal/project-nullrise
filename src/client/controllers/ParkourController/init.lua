@@ -9,7 +9,8 @@ local Actions = require(ReplicatedStorage.shared.input.Actions)
 local ParkourController = {}
 ParkourController.__index = ParkourController
 
-local DEBUG_PARKOUR = true
+-- Keep verbose parkour diagnostics off during normal play; re-enable only when debugging.
+local DEBUG_PARKOUR = false
 
 local CLIMBABLE_TAG = "Climbable"
 local WALL_REACH = 3.25
@@ -19,6 +20,7 @@ local WALL_GAP = 0.8
 local TRAVERSE_SPEED = 5
 local SURFACE_PROBE = 1.4
 local LOWER_PROBE_OFFSETS = { 0.15, 0.45, 0.75, 1.05 }
+local GROUND_PROBE_OFFSETS = { 0.75, 1.05, 1.35, 1.65, 2.0 }
 local MAX_TOP_SURFACE_HITS = 16
 -- Max ledge-to-ledge rise; root-to-top range also accounts for the hang drop below the ledge.
 local MANTLE_MAX_RISE = 12.5
@@ -26,6 +28,8 @@ local MANTLE_MAX_INWARD = 8
 local MANTLE_MAX_OUTWARD = 2
 local MANTLE_MAX_LATERAL = 5
 local MANTLE_MIN_RISE = 0.25
+local TRAVERSE_HEIGHT_TOLERANCE = 1.5
+local MAX_GROUND_DROP = 32
 
 local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
@@ -381,9 +385,15 @@ function ParkourController:_traverse(dt)
 				)
 			else
 				local height_delta = root.Position.Y - top.Position.Y
-				if height_delta >= -MAX_GRAB_HEIGHT and height_delta <= MAX_GRAB_HEIGHT then
+				local current_top_y = self.HangPosition.Y + HANG_DROP
+				local ledge_height_delta = top.Position.Y - current_top_y
+				if math.abs(ledge_height_delta) <= TRAVERSE_HEIGHT_TOLERANCE
+					and height_delta >= -MAX_GRAB_HEIGHT
+					and height_delta <= MAX_GRAB_HEIGHT then
 					self.LastTraversalDiagnostic = nil
-					self.Surface = probe.Instance
+					-- Track the tagged top that was validated, not a possibly
+					-- unrelated backing wall hit by the lateral probe.
+					self.Surface = top.Instance
 					self.Normal = probe.Normal
 					self.HangPosition = top.Position
 						+ probe.Normal * WALL_GAP
@@ -400,7 +410,12 @@ function ParkourController:_traverse(dt)
 						self.LastTraversalSuccessLogAt = now
 					end
 				else
-					self:_debug_traversal("top hit %s; height_delta=%.2f out of range", top.Instance:GetFullName(), height_delta)
+					self:_debug_traversal(
+						"top hit %s; height_delta=%.2f ledge_delta=%.2f out of range",
+						top.Instance:GetFullName(),
+						height_delta,
+						ledge_height_delta
+					)
 				end
 			end
 		end
@@ -434,15 +449,16 @@ function ParkourController:_try_lower_ledge()
 		return
 	end
 
+	local normal = self.Normal
 	-- Sample several points just beyond the wall face. The old single probe
 	-- sat a full character gap in front of the ledge and could miss narrow
 	-- lower platforms or fall clear of the platform's footprint.
-	local current_top = self.HangPosition - self.Normal * WALL_GAP + Vector3.new(0, HANG_DROP, 0)
+	local current_top = self.HangPosition - normal * WALL_GAP + Vector3.new(0, HANG_DROP, 0)
 	local lower = nil
 	local lower_offset = nil
 	for _, offset in ipairs(LOWER_PROBE_OFFSETS) do
 		local probe_origin = current_top
-			+ self.Normal * offset
+			+ normal * offset
 			- Vector3.new(0, 0.15, 0)
 		local candidate = self:_cast(
 			probe_origin,
@@ -480,7 +496,58 @@ function ParkourController:_try_lower_ledge()
 	end
 
 	if not lower then
-		self:_debug("lower ledge: no valid tagged lower surface found")
+		-- If there is no tagged ledge below, allow S to dismount onto ordinary
+		-- collidable ground. Probe out from the wall so we do not mistake its
+		-- vertical face for a floor; the guide blocks themselves may stay
+		-- non-collidable.
+		local root = self.Root
+		local standing_height = self:_standing_height()
+		local ground = nil
+		local ground_offset = nil
+		for _, offset in ipairs(GROUND_PROBE_OFFSETS) do
+			local probe_origin = current_top
+				+ normal * offset
+				+ Vector3.new(0, 2, 0)
+			local candidate = self:_cast(
+				probe_origin,
+				Vector3.new(0, -(MAX_GROUND_DROP + 2), 0),
+				true
+			)
+			if candidate and candidate.Normal.Y >= 0.5
+				and not self:_is_climbable(candidate.Instance) then
+				local drop = current_top.Y - candidate.Position.Y
+				if drop >= -0.25 and drop <= MAX_GROUND_DROP then
+					ground = candidate
+					ground_offset = offset
+					break
+				end
+			end
+		end
+
+		if not ground or not root then
+			self:_debug("lower ledge: no tagged lower guide or reachable ground found")
+			return
+		end
+
+		local ground_position = Vector3.new(
+			ground.Position.X,
+			ground.Position.Y + standing_height - 0.05,
+			ground.Position.Z
+		)
+		self:_debug(
+			"ground dismount accepted; surface=%s drop=%.2f probe_offset=%.2f",
+			ground.Instance:GetFullName(),
+			current_top.Y - ground.Position.Y,
+			ground_offset
+		)
+		self.GrabBlockedUntilJumpReleased = true
+		self:_release()
+		root.CFrame = CFrame.lookAt(ground_position, ground_position - normal)
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		if self.Humanoid then
+			self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+		end
 		return
 	end
 
@@ -492,7 +559,7 @@ function ParkourController:_try_lower_ledge()
 		lower_offset
 	)
 	self.Surface = lower.Instance
-	self.HangPosition = lower.Position + self.Normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
+	self.HangPosition = lower.Position + normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
 	self:_position_hanging()
 end
 function ParkourController:_standing_height()
