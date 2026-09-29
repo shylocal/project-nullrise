@@ -22,7 +22,11 @@ function PlayerSession.new(player)
 	self.Trove:Add(self.CharacterAdded)
 	self.Trove:Add(self.CharacterRemoving)
 
-	self:_start()
+	local ok, err = pcall(self._start, self)
+	if not ok then
+		self:Destroy()
+		error(err, 0)
+	end
 
 	return self
 end
