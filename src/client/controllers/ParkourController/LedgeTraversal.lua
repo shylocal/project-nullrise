@@ -454,7 +454,7 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 			)
 			if ground and ground.Normal.Y >= 0.5 then
 				local ground_guide = ClimbableQuery.get_guide(ground.Instance)
-				local is_current_guide = ground.Instance == self.CurrentClimbable
+				local is_current_surface = ground.Instance == self.CurrentClimbable
 					or (ground_guide ~= nil and ground_guide == self.CurrentClimbable)
 				local rise = ground.Position.Y - current_top.Y
 				local relative = ground.Position - current_top
@@ -463,7 +463,7 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 				local root_to_floor = root.Position.Y - ground.Position.Y
 				-- The current ledge may be level with the hang point; other
 				-- surfaces must still rise enough to be a meaningful mantle.
-				local minimum_rise = if is_current_guide then -0.25 else Config.MantleMinRise
+				local minimum_rise = if is_current_surface then -0.25 else Config.MantleMinRise
 				local reachable = rise >= minimum_rise
 					and rise <= max_rise
 					and inward_distance >= 0.25
@@ -636,8 +636,8 @@ function LedgeTraversal.try_mantle(self)
 						self:_transfer_hang_to_ledge(best_top)
 		end
 	else
-		-- No higher tagged guide was found. W may still mantle onto visible
-		-- ordinary ground above the current wall.
+		-- No higher tagged guide was found. W may still mantle onto any visible,
+		-- walkable surface above the current wall.
 		if not self:_try_ground_mantle(current_top, normal, tangent) then
 					end
 	end
