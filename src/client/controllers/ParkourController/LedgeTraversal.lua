@@ -141,7 +141,6 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 	end
 
 	local top = self:_cast_reachable_grab_top(
-		self,
 		probe.Position,
 		probe.Normal,
 		candidate_position,
