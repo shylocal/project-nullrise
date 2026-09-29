@@ -425,9 +425,8 @@ end
 function ParkourController:_step(dt)
 	self._stepDelta = dt
 
-	-- Physics top-hops use the Humanoid's built-in jump animation. Temporarily
-	-- suppress sprinting so the higher-priority sprint track cannot mask it,
-	-- then restore sprint as soon as the character lands (with a timeout guard).
+	-- Track physics top-hops so sprint remains available and the hop monitor
+	-- can report landing (with a timeout guard).
 	local top_hop = self._topHopActive
 	if top_hop then
 		local humanoid = self.Humanoid
@@ -912,9 +911,28 @@ function ParkourController:_try_vault()
 		-- this obstacle's top, rather than using the character's default jump
 		-- speed, which can launch much higher than shorter obstacles require.
 		local gravity = math.max(Workspace.Gravity, 1)
-		local target_rise = math.max(0, top_target.Y - root.Position.Y + 0.25)
-		local required_vertical_speed = math.sqrt(2 * gravity * target_rise)
+		local height_margin = math.max(0, Config.VaultTopHopHeightMargin or 0.6)
+		local target_rise = math.max(0, top_target.Y - root.Position.Y)
+		local required_vertical_speed = math.sqrt(2 * gravity * (target_rise + height_margin))
 		local current_velocity = root.AssemblyLinearVelocity
+		local current_horizontal_velocity = flatten(current_velocity)
+		local current_forward_speed = current_horizontal_velocity:Dot(forward)
+		local is_supported_platform_hop = has_continuous_ground_beneath
+			and has_usable_top_depth
+			and not is_long_obstacle
+		local forward_boost = is_supported_platform_hop
+			and math.max(0, Config.VaultTopHopForwardBoostSpeed or 6)
+			or 0
+		local sprint_speed = math.max(0, humanoid.WalkSpeed)
+		local hop_horizontal_velocity = current_horizontal_velocity
+		if is_supported_platform_hop then
+			-- Keep the existing lateral drift and ensure the character carries
+			-- sprint momentum onto a supported raised surface, with a modest
+			-- additional forward impulse. Long collision-sensitive obstacles
+			-- intentionally retain their unboosted horizontal velocity.
+			local target_forward_speed = math.max(current_forward_speed, sprint_speed) + forward_boost
+			hop_horizontal_velocity += forward * (target_forward_speed - current_forward_speed)
+		end
 		local hop_vertical_speed = math.max(
 			0,
 			current_velocity.Y,
@@ -924,24 +942,23 @@ function ParkourController:_try_vault()
 		self.NextVaultAt = now + Config.VaultCooldown
 		self.GrabBlockedUntilJumpReleased = self.InputController:IsDown(Actions.Jump)
 		self._topHopActive = { StartedAt = os.clock(), SawAir = false }
-		-- SetSprintBlocked also stops the sprint animation track, allowing the
-		-- Humanoid's normal jump animation to show during this physics hop.
-		self.MovementController:SetSprintBlocked(true, self)
 		humanoid.Jump = true
 		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 		-- Preserve existing horizontal momentum without adding the vault boost.
 		-- Collision handling remains with the normal Humanoid/physics solver.
 		root.AssemblyLinearVelocity = Vector3.new(
-			current_velocity.X,
+			hop_horizontal_velocity.X,
 			hop_vertical_speed,
-			current_velocity.Z
+			hop_horizontal_velocity.Z
 		)
 		vault_debug("PHYSICS HOP TO TOP",
 			"part=", obstacle:GetFullName(), "horizontalLength=", obstacle_length,
 			"threshold=", long_obstacle_threshold, "height=", obstacle_height,
-			"topTarget=", top_target, "horizontalVelocityPreserved=", Vector3.new(current_velocity.X, 0, current_velocity.Z),
+			"topTarget=", top_target, "horizontalVelocityBefore=", current_horizontal_velocity,
+			"horizontalVelocityAfter=", hop_horizontal_velocity,
+			"forwardBoost=", forward_boost, "heightMargin=", height_margin,
 			"verticalSpeed=", hop_vertical_speed, "requiredVerticalSpeed=", required_vertical_speed,
-			"sprintAnimationSuppressed=", true, "customVaultAnimation=", false)
+			"customVaultAnimation=", false)
 		return true
 	end
 
@@ -1200,9 +1217,6 @@ function ParkourController:_finish_top_hop(landed)
 		return
 	end
 	self._topHopActive = nil
-	if self.MovementController then
-		self.MovementController:SetSprintBlocked(false, self)
-	end
 	vault_debug("TOP HOP FINISHED", "landed=", landed,
 		"duration=", os.clock() - top_hop.StartedAt,
 		"rootPosition=", self.Root and self.Root.Position or "nil")
