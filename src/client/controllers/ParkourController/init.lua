@@ -794,7 +794,63 @@ function ParkourController:_try_vault()
 	) * 0.5
 	local obstacle_length = math.max(half_depth * 2, lateral_half_depth * 2)
 	local long_obstacle_threshold = Config.VaultLongObstacleHopLength or 20
-	if obstacle_length >= long_obstacle_threshold then
+
+	-- Detect a continuous walkable surface directly beneath the obstacle.
+	-- Exclude the obstacle itself so the downward probes can reach its support
+	-- floor, while retaining other world geometry in the query.
+	local obstacle_vertical_half = (
+		math.abs(obstacle.CFrame.RightVector.Y) * obstacle.Size.X
+		+ math.abs(obstacle.CFrame.UpVector.Y) * obstacle.Size.Y
+		+ math.abs(obstacle.CFrame.LookVector.Y) * obstacle.Size.Z
+	) * 0.5
+	local obstacle_bottom_y = obstacle.Position.Y - obstacle_vertical_half
+	local support_tolerance = math.max(0, Config.VaultGroundSupportTolerance or 0.65)
+	local support_params = self._vaultSupportParams or RaycastParams.new()
+	self._vaultSupportParams = support_params
+	support_params.FilterType = Enum.RaycastFilterType.Exclude
+	support_params.FilterDescendantsInstances = { self.Character, obstacle }
+	support_params.IgnoreWater = true
+	support_params.RespectCanCollide = true
+	local support_origin_y = top.Position.Y + standing_height + 2
+	local support_ray = Vector3.new(
+		0,
+		-(support_origin_y - (obstacle_bottom_y - support_tolerance)),
+		0
+	)
+	local support_forward_offsets = { -0.65, 0, 0.65 }
+	local support_lateral_offsets = { -0.8, -0.4, 0, 0.4, 0.8 }
+	local support_count = 0
+	local support_total = #support_forward_offsets * #support_lateral_offsets
+	local support_samples = {}
+	for _, forward_factor in ipairs(support_forward_offsets) do
+		for _, lateral_factor in ipairs(support_lateral_offsets) do
+			local sample_position = obstacle.Position
+				+ forward * (half_depth * forward_factor)
+				+ obstacle_lateral * (lateral_half_depth * lateral_factor)
+			local support_hit = Workspace:Raycast(
+				Vector3.new(sample_position.X, support_origin_y, sample_position.Z),
+				support_ray,
+				support_params
+			)
+			local supported = support_hit ~= nil
+				and support_hit.Normal.Y >= 0.5
+				and math.abs(support_hit.Position.Y - obstacle_bottom_y) <= support_tolerance
+			if supported then
+				support_count += 1
+			end
+			table.insert(support_samples, supported)
+		end
+	end
+	local has_continuous_ground_beneath = support_count == support_total
+	vault_debug("obstacle ground support", "part=", obstacle:GetFullName(),
+		"bottomY=", obstacle_bottom_y, "tolerance=", support_tolerance,
+		"supportHits=", support_count, "/", support_total,
+		"continuous=", has_continuous_ground_beneath)
+
+	-- Long obstacles still use a physical hop, and any obstacle with continuous
+	-- ground beneath it now prioritizes hopping onto its top instead of vaulting
+	-- through to the far side.
+	if obstacle_length >= long_obstacle_threshold or has_continuous_ground_beneath then
 		local top_target = Vector3.new(
 			top.Position.X,
 			top.Position.Y + standing_height - 0.05,
