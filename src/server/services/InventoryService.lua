@@ -6,6 +6,7 @@ local Signal = require(Packages.Signal)
 
 local WeaponsFolder = ReplicatedStorage.shared.weapons
 local InventoryRemote = ReplicatedStorage.remotes.Inventory
+local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
 local FISTS_ID = "Fists"
 local TEMPORARY_SLOTS = {
@@ -34,9 +35,9 @@ function InventoryService:_start()
 	self.Trove:Connect(
 		InventoryRemote.OnServerEvent,
 		function(player, action, value)
-			if action == "SelectSlot" then
+			if action == Protocol.Inventory.SelectSlot then
 				self:SelectSlot(player, value)
-			elseif action == "SelectItem" then
+			elseif action == Protocol.Inventory.SelectItem then
 				self:SelectItem(player, value)
 			end
 		end
@@ -100,7 +101,7 @@ function InventoryService:_sync(player)
 
 	InventoryRemote:FireClient(
 		player,
-		"Changed",
+		Protocol.Inventory.Changed,
 		inventory.Slots,
 		inventory.SelectedSlot
 	)
@@ -190,7 +191,7 @@ function InventoryService:SetSlot(player, slot, weapon_id)
 	else
 		InventoryRemote:FireClient(
 			player,
-			"Changed",
+			Protocol.Inventory.Changed,
 			inventory.Slots,
 			inventory.SelectedSlot
 		)
@@ -282,7 +283,7 @@ function InventoryService:Remove(player, weapon_id)
 			else
 				InventoryRemote:FireClient(
 					player,
-					"Changed",
+					Protocol.Inventory.Changed,
 					inventory.Slots,
 					inventory.SelectedSlot
 				)
