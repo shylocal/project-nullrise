@@ -516,7 +516,7 @@ function ParkourController:_find_mantle_landing_position(top, normal)
 				self:_debug(
 					"landing inset %.2f valid; support=%s top=%s position=%s",
 					inset,
-				floor.Instance:GetFullName(),
+					floor.Instance:GetFullName(),
 					top.Instance:GetFullName(),
 					tostring(position)
 				)
@@ -567,6 +567,7 @@ function ParkourController:_try_mantle()
 	local best_top = nil
 	local best_height = -math.huge
 	local best_offset = math.huge
+	local best_standing_position = nil
 
 	-- Sample from the current lip inward across the platform. This finds the
 	-- current ledge as well as a reachable higher tier behind it.
@@ -611,7 +612,7 @@ function ParkourController:_try_mantle()
 					best_top = top
 					best_height = height_above_lip
 					best_offset = offset
-					self._debugMantlePosition = standing_position
+					best_standing_position = standing_position
 					self:_debug(
 						"mantle candidate at %.2f: top=%s climbable=%s rise=%.2f landing=%s",
 						offset,
@@ -632,8 +633,7 @@ function ParkourController:_try_mantle()
 			best_height,
 			best_offset
 		)
-		self:_complete_mantle(best_top, normal, self._debugMantlePosition)
-		self._debugMantlePosition = nil
+		self:_complete_mantle(best_top, normal, best_standing_position)
 	else
 		self:_debug("mantle found no valid standable top surface")
 	end
