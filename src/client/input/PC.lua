@@ -22,7 +22,11 @@ local Bindings = {
 
 function PCInput.new(on_began, on_ended)
 	local self = setmetatable({ Trove = Trove.new() }, PCInput)
-	self:_start(on_began, on_ended)
+	local ok, err = pcall(self._start, self, on_began, on_ended)
+	if not ok then
+		self:Destroy()
+		error(err, 0)
+	end
 	return self
 end
 
