@@ -36,7 +36,6 @@ function ParkourController.new(character, input_controller, movement_controller)
 		HangPosition = nil,
 		AutoRotateBeforeHang = nil,
 		PlatformStandBeforeHang = nil,
-		JumpReleased = true,
 	}, ParkourController)
 
 	self:_start()
@@ -50,13 +49,13 @@ function ParkourController:_start()
 		elseif action == Actions.Forward and self.State == "Hanging" then
 			self:_try_mantle()
 		elseif action == Actions.Backward and self.State == "Hanging" then
-			self:_release()
+			self:_try_lower_ledge()
 		end
 	end)
 
 	self.Trove:Connect(self.InputController.ActionEnded, function(action)
-		if action == Actions.Jump then
-			self.JumpReleased = true
+		if action == Actions.Jump and self.State == "Hanging" then
+			self:_release()
 		end
 	end)
 
@@ -229,13 +228,6 @@ end
 
 function ParkourController:_on_jump()
 	if self.State == "Hanging" then
-		if self.JumpReleased then
-			self:_release()
-			self.JumpReleased = false
-			if self.Humanoid then
-				self.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-			end
-		end
 		return
 	end
 
@@ -243,6 +235,32 @@ function ParkourController:_on_jump()
 		local surface, normal, position = self:_detect_surface()
 		if surface then self:_grab(surface, normal, position) end
 	end
+end
+
+function ParkourController:_try_lower_ledge()
+	if self.State ~= "Hanging" or not self.Root or not self.HangPosition or not self.Normal then
+		return
+	end
+
+	-- Probe below the current ledge, outside the wall face. A missing or
+	-- non-climbable result means there is no valid lower ledge, so S is ignored.
+	local current_top = self.HangPosition - self.Normal * WALL_GAP + Vector3.new(0, HANG_DROP, 0)
+	local probe_origin = current_top
+		+ self.Normal * (WALL_GAP + 0.2)
+		- Vector3.new(0, 0.15, 0)
+	local lower = self:_cast(probe_origin, Vector3.new(0, -(MAX_GRAB_HEIGHT + 0.5), 0))
+	if not lower or not self:_is_climbable(lower.Instance) or lower.Normal.Y < 0.5 then
+		return
+	end
+
+	local drop = current_top.Y - lower.Position.Y
+	if drop < 0.5 or drop > MAX_GRAB_HEIGHT then
+		return
+	end
+
+	self.Surface = lower.Instance
+	self.HangPosition = lower.Position + self.Normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
+	self:_position_hanging()
 end
 
 function ParkourController:_try_mantle()
