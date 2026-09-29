@@ -219,7 +219,7 @@ function ParkourController:_traverse(dt)
 		local candidate_position = root.Position
 			+ tangent * direction * TRAVERSE_SPEED * math.max(dt, 0)
 		local probe_origin = candidate_position
-			+ Vector3.new(0, 1.1, 0)
+			+ Vector3.new(0, 1.5, 0)
 			+ normal * 0.3
 		local probe = self:_cast(
 			probe_origin,
