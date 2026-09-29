@@ -7,7 +7,6 @@ return {
 	HangDrop = 2.35,
 	WallGap = 0.8,
 	TraverseSpeed = 5,
-	ClimbSmoothness = 18,
 	SurfaceProbe = 1.4,
 	MaxTopSurfaceHits = 16,
 	MantleMaxRise = 12.5,
