@@ -17,7 +17,18 @@ function Queries.cast(self, origin, direction, respect_can_collide)
 	params.RespectCanCollide = respect_can_collide == true
 	return Workspace:Raycast(origin, direction, params)
 end
-function Queries.cast_climbable_side(self, origin, direction)
+local function is_grabbable_surface(instance)
+	if not instance:IsA("BasePart")
+		or not instance.CanCollide
+		or instance.CollisionGroup == Config.ClimbableCollisionGroup then
+		return false
+	end
+
+	local model = instance:FindFirstAncestorOfClass("Model")
+	return not (model and model:FindFirstChildOfClass("Humanoid"))
+end
+
+function Queries.cast_grabbable_side(self, origin, direction)
 	local params = self._sideCastParams or RaycastParams.new()
 	self._sideCastParams = params
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -32,17 +43,23 @@ function Queries.cast_climbable_side(self, origin, direction)
 		if not hit then
 			return nil
 		end
-		if ClimbableQuery.is_climbable(hit.Instance) then
+
+		if is_grabbable_surface(hit.Instance) then
 			return hit
 		end
 
-		-- Skip decorative non-collidable geometry, but never ray through a
-		-- solid non-climbable wall or platform.
-		if not hit.Instance:IsA("BasePart") or hit.Instance.CanCollide then
+		-- Ignore climbable proxy geometry and decorative non-collidable parts.
+		-- Other solid parts are valid grab surfaces only when they passed the
+		-- grabbable-surface check above.
+		if hit.Instance:IsA("BasePart")
+			and (not hit.Instance.CanCollide
+				or hit.Instance.CollisionGroup == Config.ClimbableCollisionGroup) then
+			table.insert(exclusions, hit.Instance)
+		else
 			return nil
 		end
-		table.insert(exclusions, hit.Instance)
 	end
+
 	return nil
 end
 function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_position, reference_y)
@@ -81,7 +98,7 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 
 		local height_delta = (reference_y or root_position.Y) - candidate.Position.Y
 		local height_distance = math.abs(height_delta)
-		local climbable = ClimbableQuery.is_climbable(candidate.Instance)
+		local climbable = is_grabbable_surface(candidate.Instance)
 		local walkable = candidate.Normal.Y >= 0.5
 		local reachable = height_delta >= -Config.MaxGrabHeight
 			and height_delta <= Config.MaxGrabHeight
@@ -115,19 +132,13 @@ function Queries.detect_surface(self)
 	direction = direction.Unit
 
 	local origin = root.Position + Vector3.new(0, 1.1, 0)
-	local wall = Queries.cast(self, origin, direction * Config.WallReach)
+	local wall = Queries.cast_grabbable_side(self, origin, direction * Config.WallReach)
 	if not wall then
-				return nil
-	end
-	if not ClimbableQuery.is_climbable(wall.Instance) then
-				return nil
+		return nil
 	end
 
 	local top = Queries.cast_reachable_grab_top(self, wall.Position, wall.Normal, root.Position, root.Position.Y)
 	if not top then
-				return nil
-	end
-	if not ClimbableQuery.is_climbable(top.Instance) then
 				return nil
 	end
 
@@ -147,7 +158,7 @@ function Queries.detect_surface(self)
 				return nil
 	end
 
-		return ClimbableQuery.get_guide(top.Instance), hang_normal, hang_position
+		return ClimbableQuery.get_guide(top.Instance) or top.Instance, hang_normal, hang_position
 end
 function Queries.has_hang_body_clearance(self, position, normal)
 	local root = self.Root
