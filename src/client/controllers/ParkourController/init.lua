@@ -390,9 +390,27 @@ function ParkourController:_has_hang_body_clearance(position, normal, allowed_su
 	-- bounding box. Accessories and non-colliding limbs can extend well beyond
 	-- the actual movement collider and falsely reject tight but valid corners.
 	local target_cframe = CFrame.lookAt(position, position - facing)
+	-- Query with a box-shaped probe against exact part geometry. The bounds
+	-- query below can treat a cylinder's enclosing box as solid, falsely
+	-- rejecting otherwise clear positions beside its curved surface.
+	local probe = self.HangClearanceProbe
+	if not probe or not probe.Parent then
+		probe = Instance.new("Part")
+		probe.Name = "ParkourHangClearanceProbe"
+		probe.Anchored = true
+		probe.CanCollide = false
+		probe.CanTouch = false
+		probe.CanQuery = true
+		probe.Transparency = 1
+		probe.CastShadow = false
+		probe.Parent = Workspace
+		self.HangClearanceProbe = probe
+	end
+	probe.Size = root.Size + Vector3.new(0.08, 0.08, 0.08)
+	probe.CFrame = target_cframe
 	local overlap_params = OverlapParams.new()
 	overlap_params.FilterType = Enum.RaycastFilterType.Exclude
-	local exclusions = { character }
+	local exclusions = { character, probe }
 	local function allow_contact_surface(instance)
 		if not instance then return end
 		table.insert(exclusions, instance)
@@ -410,12 +428,7 @@ function ParkourController:_has_hang_body_clearance(position, normal, allowed_su
 	overlap_params.FilterDescendantsInstances = exclusions
 	overlap_params.RespectCanCollide = true
 
-	local padding = Vector3.new(0.08, 0.08, 0.08)
-	local overlaps = Workspace:GetPartBoundsInBox(
-		target_cframe,
-		root.Size + padding,
-		overlap_params
-	)
+	local overlaps = Workspace:GetPartsInPart(probe, overlap_params)
 	for _, part in ipairs(overlaps) do
 		if part.CanCollide then
 			self:_debug(
@@ -1490,6 +1503,10 @@ end
 
 function ParkourController:Destroy()
 	self:_release()
+	if self.HangClearanceProbe then
+		self.HangClearanceProbe:Destroy()
+		self.HangClearanceProbe = nil
+	end
 	self.Trove:Destroy()
 end
 
