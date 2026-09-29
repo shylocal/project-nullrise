@@ -510,10 +510,20 @@ function ParkourController:_standing_height()
 	return hip_height + root.Size.Y * 0.5
 end
 
-function ParkourController:_get_hang_position_for_top(top, normal)
-	-- W transfers the hang to the next guide; the character remains below
-	-- the guide's top rather than being placed in a standing position.
+function ParkourController:_get_guide_half_extent(top, tangent)
+	-- Project the guide's horizontal bounding box onto the character's
+	-- sideways axis so a long guide remains climbable away from its center.
+	local right = flatten(top.BoxCFrame.RightVector)
+	local look = flatten(top.BoxCFrame.LookVector)
+	return math.abs(tangent:Dot(right)) * top.BoxSize.X * 0.5
+		+ math.abs(tangent:Dot(look)) * top.BoxSize.Z * 0.5
+end
+
+function ParkourController:_get_hang_position_for_top(top, normal, tangent, lateral_offset)
+	-- W transfers the hang to the next guide; preserve the character's
+	-- sideways location on that guide instead of snapping to its center.
 	return top.Position
+		+ tangent * (lateral_offset or 0)
 		+ normal * WALL_GAP
 		- Vector3.new(0, HANG_DROP, 0)
 end
@@ -570,6 +580,8 @@ function ParkourController:_get_guide_top(guide)
 		Guide = guide,
 		Position = box_cframe.Position + up * (box_size.Y * 0.5),
 		Normal = up,
+		BoxCFrame = box_cframe,
+		BoxSize = box_size,
 	}
 end
 
@@ -608,7 +620,22 @@ function ParkourController:_try_mantle()
 			if top then
 				local relative = top.Position - current_top
 				local inward = relative:Dot(-normal)
-				local lateral = math.abs(flatten(relative):Dot(tangent))
+				local player_lateral = flatten(root.Position - current_top):Dot(tangent)
+				local guide_center_lateral = flatten(relative):Dot(tangent)
+				local guide_half_extent = self:_get_guide_half_extent(top, tangent)
+				-- Only the distance beyond the guide's lateral footprint counts
+				-- against reach; being far from its center is fine when still over it.
+				local lateral = math.max(
+					0,
+					math.abs(player_lateral - guide_center_lateral) - guide_half_extent
+				)
+				local lateral_margin = math.max(root.Size.X * 0.5, 0.5)
+				local safe_lateral_extent = math.max(0, guide_half_extent - lateral_margin)
+				local target_lateral_offset = math.clamp(
+					player_lateral - guide_center_lateral,
+					-safe_lateral_extent,
+					safe_lateral_extent
+				)
 				local rise = top.Position.Y - current_top.Y
 				local root_height_delta = root.Position.Y - top.Position.Y
 				local in_vertical_range = rise > MANTLE_MIN_RISE
@@ -621,8 +648,14 @@ function ParkourController:_try_mantle()
 
 				if in_vertical_range and in_reach and top.Normal.Y >= 0.5 then
 					considered += 1
-					local hang_position = self:_get_hang_position_for_top(top, normal)
-					local horizontal_distance = flatten(top.Position - current_top).Magnitude
+					local hang_position = self:_get_hang_position_for_top(
+						top,
+						normal,
+						tangent,
+						target_lateral_offset
+					)
+					local target_top_position = top.Position + tangent * target_lateral_offset
+					local horizontal_distance = flatten(target_top_position - current_top).Magnitude
 					if rise < best_height
 						or (rise == best_height and horizontal_distance < best_distance) then
 						best_top = top
