@@ -150,14 +150,7 @@ function ParkourController:_cast(origin, direction, respect_can_collide)
 end
 
 function ParkourController:_is_climbable(instance)
-	local current = instance
-	while current and current ~= Workspace do
-		if CollectionService:HasTag(current, CLIMBABLE_TAG) then
-			return true
-		end
-		current = current.Parent
-	end
-	return false
+	return self:_get_climbable_guide(instance) ~= nil
 end
 
 function ParkourController:_get_climbable_guide(instance)
@@ -379,14 +372,17 @@ function ParkourController:_traverse(dt)
 		local lateral_margin = math.max(root.Size.X * 0.5, 0.5)
 		local active_safe_extent = math.max(0, active_half_extent - lateral_margin)
 		local active_lateral_offset = flatten(candidate_position - active_top.Position):Dot(tangent)
+		local clamped_active_offset = math.clamp(
+			active_lateral_offset,
+			-active_safe_extent,
+			active_safe_extent
+		)
 
 		if math.abs(active_lateral_offset) <= active_safe_extent then
-			-- Keep using the cached active guide while moving inside its footprint.
-			-- No global guide scan or vertical reselection is needed for A/D.
-			self.HangPosition = active_top.Position
-				+ tangent * active_lateral_offset
-				+ normal * WALL_GAP
-				- Vector3.new(0, HANG_DROP, 0)
+			-- Use the cached guide as the traversal anchor. Preserve the existing
+			-- wall offset and move only along the tangent; do not re-center on the
+			-- guide's bounding-box origin each frame.
+			self.HangPosition = candidate_position
 		else
 			-- At the active guide's edge, look for a connected, same-height guide.
 			-- Replace the cache only after this explicit transition is validated.
@@ -401,37 +397,23 @@ function ParkourController:_traverse(dt)
 				and self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position)
 			local next_climbable = next_top
 				and self:_get_climbable_guide(next_top.Instance)
-			local next_guide_top = next_climbable
-				and self:_get_guide_top(next_climbable)
-
 			local same_height = next_top
-				and next_guide_top
 				and math.abs(next_top.Position.Y - active_top.Position.Y) <= TRAVERSE_HEIGHT_TOLERANCE
 				and next_top.Normal.Y >= 0.5
+
 			if next_climbable and next_climbable ~= climbable and same_height then
-				local next_half_extent = self:_get_guide_half_extent(next_guide_top, tangent)
-				local next_safe_extent = math.max(0, next_half_extent - lateral_margin)
-				local next_lateral_offset = flatten(candidate_position - next_guide_top.Position):Dot(tangent)
-				if math.abs(next_lateral_offset) <= next_half_extent + lateral_margin then
-					self.CurrentClimbable = next_climbable
-					self.Normal = probe.Normal
-					self.HangPosition = next_guide_top.Position
-						+ tangent * math.clamp(next_lateral_offset, -next_safe_extent, next_safe_extent)
-						+ self.Normal * WALL_GAP
-						- Vector3.new(0, HANG_DROP, 0)
-				else
-					self.HangPosition = active_top.Position
-						+ tangent * math.clamp(active_lateral_offset, -active_safe_extent, active_safe_extent)
-						+ normal * WALL_GAP
-						- Vector3.new(0, HANG_DROP, 0)
-				end
-			else
-				-- Stop at this guide's edge instead of snapping to a vertically
-				-- stacked guide found by the probe.
-				self.HangPosition = active_top.Position
-					+ tangent * math.clamp(active_lateral_offset, -active_safe_extent, active_safe_extent)
-					+ normal * WALL_GAP
+				-- The top ray is sampled at the player's attempted position, so
+				-- use its hit point rather than the new guide's center.
+				self.CurrentClimbable = next_climbable
+				self.Normal = probe.Normal
+				self.HangPosition = next_top.Position
+					+ self.Normal * WALL_GAP
 					- Vector3.new(0, HANG_DROP, 0)
+			else
+				-- No connected same-height guide: stop at the current guide edge,
+				-- retaining this guide in the cache.
+				self.HangPosition = candidate_position
+					+ tangent * (clamped_active_offset - active_lateral_offset)
 			end
 		end
 	end
@@ -667,8 +649,10 @@ end
 
 function ParkourController:_try_mantle()
 	self:_debug("mantle requested; state=%s", self.State)
-	if self.State ~= "Hanging" or not self.Root or not self.HangPosition or not self.Normal then
-		self:_debug("mantle aborted; missing hanging state or character parts")
+	if self.State ~= "Hanging" or not self.Root or not self.CurrentClimbable
+		or not self.HangPosition or not self.Normal
+		or not self.CurrentClimbable:IsDescendantOf(Workspace) then
+		self:_debug("mantle aborted; missing active guide or character parts")
 		return
 	end
 
