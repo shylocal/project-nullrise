@@ -528,7 +528,6 @@ function ParkourController:_try_lower_ledge()
 	-- follows the actual top surface instead of the guide's center sample.
 	local target_sample = best_top.Position + tangent * best_lateral_offset
 	best_top = self:_get_guide_top(best_top.Guide, target_sample) or best_top
-	local target_normal = self:_get_guide_wall_normal(best_top.Guide, best_top, normal)
 	self:_debug(
 		"lower ledge selected; guide=%s drop=%.2f horizontal_distance=%.2f examined=%d",
 		best_top.Guide:GetFullName(),
@@ -536,7 +535,7 @@ function ParkourController:_try_lower_ledge()
 		best_distance,
 		examined
 	)
-	self:_transfer_hang_to_ledge(best_top, target_normal)
+	self:_transfer_hang_to_ledge(best_top)
 
 end
 
@@ -576,86 +575,32 @@ function ParkourController:_get_guide_half_extent(top, tangent)
 		+ math.abs(tangent:Dot(look)) * top.BoxSize.Z * 0.5
 end
 
-function ParkourController:_get_guide_wall_normal(guide, top, preferred_normal)
-	local preferred = flatten(preferred_normal)
-	if preferred.Magnitude < 0.05 then
-		return Vector3.zAxis
-	end
-	preferred = preferred.Unit
-
-	-- Probe the destination guide at the height of the hanging torso. This
-	-- obtains its own outward-facing side normal instead of reusing the
-	-- previous ledge's normal, which can push the head into an offset ledge.
-	local sample_drop = math.max(0.35, HANG_DROP - 1.1)
-	local origin = top.Position
-		- Vector3.new(0, sample_drop, 0)
-		+ preferred * (WALL_GAP + SURFACE_PROBE + 0.5)
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Include
-	params.FilterDescendantsInstances = { guide }
-	params.IgnoreWater = true
-	params.RespectCanCollide = false
-	local hit = Workspace:Raycast(
-		origin,
-		-preferred * (WALL_GAP + SURFACE_PROBE + 1),
-		params
-	)
-	if hit then
-		local side_normal = flatten(hit.Normal)
-		if side_normal.Magnitude >= 0.05 then
-			side_normal = side_normal.Unit
-			if side_normal:Dot(preferred) < 0 then
-				side_normal = -side_normal
-			end
-			return side_normal
-		end
-	end
-
-	return preferred
-end
-
-function ParkourController:_get_hang_position_for_top(top, normal)
-	-- The caller samples top.Position at the intended landing column.
-	-- Do not apply a tangent offset here as well: doing so double-counts the
-	-- lateral adjustment and causes drift on repeated up/down transitions.
-	return top.Position
-		+ normal * WALL_GAP
-		- Vector3.new(0, HANG_DROP, 0)
-end
-
-function ParkourController:_transfer_hang_to_ledge(top, normal)
+function ParkourController:_transfer_hang_to_ledge(top)
 	local root = self.Root
+	local normal = self.Normal
 	if not root or not top or not normal then return false end
 
-	-- Keep the established scalar wall clearance, but orient its vector along
-	-- the destination face. Reusing the old world-space vector while changing
-	-- LookVector can rotate the body into a ledge when the sampled normals
-	-- differ slightly, even when both ledges have the same actual depth.
-	local depth = self.HangDepthOffset and self.HangDepthOffset.Magnitude or WALL_GAP
-	if depth < 0.05 then
-		depth = WALL_GAP
+	-- W/S change ledge height, not the wall the character is hanging from.
+	-- Preserve the exact cached facing normal and world-space depth vector;
+	-- recalculating either from a separately sampled destination face can
+	-- introduce a small horizontal shift and rotate the character into the ledge.
+	local depth_offset = self.HangDepthOffset
+	if not depth_offset or flatten(depth_offset).Magnitude < 0.05 then
+		local flat_normal = flatten(normal)
+		if flat_normal.Magnitude < 0.05 then return false end
+		depth_offset = flat_normal.Unit * WALL_GAP
 	end
-	local target_normal = flatten(normal)
-	if target_normal.Magnitude < 0.05 then
-		target_normal = flatten(self.Normal or Vector3.zAxis)
-	end
-	if target_normal.Magnitude < 0.05 then
-		target_normal = Vector3.zAxis
-	else
-		target_normal = target_normal.Unit
-	end
-	local depth_offset = target_normal * depth
 	local hang_position = top.Position
 		+ depth_offset
 		- Vector3.new(0, HANG_DROP, 0)
+
 	self.State = "Hanging"
 	self.CurrentClimbable = top.Guide or self:_get_climbable_guide(top.Instance)
-	self.Normal = target_normal
 	self.HangDepthOffset = depth_offset
 	self.HangPosition = hang_position
 
-	-- Keep the existing hang lock and movement restriction; do not release
-	-- the character or make the non-collidable guide physically solid.
+	-- Keep the normal untouched so CFrame.lookAt retains the same LookVector
+	-- through a purely vertical ledge transfer.
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 	self:_position_hanging()
@@ -850,8 +795,7 @@ function ParkourController:_try_mantle()
 		-- small vertical mismatch when moving onto an offset or curved ledge.
 		local target_sample = best_top.Position + tangent * best_lateral_offset
 		best_top = self:_get_guide_top(best_top.Guide, target_sample) or best_top
-		local target_normal = self:_get_guide_wall_normal(best_top.Guide, best_top, normal)
-		self:_transfer_hang_to_ledge(best_top, target_normal)
+		self:_transfer_hang_to_ledge(best_top)
 	else
 		self:_debug(
 			"mantle found no reachable higher guide; tagged_guides=%d considered=%d rejected=%d max_rise=%.2f",
