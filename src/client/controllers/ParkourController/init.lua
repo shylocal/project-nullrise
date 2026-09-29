@@ -91,8 +91,6 @@ function ParkourController:_start()
 			self:_try_mantle()
 		elseif action == Actions.Backward and self.State == "Hanging" then
 			self:_try_lower_ledge()
-		elseif action == Actions.Backward and self.State == "Hanging" then
-			self:_try_lower_ledge()
 		end
 	end)
 
@@ -635,95 +633,6 @@ function ParkourController:_try_lower_ledge()
 	self:_transfer_hang_to_ledge(best_top)
 end
 
-function ParkourController:_try_lower_ledge()
-	self:_debug("lower ledge requested; state=%s", self.State)
-	if self.State ~= "Hanging" or not self.Root or not self.CurrentClimbable
-		or not self.HangPosition or not self.Normal then
-		self:_debug("lower ledge aborted; missing hanging state or character parts")
-		return
-	end
-
-	local root = self.Root
-	local normal = flatten(self.Normal)
-	if normal.Magnitude < 0.05 then
-		self:_debug("lower ledge aborted; active wall normal is invalid")
-		return
-	end
-	normal = normal.Unit
-
-	local tangent = flatten(root.CFrame.RightVector)
-	if tangent.Magnitude < 0.05 then
-		tangent = flatten(Vector3.yAxis:Cross(normal))
-	end
-	if tangent.Magnitude < 0.05 then
-		self:_debug("lower ledge aborted; lateral axis is invalid")
-		return
-	end
-	tangent = tangent.Unit
-
-	local current_top = self.HangPosition - normal * WALL_GAP + Vector3.new(0, HANG_DROP, 0)
-	local best_top = nil
-	local best_drop = math.huge
-	local best_distance = math.huge
-	local best_lateral_offset = 0
-
-	-- S transfers only to a lower tagged guide. It does not dismount to
-	-- ordinary ground; W is reserved for mantling onto an upper surface.
-	for _, guide in ipairs(CollectionService:GetTagged(CLIMBABLE_TAG)) do
-		if guide ~= self.CurrentClimbable and guide:IsDescendantOf(Workspace) then
-			local top = self:_get_guide_top(guide)
-			if top and top.Normal.Y >= 0.5 then
-				local relative = top.Position - current_top
-				local drop = current_top.Y - top.Position.Y
-				local inward = relative:Dot(-normal)
-				local guide_center_lateral = flatten(relative):Dot(tangent)
-				local guide_half_extent = self:_get_guide_half_extent(top, tangent)
-				local player_lateral = flatten(root.Position - current_top):Dot(tangent)
-				local lateral_gap = math.max(
-					0,
-					math.abs(player_lateral - guide_center_lateral) - guide_half_extent
-				)
-				local safe_lateral_extent = math.max(0, guide_half_extent - LEDGE_EDGE_MARGIN)
-				local target_lateral_offset = math.clamp(
-					player_lateral - guide_center_lateral,
-					-safe_lateral_extent,
-					safe_lateral_extent
-				)
-				local in_vertical_range = drop >= 0.5 and drop <= MANTLE_MAX_RISE
-				local in_reach = inward >= -MANTLE_MAX_OUTWARD
-					and inward <= MANTLE_MAX_INWARD
-					and lateral_gap <= MANTLE_MAX_LATERAL
-
-				if in_vertical_range and in_reach then
-					local target_top_position = top.Position + tangent * target_lateral_offset
-					local horizontal_distance = flatten(target_top_position - current_top).Magnitude
-					if drop < best_drop or (drop == best_drop and horizontal_distance < best_distance) then
-						best_top = top
-						best_drop = drop
-						best_distance = horizontal_distance
-						best_lateral_offset = target_lateral_offset
-					end
-				end
-			end
-		end
-	end
-
-	if not best_top then
-		self:_debug("lower ledge: no reachable lower tagged guide; S ignored")
-		return
-	end
-
-	local target_sample = best_top.Position + tangent * best_lateral_offset
-	best_top = self:_get_guide_top(best_top.Guide, target_sample) or best_top
-	self:_debug(
-		"lower ledge selected; guide=%s drop=%.2f horizontal_distance=%.2f",
-		best_top.Guide:GetFullName(),
-		best_drop,
-		best_distance
-	)
-	self:_transfer_hang_to_ledge(best_top)
-end
-
 function ParkourController:_standing_height()
 	local root = self.Root
 	local humanoid = self.Humanoid
@@ -801,56 +710,6 @@ function ParkourController:_refresh_hang_contact(expected_guide, expected_top_y)
 	-- locally sampled top/wall, retain the selected hang height, and face the
 	-- actual wall normal. This runs synchronously within W/S, so no sideways
 	-- input is needed to settle the character.
-	self.Normal = horizontal_normal
-	self.HangDepthOffset = horizontal_normal * WALL_GAP
-	self.HangPosition = Vector3.new(
-		top.Position.X,
-		candidate_position.Y,
-		top.Position.Z
-	) + self.HangDepthOffset
-	return true
-end
-
-function ParkourController:_refresh_hang_contact(expected_guide, expected_top_y)
-	local root = self.Root
-	local normal = self.Normal
-	local candidate_position = root and self.HangPosition
-	if not root or not normal or not candidate_position or not expected_guide then
-		return false
-	end
-
-	-- Use the same local side probe as A/D traversal immediately after a
-	-- vertical transfer. The destination top-center sample alone can leave
-	-- the root a few tenths off the actual wall contact; lateral input used
-	-- to correct this on the next Heartbeat.
-	local probe_origin = candidate_position
-		+ Vector3.new(0, 1.5, 0)
-		+ normal * 0.3
-	local probe = self:_cast(
-		probe_origin,
-		-normal * (WALL_GAP + SURFACE_PROBE)
-	)
-	if not probe then
-		return false
-	end
-
-	local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position)
-	if not top or self:_get_climbable_guide(top.Instance) ~= expected_guide then
-		return false
-	end
-	if expected_top_y and math.abs(top.Position.Y - expected_top_y) > TRAVERSE_HEIGHT_TOLERANCE then
-		return false
-	end
-
-	local horizontal_normal = flatten(probe.Normal)
-	if horizontal_normal.Magnitude < 0.05 then
-		return false
-	end
-	horizontal_normal = horizontal_normal.Unit
-
-	-- Match successful A/D contact correction: anchor X/Z to the locally
-	-- sampled top, preserve the selected hang height, and face the actual
-	-- side normal. Do this during W/S so no sideways input is needed.
 	self.Normal = horizontal_normal
 	self.HangDepthOffset = horizontal_normal * WALL_GAP
 	self.HangPosition = Vector3.new(
