@@ -189,15 +189,11 @@ function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, 
 		if climbable and walkable and reachable and height_distance < best_height_distance then
 			best = candidate
 			best_height_distance = height_distance
-		else
-					end
+		end
 
 		table.insert(exclusions, candidate.Instance)
 	end
 
-	if best then
-			else
-			end
 	return best
 end
 
