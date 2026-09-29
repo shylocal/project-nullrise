@@ -26,15 +26,15 @@ local function vault_arc_progress(linear)
 end
 
 local function vault_hip_height_weight(linear)
-	-- Lower the hips through the middle of the vault, then restore the
-	-- original HipHeight before the landing handoff.
+	-- Reach the lowered pose quickly, hold it through most of the vault,
+	-- then blend back to the original HipHeight during the final phase.
 	local function smoothstep(value)
 		value = math.clamp(value, 0, 1)
 		return value * value * (3 - 2 * value)
 	end
 
-	local fade_in = smoothstep((linear - 0.2) / 0.2)
-	local fade_out = smoothstep((0.9 - linear) / 0.2)
+	local fade_in = smoothstep(linear / 0.18)
+	local fade_out = smoothstep((1 - linear) / 0.22)
 	return fade_in * fade_out
 end
 
@@ -470,7 +470,16 @@ function ParkourController:_step(dt)
 		if vault_humanoid and vault_humanoid.Parent and original_hip_height ~= nil then
 			local reduction = math.max(0, Config.VaultHipHeightReduction or 0)
 			local weight = vault_hip_height_weight(linear)
-			vault_humanoid.HipHeight = math.max(0, original_hip_height - reduction * weight)
+			local minimum_hip_height = 0
+			if vault_humanoid.RigType == Enum.HumanoidRigType.R6 then
+				-- R6 commonly starts at zero HipHeight, so allow a small negative
+				-- relative offset to make the temporary crouch effective.
+				minimum_hip_height = -0.35
+			end
+			vault_humanoid.HipHeight = math.max(
+				minimum_hip_height,
+				original_hip_height - reduction * weight
+			)
 		end
 
 		root.AssemblyLinearVelocity = Vector3.zero
