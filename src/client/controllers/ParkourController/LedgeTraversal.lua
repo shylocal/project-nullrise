@@ -510,6 +510,62 @@ function LedgeTraversal.is_guide_within_mantle_search(self, guide, current_top, 
 		and inward - radius <= Config.MantleMaxInward
 		and lateral - radius <= Config.MantleMaxLateral
 end
+function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
+	local root = self.Root
+	local wall = self.CurrentClimbable
+	if not root or not wall or not wall:IsA("BasePart")
+		or not wall.CanCollide or ClimbableQuery.is_climbable(wall) then
+		return false
+	end
+
+	-- The generic-wall grab is anchored to this exact solid part. Mantle onto
+	-- its own top, inset only by the root's depth plus a small safety margin.
+	local top = self:_get_guide_top(wall, current_top)
+	if not top or top.Instance ~= wall or top.Normal.Y < 0.5 then
+		return false
+	end
+	local support = self:_cast(
+		top.Position + Vector3.new(0, 1, 0),
+		Vector3.new(0, -2, 0),
+		true
+	)
+	if not support or support.Instance ~= wall or support.Normal.Y < 0.5 then
+		return false
+	end
+
+	local edge_inset = root.Size.Z * 0.5 + Config.TallWallEdgeClearance
+	local standing_position = support.Position
+		- normal * edge_inset
+		+ Vector3.new(0, self:_standing_height() - 0.05, 0)
+	local clear = self:_has_hang_body_clearance(standing_position, normal)
+	if not clear then
+		return false
+	end
+
+	self.GrabBlockedUntilJumpReleased = true
+	if self.Humanoid then
+		self.JumpingEnabledBeforeMantle = self.Humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping)
+		self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+		self.Humanoid.Jump = false
+	end
+
+	local target_cframe = CFrame.lookAt(standing_position, standing_position - normal)
+	self.State = "Mantling"
+	self.CurrentClimbable = nil
+	self.Normal = nil
+	self.HangDepthOffset = nil
+	self.HangPosition = nil
+	self.CornerLockPosition = nil
+	self.CornerLockInputDirection = nil
+	self._mantleStart = root.CFrame
+	self._mantleTarget = target_cframe
+	self._mantleElapsed = 0
+	self._mantleDuration = 0.35
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	return true
+end
+
 function LedgeTraversal.try_mantle(self)
 		if self.State ~= "Hanging" or not self.Root or not self.CurrentClimbable
 		or not self.HangPosition or not self.Normal
@@ -519,9 +575,13 @@ function LedgeTraversal.try_mantle(self)
 
 	local root = self.Root
 	local normal = self.Normal
+	local depth_offset = self.HangDepthOffset or normal * Config.WallGap
 	local current_top = self.HangPosition
-		- normal * Config.WallGap
+		- depth_offset
 		+ Vector3.new(0, Config.HangDrop, 0)
+	if not ClimbableQuery.is_climbable(self.CurrentClimbable) then
+		return LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
+	end
 	local tangent = Vector.flatten(root.CFrame.RightVector)
 	if tangent.Magnitude > 0.05 then
 		tangent = tangent.Unit
