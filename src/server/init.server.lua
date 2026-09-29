@@ -48,4 +48,8 @@ function runtime:Destroy()
 	self.PlayerService:Destroy()
 end
 
+script.Destroying:Connect(function()
+	runtime:Destroy()
+end)
+
 return runtime
