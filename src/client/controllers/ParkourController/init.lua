@@ -18,7 +18,6 @@ local HANG_DROP = 2.35
 local WALL_GAP = 0.8
 local TRAVERSE_SPEED = 5
 local SURFACE_PROBE = 1.4
-local MANTLE_INSET = 1.25
 local MANTLE_SAMPLE_STEP = 0.75
 local MANTLE_SAMPLE_COUNT = 4
 local LOWER_PROBE_OFFSETS = { 0.15, 0.45, 0.75, 1.05 }
@@ -464,8 +463,11 @@ function ParkourController:_complete_mantle(top, normal)
 	local root = self.Root
 	if not root or not top then return false end
 
+	-- Keep the landing root on the approach side of the ledge. Moving
+	-- inward by a fixed inset can place the standing volume inside a tall
+	-- backing wall, even when the sampled top itself is reachable.
 	local standing_position = top.Position
-		- normal * MANTLE_INSET
+		+ normal * WALL_GAP
 		+ Vector3.new(0, self:_standing_height() + 0.05, 0)
 	local clear, blocker = self:_has_standing_clearance(standing_position, normal)
 	if not clear then
@@ -542,7 +544,7 @@ function ParkourController:_try_mantle()
 				-- Tagged ledges and ordinary visible walkable ground are both valid
 				-- mantle destinations when there is clear standing room.
 				local standing_position = top.Position
-					- normal * MANTLE_INSET
+					+ normal * WALL_GAP
 					+ Vector3.new(0, self:_standing_height() + 0.05, 0)
 				local clear, blocker = self:_has_standing_clearance(standing_position, normal)
 				if not clear then
