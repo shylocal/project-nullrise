@@ -169,7 +169,7 @@ function ParkourController:_grab(guide, normal, position)
 	self:_position_hanging()
 
 	-- Preserve forward intent when the player pressed W before the ledge grab.
-	-- This lets a jump into a tall climbable part flow directly into the mantle.
+	-- This lets a jump into a tall collidable part flow directly into the mantle.
 	if self.InputController:IsDown(Actions.Forward) then
 		self:_try_mantle()
 	end
