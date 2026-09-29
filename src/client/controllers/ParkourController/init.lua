@@ -130,8 +130,8 @@ function ParkourController:_cast(origin, direction, respect_can_collide)
 	return Queries.cast(self, origin, direction, respect_can_collide)
 end
 
-function ParkourController:_cast_climbable_side(origin, direction)
-	return Queries.cast_climbable_side(self, origin, direction)
+function ParkourController:_cast_grabbable_side(origin, direction)
+	return Queries.cast_grabbable_side(self, origin, direction)
 end
 
 function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, root_position, reference_y)
