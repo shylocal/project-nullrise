@@ -65,7 +65,7 @@ end
 function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_position, reference_y)
 	-- Several climb guides can overlap vertically. A single downward ray hits
 	-- the highest one first, even when that ledge is outside grab range. Walk
-	-- down through successive hits and choose the climbable, walkable top closest
+	-- down through successive hits and choose the eligible, walkable top closest
 	-- in height to the character.
 	local standing_height = self:_standing_height()
 	local origin = Vector3.new(
@@ -98,12 +98,12 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 
 		local height_delta = (reference_y or root_position.Y) - candidate.Position.Y
 		local height_distance = math.abs(height_delta)
-		local climbable = is_grabbable_surface(candidate.Instance)
+		local valid_surface = is_grabbable_surface(candidate.Instance)
 		local walkable = candidate.Normal.Y >= 0.5
 		local reachable = height_delta >= -Config.MaxGrabHeight
 			and height_delta <= Config.MaxGrabHeight
 
-		if climbable and walkable and reachable and height_distance < best_height_distance then
+		if valid_surface and walkable and reachable and height_distance < best_height_distance then
 			best = candidate
 			best_height_distance = height_distance
 		end
@@ -188,7 +188,7 @@ function Queries.has_hang_body_clearance(self, position, normal)
 		probe.CanCollide = false
 		probe.CanTouch = false
 		probe.CanQuery = true
-		probe.CollisionGroup = "Climbable"
+		probe.CollisionGroup = Config.ClimbableCollisionGroup
 		probe.Transparency = 1
 		probe.CastShadow = false
 		probe.Parent = Workspace
@@ -201,7 +201,7 @@ function Queries.has_hang_body_clearance(self, position, normal)
 	overlap_params.FilterType = Enum.RaycastFilterType.Exclude
 	overlap_params.FilterDescendantsInstances = { character, probe }
 	-- Collision filtering excludes Climbable geometry from this clearance query.
-	overlap_params.CollisionGroup = "Climbable"
+	overlap_params.CollisionGroup = Config.ClimbableCollisionGroup
 	overlap_params.RespectCanCollide = true
 
 	local overlaps = Workspace:GetPartsInPart(probe, overlap_params)
