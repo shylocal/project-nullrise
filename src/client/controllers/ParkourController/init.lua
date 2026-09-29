@@ -20,7 +20,7 @@ local TRAVERSE_SPEED = 5
 local SURFACE_PROBE = 1.4
 local MANTLE_SAMPLE_STEP = 0.75
 local MANTLE_SAMPLE_COUNT = 4
-local MANTLE_LANDING_OFFSETS = { 0, 0.3, 0.6, 0.9, 1.2 }
+local MANTLE_LANDING_OFFSETS = { -0.6, -0.3, 0, 0.3, 0.6, 0.9, 1.2 }
 local LOWER_PROBE_OFFSETS = { 0.15, 0.45, 0.75, 1.05 }
 
 local function flatten(vector)
