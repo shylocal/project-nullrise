@@ -36,6 +36,7 @@ function ParkourController.new(character, input_controller, movement_controller)
 		VaultAutoRotateBefore = nil,
 		VaultPlatformStandBefore = nil,
 		NextVaultAt = 0,
+		NextVaultProbeAt = 0,
 		CornerLockPosition = nil,
 		CornerLockInputDirection = nil,
 	}, ParkourController)
@@ -476,6 +477,12 @@ function ParkourController:_try_vault()
 		return false
 	end
 
+	local now = os.clock()
+	if now < (self.NextVaultProbeAt or 0) then
+		return false
+	end
+	self.NextVaultProbeAt = now + Config.VaultProbeInterval
+
 	local root = self.Root
 	local humanoid = self.Humanoid
 	if not root or not humanoid or humanoid.Health <= 0
@@ -612,7 +619,7 @@ function ParkourController:_try_vault()
 		end
 	end
 
-	self.NextVaultAt = os.clock() + Config.VaultCooldown
+	self.NextVaultAt = now + Config.VaultCooldown
 	self._vaultStart = start_cframe
 	self._vaultTarget = target_cframe
 	self._vaultElapsed = 0
