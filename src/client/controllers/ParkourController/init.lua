@@ -469,7 +469,10 @@ function ParkourController:_traverse(dt)
 			return
 		end
 
-		local candidate_position = root.Position
+		-- During a smoothed W/S transfer, root.Position is intentionally between
+		-- the source and destination heights. Lateral contact probes must use
+		-- the logical hang target so they sample the destination ledge consistently.
+		local candidate_position = self.HangPosition
 			+ tangent * direction * Config.TraverseSpeed * math.max(dt, 0)
 		local probe_origin = candidate_position
 			+ Vector3.new(0, 1.5, 0)
@@ -479,7 +482,7 @@ function ParkourController:_traverse(dt)
 			-normal * (Config.WallGap + Config.SurfaceProbe)
 		)
 		local top = probe
-			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position, root.Position.Y + Config.HangDrop)
+			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, active_top_y)
 		local next_climbable = top
 			and self:_get_climbable_guide(top.Instance)
 		local same_height = top
