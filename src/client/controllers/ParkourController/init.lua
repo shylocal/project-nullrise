@@ -27,9 +27,7 @@ local MANTLE_MAX_OUTWARD = 2
 local MANTLE_MAX_LATERAL = 5
 local MANTLE_MIN_RISE = 0.25
 local TRAVERSE_HEIGHT_TOLERANCE = 1.5
-local LEDGE_EDGE_MARGIN = 0.02
 local CORNER_LOCK_DISTANCE = 1.75
-local MAX_GROUND_DROP = 32
 
 local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
@@ -55,7 +53,6 @@ function ParkourController.new(character, input_controller, movement_controller)
 		LastDetectionReason = nil,
 		LastDetectionLogAt = 0,
 		LastTraversalDiagnostic = nil,
-		LastTraversalSuccessLogAt = 0,
 		CornerLockPosition = nil,
 		CornerLockInputDirection = nil,
 	}, ParkourController)
@@ -89,9 +86,7 @@ function ParkourController:_start()
 	self:_debug("controller initialized; root=%s humanoid=%s", tostring(self.Root ~= nil), tostring(self.Humanoid ~= nil))
 	self.Trove:Connect(self.InputController.ActionBegan, function(action)
 		self:_debug("input began: %s (state=%s)", tostring(action), self.State)
-		if action == Actions.Jump then
-			self:_on_jump()
-		elseif action == Actions.Forward and self.State == "Hanging" then
+		if action == Actions.Forward and self.State == "Hanging" then
 			self:_try_mantle()
 		elseif action == Actions.Backward and self.State == "Hanging" then
 			self:_try_lower_ledge()
@@ -197,7 +192,7 @@ function ParkourController:_is_climbable(instance)
 	return self:_get_climbable_guide(instance) ~= nil
 end
 
-function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, root_position)
+function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, root_position, reference_y)
 	-- Several climb guides can overlap vertically. A single downward ray hits
 	-- the highest one first, even when that ledge is outside grab range. Walk
 	-- down through successive hits and choose the climbable, walkable top closest
@@ -230,7 +225,7 @@ function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, 
 			break
 		end
 
-		local height_delta = root_position.Y - candidate.Position.Y
+		local height_delta = (reference_y or root_position.Y) - candidate.Position.Y
 		local height_distance = math.abs(height_delta)
 		local climbable = self:_is_climbable(candidate.Instance)
 		local walkable = candidate.Normal.Y >= 0.5
@@ -376,7 +371,7 @@ function ParkourController:_position_hanging()
 	root.CFrame = CFrame.lookAt(position, position - normal)
 end
 
-function ParkourController:_has_hang_body_clearance(position, normal, allowed_surfaces)
+function ParkourController:_has_hang_body_clearance(position, normal, allowed_surfaces, strict)
 	local root = self.Root
 	local character = self.Character
 	if not root or not character or not position or not normal then
@@ -402,7 +397,7 @@ function ParkourController:_has_hang_body_clearance(position, normal, allowed_su
 		-- A tagged Climbable Model can contain separate marker/side/top parts.
 		-- Exclude its tagged guide ancestor too, otherwise sibling parts from
 		-- the same intended hang surface falsely block the root at tight turns.
-		local guide = self:_get_climbable_guide(instance)
+		local guide = not strict and self:_get_climbable_guide(instance) or nil
 		if guide and guide ~= instance then
 			table.insert(exclusions, guide)
 		end
@@ -444,6 +439,35 @@ function ParkourController:_step(dt)
 	end
 end
 
+
+function ParkourController:_snapshot_hang_pose()
+	local root = self.Root
+	return {
+		CurrentClimbable = self.CurrentClimbable,
+		Normal = self.Normal,
+		HangDepthOffset = self.HangDepthOffset,
+		HangPosition = self.HangPosition,
+		CornerLockPosition = self.CornerLockPosition,
+		CornerLockInputDirection = self.CornerLockInputDirection,
+		CFrame = root and root.CFrame,
+	}
+end
+
+function ParkourController:_restore_hang_pose(snapshot)
+	self.CurrentClimbable = snapshot.CurrentClimbable
+	self.Normal = snapshot.Normal
+	self.HangDepthOffset = snapshot.HangDepthOffset
+	self.HangPosition = snapshot.HangPosition
+	self.CornerLockPosition = snapshot.CornerLockPosition
+	self.CornerLockInputDirection = snapshot.CornerLockInputDirection
+	local root = self.Root
+	if root and snapshot.CFrame then
+		root.CFrame = snapshot.CFrame
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+	end
+end
+
 function ParkourController:_traverse(dt)
 	local root = self.Root
 	local climbable = self.CurrentClimbable
@@ -460,6 +484,7 @@ function ParkourController:_traverse(dt)
 	if self.InputController:IsDown(Actions.Left) then direction -= 1 end
 
 	if direction ~= 0 then
+		local pose_snapshot = self:_snapshot_hang_pose()
 		local tangent = flatten(root.CFrame.RightVector)
 		if tangent.Magnitude < 0.05 then
 			tangent = flatten(Vector3.yAxis:Cross(normal))
@@ -480,7 +505,7 @@ function ParkourController:_traverse(dt)
 			-normal * (WALL_GAP + SURFACE_PROBE)
 		)
 		local top = probe
-			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position)
+			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position, root.Position.Y + (self.State == "Hanging" and HANG_DROP or 0))
 		local next_climbable = top
 			and self:_get_climbable_guide(top.Instance)
 		local same_height = top
@@ -640,12 +665,28 @@ function ParkourController:_traverse(dt)
 		else
 			self:_debug_traversal("local surface probe did not validate the active guide or corner")
 		end
+
+		local allowed_contact = {}
+		if top then table.insert(allowed_contact, top.Instance) end
+		if probe then table.insert(allowed_contact, probe.Instance) end
+		local midpoint_clear = true
+		if is_corner_transfer then
+			local midpoint = pose_snapshot.HangPosition:Lerp(self.HangPosition, 0.5)
+			local midpoint_normal = flatten(pose_snapshot.Normal + self.Normal)
+			if midpoint_normal.Magnitude < 0.05 then midpoint_normal = self.Normal end
+			midpoint_clear = self:_has_hang_body_clearance(midpoint, midpoint_normal, allowed_contact, true)
+		end
+		local body_clear = midpoint_clear and self:_has_hang_body_clearance(self.HangPosition, self.Normal, allowed_contact, true)
+		if not body_clear then
+			self:_restore_hang_pose(pose_snapshot)
+		else
 		if is_corner_transfer then
 			-- Keep the newly selected face stable until the root has moved away
 			-- from the seam. This prevents the fan from immediately reacquiring
 			-- the face we just left and flipping the character back and forth.
 			self.CornerLockPosition = self.HangPosition
 			self.CornerLockInputDirection = direction
+		end
 		end
 	end
 
@@ -724,7 +765,7 @@ function ParkourController:_try_lower_ledge()
 		if in_vertical_range and in_reach then
 			local target_top_position = top.Position
 			local horizontal_distance = flatten(target_top_position - current_top).Magnitude
-			if drop < best_drop or (drop == best_drop and horizontal_distance < best_distance) then
+			if drop < best_drop or (math.abs(drop - best_drop) < 1e-4 and horizontal_distance < best_distance) then
 				best_top = top
 				best_drop = drop
 				best_distance = horizontal_distance
@@ -1297,7 +1338,7 @@ function ParkourController:_try_mantle()
 			considered += 1
 			local horizontal_distance = flatten(relative).Magnitude
 			if rise < best_height
-				or (rise == best_height and horizontal_distance < best_distance) then
+				or (math.abs(rise - best_height) < 1e-4 and horizontal_distance < best_distance) then
 				best_top = top
 				best_height = rise
 				best_distance = horizontal_distance
