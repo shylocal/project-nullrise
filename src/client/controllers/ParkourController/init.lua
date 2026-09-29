@@ -149,10 +149,6 @@ function ParkourController:_cast(origin, direction, respect_can_collide)
 	return Workspace:Raycast(origin, direction, params)
 end
 
-function ParkourController:_is_climbable(instance)
-	return self:_get_climbable_guide(instance) ~= nil
-end
-
 function ParkourController:_get_climbable_guide(instance)
 	local current = instance
 	while current and current ~= Workspace do
@@ -162,6 +158,10 @@ function ParkourController:_get_climbable_guide(instance)
 		current = current.Parent
 	end
 	return nil
+end
+
+function ParkourController:_is_climbable(instance)
+	return self:_get_climbable_guide(instance) ~= nil
 end
 
 function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, root_position)
@@ -432,8 +432,8 @@ function ParkourController:_on_jump()
 	end
 
 	if self.State == "Grounded" then
-		local surface, normal, position = self:_detect_surface()
-		if surface then self:_grab(surface, normal, position) end
+		local climbable, normal, position = self:_detect_surface()
+		if climbable then self:_grab(climbable, normal, position) end
 	end
 end
 
