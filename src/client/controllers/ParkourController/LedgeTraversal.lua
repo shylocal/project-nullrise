@@ -533,7 +533,9 @@ function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 		return false
 	end
 
-	local edge_inset = root.Size.Z * 0.5 + Config.TallWallEdgeClearance
+	-- The top sample is 0.1 studs inside the lip; compensate so the
+	-- root keeps only the configured clearance from the physical outer edge.
+	local edge_inset = math.max(0, root.Size.Z * 0.5 + Config.TallWallEdgeClearance - 0.1)
 	local standing_position = support.Position
 		- normal * edge_inset
 		+ Vector3.new(0, self:_standing_height() - 0.05, 0)
@@ -575,11 +577,14 @@ function LedgeTraversal.try_mantle(self)
 
 	local root = self.Root
 	local normal = self.Normal
-	local depth_offset = self.HangDepthOffset or normal * Config.WallGap
+	local is_tagged_guide = ClimbableQuery.is_climbable(self.CurrentClimbable)
+	local depth_offset = if is_tagged_guide
+		then normal * Config.WallGap
+		else (self.HangDepthOffset or normal * Config.WallGap)
 	local current_top = self.HangPosition
 		- depth_offset
 		+ Vector3.new(0, Config.HangDrop, 0)
-	if not ClimbableQuery.is_climbable(self.CurrentClimbable) then
+	if not is_tagged_guide then
 		return LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 	end
 	local tangent = Vector.flatten(root.CFrame.RightVector)
