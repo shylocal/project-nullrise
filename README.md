@@ -76,7 +76,7 @@ Large responsibilities are split by domain rather than by arbitrary size. For ex
 
 Parkour tuning lives in `src/client/controllers/ParkourController/Config.lua`. While hanging, holding Sprint increases A/D traversal speed without changing the existing ledge-clearance and corner-lock checks.
 
-On the ground, sprinting forward into a small, collidable, non-climbable obstacle can trigger an automatic vault. The controller samples the obstacle top, finds walkable ground beyond it, and checks the swept character envelope for clear landing and overhead space before starting the vault. If any check fails, normal movement and jumping remain available. Vault dimensions, timing, clearance, and probe cadence are configurable.
+On the ground, sprinting forward into a small, collidable, non-climbable obstacle can trigger an automatic vault. The controller samples the obstacle top, finds walkable ground beyond it, and samples the character clearance envelope along the arc to verify landing and overhead space before starting the vault. If any check fails, normal movement and jumping remain available. Vault dimensions, timing, clearance, and probe cadence are configurable.
 
 ## Setup
 
