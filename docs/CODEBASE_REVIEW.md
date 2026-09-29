@@ -6,6 +6,20 @@ Reviewed repository structure and representative client controllers, parkour, co
 
 The project has a sensible foundation: native Luau, explicit dependencies, focused service/controller ownership, Trove cleanup, and server-side combat validation. The main risk is not a need for a framework. Several modules are orchestration hubs, state ownership is spread across booleans and saved-property fields, and lifecycle/input assumptions are implicit. A large rewrite in one pass would increase regression risk. Refactor in small, behavior-preserving slices with tests and reviewable commits.
 
+## Refactor progress (2026-09-30)
+
+Since the initial static review, the following behavior-preserving module boundaries have been introduced:
+
+- Parkour spatial operations: `ParkourController/Queries.lua` owns raycast/overlap helpers and surface detection.
+- Parkour movement domains: `Traversal.lua` owns lateral hang traversal and pose snapshots; `LedgeTraversal.lua` owns ledge selection, transfers, and mantle searches; `VaultTraversal.lua` owns vault/top-hop setup and completion.
+- Parkour support: `ClimbableQuery.lua` owns tagged-guide discovery; `VaultMath.lua` owns pure vault easing/trajectory math; `Config.lua` remains the tuning source.
+- Combat input: `CombatController/AttackInput.lua` owns primary press buffering and charge intent.
+- Combat execution: `CombatController/AttackLifecycle.lua` owns attack setup, animation-marker wiring, hitbox lifecycle, sprint policy, and lifecycle cleanup. `CombatController/init.lua` remains the composition/orchestration layer, with the finish callback and public Attack/Charge/Reset interface.
+
+The main ParkourController module is now 466 lines (from roughly 2,200 before decomposition); CombatController/init.lua is 203 lines (from 456 before decomposition). The remaining PlayerController, CharacterController, MovementController, UIController, and AnimationController already have narrow orchestration or domain roles, so they were not split merely to reduce line count.
+
+Static consistency checks confirmed that extracted Parkour modules' controller-method calls resolve to methods retained by ParkourController, the extracted Combat modules' controller-method calls resolve, and sibling module references are present. These checks do not replace Luau analysis or gameplay tests. The additional module moves have not been run in Roblox Studio during this pass; the earlier gameplay confirmation predates these latest structural changes.
+
 ## Findings
 
 ### P0 — Lifecycle and state restoration
