@@ -20,6 +20,7 @@ return {
 	VaultObstacleClearance = 0.2,
 	VaultDuration = 0.38,
 	VaultCooldown = 0.55,
+	VaultProbeInterval = 0.12,
 	VaultForwardDot = 0.6,
 	ClimbSmoothness = 18,
 	SurfaceProbe = 1.4,
