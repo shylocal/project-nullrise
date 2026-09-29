@@ -303,16 +303,7 @@ function ParkourController:_detect_surface()
 	end
 	hang_normal = hang_normal.Unit
 	local hang_position = top.Position + hang_normal * Config.WallGap - Vector3.new(0, Config.HangDrop, 0)
-	local body_clear, blocking_part = self:_has_hang_body_clearance(
-		hang_position,
-		hang_normal,
-		{
-			wall.Instance,
-			top.Instance,
-			self:_get_climbable_guide(wall.Instance),
-			self:_get_climbable_guide(top.Instance),
-		}
-	)
+	local body_clear = self:_has_hang_body_clearance(hang_position, hang_normal)
 	if not body_clear then
 				return nil
 	end
