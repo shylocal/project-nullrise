@@ -44,4 +44,8 @@ function runtime:Destroy()
 	self.InputController:Destroy()
 end
 
+script.Destroying:Connect(function()
+	runtime:Destroy()
+end)
+
 return runtime
