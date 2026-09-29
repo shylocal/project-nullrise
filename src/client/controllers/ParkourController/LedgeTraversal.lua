@@ -140,7 +140,15 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 		return false
 	end
 
-	local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, candidate_position.Y + Config.HangDrop)
+	local top = self:_cast_reachable_grab_top(
+		self,
+		probe.Position,
+		probe.Normal,
+		candidate_position,
+		candidate_position.Y + Config.HangDrop,
+		nil,
+		probe.Instance
+	)
 	if not top then
 		debug_log(self, "refresh-contact", 0, "no reachable top", "expected", expected_guide:GetFullName(),
 			"sideHit", probe.Instance:GetFullName(), "sideNormal", probe.Normal)
