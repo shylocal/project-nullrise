@@ -486,15 +486,13 @@ function ParkourController:_try_vault()
 		return false
 	end
 
-	local forward = flatten(root.CFrame.LookVector)
-	local move_direction = flatten(humanoid.MoveDirection)
-	if forward.Magnitude < 0.05 or move_direction.Magnitude < 0.05 then
+	-- Vault in the player's actual movement direction, so the activation
+	-- works while strafing or approaching a low wall from any side.
+	local forward = flatten(humanoid.MoveDirection)
+	if forward.Magnitude < 0.05 then
 		return false
 	end
 	forward = forward.Unit
-	if move_direction.Unit:Dot(forward) < Config.VaultForwardDot then
-		return false
-	end
 
 	local standing_height = self:_standing_height()
 	local current_ground = self:_cast(
@@ -511,11 +509,33 @@ function ParkourController:_try_vault()
 		current_ground.Position.Y + Config.VaultDetectionHeight,
 		root.Position.Z
 	)
-	local obstacle_hit = self:_cast(
-		detection_origin,
-		forward * Config.VaultDetectionDistance,
-		true
-	)
+	local right = forward:Cross(Vector3.yAxis)
+	if right.Magnitude < 0.05 then
+		return false
+	end
+	right = right.Unit
+	local half_width = math.max(0, Config.VaultDetectionHalfWidth or root.Size.X)
+	-- A five-point cross widens the activation footprint around the character
+	-- and checks both low and higher portions of short walls. This helps catch
+	-- long, thin obstacles even when the center ray would pass beside them.
+	local probe_offsets = {
+		Vector3.zero,
+		right * half_width,
+		-right * half_width,
+		Vector3.new(0, -0.2, 0),
+		Vector3.new(0, 0.45, 0),
+	}
+	local obstacle_hit = nil
+	for _, probe_offset in ipairs(probe_offsets) do
+		local hit = self:_cast(
+			detection_origin + probe_offset,
+			forward * Config.VaultDetectionDistance,
+			true
+		)
+		if hit and (not obstacle_hit or hit.Distance < obstacle_hit.Distance) then
+			obstacle_hit = hit
+		end
+	end
 	if not obstacle_hit then
 		return false
 	end
