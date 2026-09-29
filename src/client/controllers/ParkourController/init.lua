@@ -515,9 +515,12 @@ function ParkourController:_traverse(dt)
 			if radial.Magnitude >= 0.05 then
 				radial = radial.Unit
 				local radius = math.max(cylinder.Size.Y, cylinder.Size.Z) * 0.5
-				local arc = TRAVERSE_SPEED * math.max(dt, 0) * direction
-				local angle = arc / math.max(radius + WALL_GAP, 0.1)
-				local rotated = CFrame.fromAxisAngle(Vector3.yAxis, -angle):VectorToWorldSpace(radial)
+				local arc = TRAVERSE_SPEED * math.max(dt, 0)
+				local angular_tangent = flatten(Vector3.yAxis:Cross(radial))
+				local travel_tangent = tangent * direction
+				local turn_sign = angular_tangent:Dot(travel_tangent) >= 0 and 1 or -1
+				local angle = arc / math.max(radius + WALL_GAP, 0.1) * turn_sign
+				local rotated = CFrame.fromAxisAngle(Vector3.yAxis, angle):VectorToWorldSpace(radial)
 				local sample = center + rotated * radius
 				local top = self:_get_guide_top(climbable, sample)
 				if top and top.Normal.Y >= 0.5 then
