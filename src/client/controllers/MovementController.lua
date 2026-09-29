@@ -18,6 +18,7 @@ function MovementController.new(character, input_controller)
 
 		Humanoid = nil,
 		DefaultWalkSpeed = MovementConfig.WalkSpeed,
+		SprintSpeed = MovementConfig.SprintSpeed,
 		SprintBlocked = false,
 		Sprinting = false,
 
@@ -78,12 +79,27 @@ function MovementController:_update_sprinting()
 
 	local humanoid = self.Humanoid
 	if humanoid and humanoid.Parent ~= nil then
-		humanoid.WalkSpeed = sprinting and MovementConfig.SprintSpeed or self.DefaultWalkSpeed
+		humanoid.WalkSpeed = sprinting and self.SprintSpeed or self.DefaultWalkSpeed
 	end
 
 	if changed then
 		self.SprintingChanged:Fire(sprinting)
 	end
+end
+
+function MovementController:SetSpeeds(walk_speed, sprint_speed)
+	local function is_valid_speed(value)
+		return typeof(value) == "number" and math.isfinite(value) and value >= 0
+	end
+
+	if not is_valid_speed(walk_speed) or not is_valid_speed(sprint_speed) then
+		return false
+	end
+
+	self.DefaultWalkSpeed = walk_speed
+	self.SprintSpeed = sprint_speed
+	self:_update_sprinting()
+	return true
 end
 
 function MovementController:SetSprintBlocked(blocked)
