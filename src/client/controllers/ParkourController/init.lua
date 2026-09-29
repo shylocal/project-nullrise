@@ -44,7 +44,7 @@ function ParkourController.new(character, input_controller, movement_controller)
 		State = "Grounded",
 		Humanoid = character:FindFirstChildOfClass("Humanoid"),
 		Root = character:FindFirstChild("HumanoidRootPart"),
-		Surface = nil,
+		CurrentClimbable = nil,
 		Normal = nil,
 		HangPosition = nil,
 		AutoRotateBeforeHang = nil,
@@ -158,6 +158,17 @@ function ParkourController:_is_climbable(instance)
 		current = current.Parent
 	end
 	return false
+end
+
+function ParkourController:_get_climbable_guide(instance)
+	local current = instance
+	while current and current ~= Workspace do
+		if CollectionService:HasTag(current, CLIMBABLE_TAG) then
+			return current
+		end
+		current = current.Parent
+	end
+	return nil
 end
 
 function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, root_position)
@@ -287,14 +298,14 @@ function ParkourController:_detect_surface()
 		top.Instance:GetFullName(),
 		height_delta
 	)
-	return wall.Instance, wall.Normal, hang_position
+	return self:_get_climbable_guide(top.Instance), wall.Normal, hang_position
 end
 
-function ParkourController:_grab(surface, normal, position)
-	if self.State ~= "Grounded" then return end
-	self:_debug("grabbed; surface=%s position=%s", surface:GetFullName(), tostring(position))
+function ParkourController:_grab(guide, normal, position)
+	if self.State ~= "Grounded" or not guide then return end
+	self:_debug("grabbed; guide=%s position=%s", guide:GetFullName(), tostring(position))
 	self.State = "Hanging"
-	self.Surface = surface
+	self.CurrentClimbable = guide
 	self.Normal = normal
 	self.HangPosition = position
 
@@ -334,7 +345,7 @@ end
 
 function ParkourController:_traverse(dt)
 	local root = self.Root
-	local surface = self.Surface
+	local surface = self.CurrentClimbable
 	local normal = self.Normal
 	if not root or not surface or not normal or not surface:IsDescendantOf(Workspace) then
 		self:_release()
@@ -393,7 +404,7 @@ function ParkourController:_traverse(dt)
 					self.LastTraversalDiagnostic = nil
 					-- Track the tagged top that was validated, not a possibly
 					-- unrelated backing wall hit by the lateral probe.
-					self.Surface = top.Instance
+					self.CurrentClimbable = top.Instance
 					self.Normal = probe.Normal
 					self.HangPosition = top.Position
 						+ probe.Normal * WALL_GAP
@@ -558,7 +569,7 @@ function ParkourController:_try_lower_ledge()
 		drop,
 		lower_offset
 	)
-	self.Surface = lower.Instance
+	self.CurrentClimbable = self:_get_climbable_guide(lower.Instance)
 	self.HangPosition = lower.Position + normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
 	self:_position_hanging()
 end
@@ -601,7 +612,7 @@ function ParkourController:_transfer_hang_to_ledge(top, normal, tangent, lateral
 
 	local hang_position = self:_get_hang_position_for_top(top, normal, tangent, lateral_offset)
 	self.State = "Hanging"
-	self.Surface = top.Guide or top.Instance
+	self.CurrentClimbable = top.Guide or self:_get_climbable_guide(top.Instance)
 	self.Normal = normal
 	self.HangPosition = hang_position
 
@@ -785,7 +796,7 @@ function ParkourController:_release()
 	end
 	self:_debug("released from hanging; Space release or controller cleanup")
 	self.State = "Grounded"
-	self.Surface = nil
+	self.CurrentClimbable = nil
 	self.Normal = nil
 	self.HangPosition = nil
 
