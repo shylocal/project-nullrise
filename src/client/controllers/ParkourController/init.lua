@@ -423,7 +423,10 @@ function ParkourController:_traverse(dt)
 		-- miss the adjacent face when the character is at the corner seam or
 		-- when the guide is one tagged L-shaped model with multiple parts.
 		local movement_tangent = tangent * direction
-		local corner_turn_normals = { movement_tangent, -movement_tangent }
+		-- For a convex 90-degree turn, the next face points back toward the
+		-- approach direction; probing the opposite normal can grab a stray
+		-- rear/inside face and rotate the character the wrong way.
+		local corner_turn_normals = { -movement_tangent }
 		local corner_longitudinal_offsets = {
 			-normal * 1.8,
 			-normal * 0.9,
