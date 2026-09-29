@@ -9,7 +9,7 @@ local Actions = require(ReplicatedStorage.shared.input.Actions)
 local ParkourController = {}
 ParkourController.__index = ParkourController
 
-local Config = require(script.Parent.Config)
+local Config = require(script.Config)
 
 local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
