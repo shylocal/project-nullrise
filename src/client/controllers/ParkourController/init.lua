@@ -40,6 +40,7 @@ function ParkourController.new(character, input_controller, movement_controller)
 		HangPosition = nil,
 		AutoRotateBeforeHang = nil,
 		PlatformStandBeforeHang = nil,
+		GrabBlockedUntilJumpReleased = false,
 		LastDetectionReason = nil,
 		LastDetectionLogAt = 0,
 		LastTraversalDiagnostic = nil,
@@ -86,9 +87,15 @@ function ParkourController:_start()
 
 	self.Trove:Connect(self.InputController.ActionEnded, function(action)
 		self:_debug("input ended: %s (state=%s)", tostring(action), self.State)
-		if action == Actions.Jump and self.State == "Hanging" then
-			-- Releasing Space simply lets go; normal gravity handles the drop.
-			self:_release()
+		if action == Actions.Jump then
+			if self.GrabBlockedUntilJumpReleased then
+				self.GrabBlockedUntilJumpReleased = false
+				self:_debug("Space released; ledge grabbing re-armed")
+			end
+			if self.State == "Hanging" then
+				-- Releasing Space simply lets go; normal gravity handles the drop.
+				self:_release()
+			end
 		end
 	end)
 
@@ -249,7 +256,7 @@ end
 
 function ParkourController:_step(dt)
 	if self.State == "Grounded" then
-		if self.InputController:IsDown(Actions.Jump) then
+		if self.InputController:IsDown(Actions.Jump) and not self.GrabBlockedUntilJumpReleased then
 			local surface, normal, position = self:_detect_surface()
 			if surface then self:_grab(surface, normal, position) end
 		end
@@ -344,6 +351,10 @@ end
 function ParkourController:_on_jump()
 	self:_debug("jump pressed; state=%s", self.State)
 	if self.State == "Hanging" then
+		return
+	end
+	if self.GrabBlockedUntilJumpReleased then
+		self:_debug("jump grab ignored; waiting for Space release after mantle")
 		return
 	end
 
@@ -489,6 +500,9 @@ function ParkourController:_complete_mantle(top, normal)
 	end
 
 	self:_debug("mantle completed; top=%s position=%s", top.Instance:GetFullName(), tostring(standing_position))
+	-- Space is commonly still held from the grab. Do not let the grounded
+	-- detector immediately latch onto the ledge we just climbed past.
+	self.GrabBlockedUntilJumpReleased = true
 	self:_release()
 	root.CFrame = CFrame.lookAt(standing_position, standing_position - normal)
 	root.AssemblyLinearVelocity = Vector3.zero
