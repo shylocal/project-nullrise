@@ -21,12 +21,7 @@ local SURFACE_PROBE = 1.4
 local MANTLE_INSET = 1.25
 local MANTLE_SAMPLE_STEP = 0.75
 local MANTLE_SAMPLE_COUNT = 4
-local JUMP_LANDING_DISTANCES = { 4, 6, 8, 10 }
-local JUMP_SCAN_HEIGHT = 3
-local JUMP_SCAN_DEPTH = 14
-local JUMP_MAX_DROP = 8
-local JUMP_MAX_RISE = 5.75
-local JUMP_OFF_VERTICAL_SPEED = 50
+local LOWER_PROBE_OFFSETS = { 0.15, 0.45, 0.75, 1.05 }
 
 local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
@@ -103,8 +98,10 @@ function ParkourController:_start()
 
 	self:_bind_character_parts()
 	self.Trove:Connect(self.Character.ChildAdded, function(child)
+		self:_debug("character child added: %s (%s)", child.Name, child.ClassName)
 		if child.Name == "HumanoidRootPart" then
 			self.Root = child
+			self:_debug("root part bound: %s", child:GetFullName())
 		elseif child:IsA("Humanoid") then
 			self:_bind_humanoid(child)
 		end
@@ -114,12 +111,14 @@ end
 function ParkourController:_bind_character_parts()
 	self.Root = self.Character:FindFirstChild("HumanoidRootPart")
 	local humanoid = self.Character:FindFirstChildOfClass("Humanoid")
+	self:_debug("character parts discovered; root=%s humanoid=%s", tostring(self.Root ~= nil), tostring(humanoid ~= nil))
 	if humanoid then self:_bind_humanoid(humanoid) end
 end
 
 function ParkourController:_bind_humanoid(humanoid)
 	if self.Humanoid == humanoid then return end
 	self.Humanoid = humanoid
+	self:_debug("humanoid bound: %s", humanoid:GetFullName())
 	self.Trove:Connect(humanoid.Died, function()
 		self:_release()
 	end)
@@ -350,38 +349,67 @@ function ParkourController:_try_lower_ledge()
 		return
 	end
 
-	-- Probe below the current ledge, outside the wall face. A missing or
-	-- non-climbable result means there is no valid lower ledge, so S is ignored.
+	-- Sample several points just beyond the wall face. The old single probe
+	-- sat a full character gap in front of the ledge and could miss narrow
+	-- lower platforms or fall clear of the platform's footprint.
 	local current_top = self.HangPosition - self.Normal * WALL_GAP + Vector3.new(0, HANG_DROP, 0)
-	local probe_origin = current_top
-		+ self.Normal * (WALL_GAP + 0.2)
-		- Vector3.new(0, 0.15, 0)
-	local lower = self:_cast(probe_origin, Vector3.new(0, -(MAX_GRAB_HEIGHT + 0.5), 0))
+	local lower = nil
+	local lower_offset = nil
+	for _, offset in ipairs(LOWER_PROBE_OFFSETS) do
+		local probe_origin = current_top
+			+ self.Normal * offset
+			- Vector3.new(0, 0.15, 0)
+		local candidate = self:_cast(
+			probe_origin,
+			Vector3.new(0, -(MAX_GRAB_HEIGHT + 0.5), 0)
+		)
+		if not candidate then
+			self:_debug("lower probe offset %.2f: ray missed", offset)
+		elseif candidate.Normal.Y < 0.5 then
+			self:_debug(
+				"lower probe offset %.2f: hit %s with non-walkable normal=%s",
+				offset,
+				candidate.Instance:GetFullName(),
+				tostring(candidate.Normal)
+			)
+		elseif not self:_is_climbable(candidate.Instance) then
+			self:_debug(
+				"lower probe offset %.2f: hit %s (not climbable)",
+				offset,
+				candidate.Instance:GetFullName()
+			)
+		else
+			local drop = current_top.Y - candidate.Position.Y
+			if drop >= 0.5 and drop <= MAX_GRAB_HEIGHT then
+				lower = candidate
+				lower_offset = offset
+				break
+			end
+			self:_debug(
+				"lower probe offset %.2f: hit %s but drop %.2f is out of range",
+				offset,
+				candidate.Instance:GetFullName(),
+				drop
+			)
+		end
+	end
+
 	if not lower then
-		self:_debug("lower ledge: downward ray missed")
-		return
-	end
-	if not self:_is_climbable(lower.Instance) then
-		self:_debug("lower ledge: hit %s (not climbable)", lower.Instance:GetFullName())
-		return
-	end
-	if lower.Normal.Y < 0.5 then
-		self:_debug("lower ledge: hit %s with non-walkable normal=%s", lower.Instance:GetFullName(), tostring(lower.Normal))
+		self:_debug("lower ledge: no valid tagged lower surface found")
 		return
 	end
 
 	local drop = current_top.Y - lower.Position.Y
-	if drop < 0.5 or drop > MAX_GRAB_HEIGHT then
-		self:_debug("lower ledge: drop %.2f out of range", drop)
-		return
-	end
-
-	self:_debug("lower ledge accepted; surface=%s drop=%.2f", lower.Instance:GetFullName(), drop)
+	self:_debug(
+		"lower ledge accepted; surface=%s drop=%.2f probe_offset=%.2f",
+		lower.Instance:GetFullName(),
+		drop,
+		lower_offset
+	)
 	self.Surface = lower.Instance
 	self.HangPosition = lower.Position + self.Normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
 	self:_position_hanging()
 end
-
 function ParkourController:_standing_height()
 	local root = self.Root
 	local humanoid = self.Humanoid
@@ -414,10 +442,10 @@ function ParkourController:_has_standing_clearance(position, normal)
 	)
 	for _, part in ipairs(bounds) do
 		if part.CanCollide then
-			return false
+			return false, part
 		end
 	end
-	return true
+	return true, nil
 end
 
 function ParkourController:_complete_mantle(top, normal)
@@ -427,8 +455,14 @@ function ParkourController:_complete_mantle(top, normal)
 	local standing_position = top.Position
 		- normal * MANTLE_INSET
 		+ Vector3.new(0, self:_standing_height() + 0.05, 0)
-	if not self:_has_standing_clearance(standing_position, normal) then
-		self:_debug("mantle blocked by standing clearance; top=%s position=%s", top.Instance:GetFullName(), tostring(standing_position))
+	local clear, blocker = self:_has_standing_clearance(standing_position, normal)
+	if not clear then
+		self:_debug(
+			"mantle blocked by standing clearance; top=%s blocker=%s position=%s",
+			top.Instance:GetFullName(),
+			blocker and blocker:GetFullName() or "unknown",
+			tostring(standing_position)
+		)
 		return false
 	end
 
@@ -465,21 +499,59 @@ function ParkourController:_try_mantle()
 		local offset = sample_index * MANTLE_SAMPLE_STEP
 		local sample_position = current_top - normal * offset
 		local top = self:_cast_top_surface(sample_position, normal, root.Position)
-		if top and self:_is_climbable(top.Instance) and top.Normal.Y >= 0.5 then
+		if not top then
+			self:_debug("mantle sample %.2f: top ray missed", offset)
+		else
+			local climbable = self:_is_climbable(top.Instance)
 			local height_delta = root.Position.Y - top.Position.Y
 			local height_above_lip = top.Position.Y - current_top.Y
-			if height_delta >= -MAX_GRAB_HEIGHT
-				and height_delta <= MAX_GRAB_HEIGHT
-				and height_above_lip >= -0.25 then
+			if top.Normal.Y < 0.5 then
+				self:_debug(
+					"mantle sample %.2f: hit %s with non-walkable normal=%s",
+					offset,
+					top.Instance:GetFullName(),
+					tostring(top.Normal)
+				)
+			elseif height_delta < -MAX_GRAB_HEIGHT or height_delta > MAX_GRAB_HEIGHT then
+				self:_debug(
+					"mantle sample %.2f: top=%s height_delta=%.2f out of range",
+					offset,
+					top.Instance:GetFullName(),
+					height_delta
+				)
+			elseif height_above_lip < -0.25 then
+				self:_debug(
+					"mantle sample %.2f: top=%s is %.2f below current lip",
+					offset,
+					top.Instance:GetFullName(),
+					height_above_lip
+				)
+			else
+				-- A ledge top must be tagged, but ordinary visible walkable ground
+				-- is also a valid mantle destination when it has clear standing room.
 				local standing_position = top.Position
 					- normal * MANTLE_INSET
 					+ Vector3.new(0, self:_standing_height() + 0.05, 0)
-				if self:_has_standing_clearance(standing_position, normal)
-					and (height_above_lip > best_height
-						or (height_above_lip == best_height and offset < best_offset)) then
+				local clear, blocker = self:_has_standing_clearance(standing_position, normal)
+				if not clear then
+					self:_debug(
+						"mantle sample %.2f: top=%s blocked by %s",
+						offset,
+						top.Instance:GetFullName(),
+						blocker and blocker:GetFullName() or "unknown"
+					)
+				elseif height_above_lip > best_height
+					or (height_above_lip == best_height and offset < best_offset) then
 					best_top = top
 					best_height = height_above_lip
 					best_offset = offset
+					self:_debug(
+						"mantle candidate at %.2f: top=%s climbable=%s rise=%.2f",
+						offset,
+						top.Instance:GetFullName(),
+						tostring(climbable),
+						height_above_lip
+					)
 				end
 			end
 		end
