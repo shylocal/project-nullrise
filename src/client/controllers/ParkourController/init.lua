@@ -889,27 +889,6 @@ function ParkourController:_standing_height()
 	return hip_height + root.Size.Y * 0.5
 end
 
-function ParkourController:_get_guide_half_extent(top, tangent)
-	local guide = top.Guide
-	if guide and guide:IsA("BasePart") and guide.Shape == Enum.PartType.Cylinder then
-		-- Roblox cylinders run along their local X axis. Project that axis and
-		-- its circular cross-section separately instead of treating the shape
-		-- as a rectangular X/Z footprint.
-		local axis = guide.CFrame.RightVector
-		local axial_projection = math.clamp(math.abs(tangent:Dot(axis)), 0, 1)
-		local radius = math.max(guide.Size.Y, guide.Size.Z) * 0.5
-		return axial_projection * guide.Size.X * 0.5
-			+ math.sqrt(math.max(0, 1 - axial_projection * axial_projection)) * radius
-	end
-
-	-- Project a guide's horizontal bounding box onto the character's
-	-- sideways axis so a long rectangular guide remains traversable off-center.
-	local right = flatten(top.BoxCFrame.RightVector)
-	local look = flatten(top.BoxCFrame.LookVector)
-	return math.abs(tangent:Dot(right)) * top.BoxSize.X * 0.5
-		+ math.abs(tangent:Dot(look)) * top.BoxSize.Z * 0.5
-end
-
 function ParkourController:_refresh_hang_contact(expected_guide, expected_top_y)
 	local root = self.Root
 	local normal = self.Normal
