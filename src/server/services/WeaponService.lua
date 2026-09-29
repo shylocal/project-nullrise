@@ -8,6 +8,7 @@ local WeaponsFolder = ReplicatedStorage.shared.weapons
 local WeaponModels = ReplicatedStorage.weapon_models
 local WeaponRemote = ReplicatedStorage.remotes.Weapon
 local Fists = require(WeaponsFolder.Fists)
+local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
 local WeaponAttachment = require(script.Parent.WeaponAttachment)
 
@@ -209,7 +210,7 @@ function WeaponService:Equip(player, weapon_id)
 	end
 
 	self.EquippedChanged:Fire(player, weapon)
-	WeaponRemote:FireClient(player, "Equipped", weapon_id)
+	WeaponRemote:FireClient(player, Protocol.Weapon.Equipped, weapon_id)
 
 	return true
 end
