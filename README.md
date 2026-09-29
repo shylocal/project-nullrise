@@ -58,7 +58,12 @@ src/
 └── shared/
     ├── input/
     │   └── Actions.lua
+    ├── movement/
+    │   └── Config.lua
+    ├── network/
+    │   └── Protocol.lua
     └── weapons/
+        ├── Catalog.lua
         ├── Fists.lua
         └── Katana.lua
 
