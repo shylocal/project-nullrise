@@ -20,7 +20,11 @@ function Hitmarker.new(ui_controller)
 		HitId = 0,
 	}, Hitmarker)
 
-	self:_start()
+	local ok, err = pcall(self._start, self)
+	if not ok then
+		self:Destroy()
+		error(err, 0)
+	end
 
 	return self
 end
