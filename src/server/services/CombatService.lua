@@ -211,6 +211,7 @@ function CombatService:_create_active(player, attack_key, attack, timing, wielde
 		Wielded = wielded,
 		HitActive = false,
 		HitTargets = {},
+		ValidationRaycastParams = RaycastParams.new(),
 		StartedAt = started_at,
 		ExpiresAt = expires_at,
 	}
