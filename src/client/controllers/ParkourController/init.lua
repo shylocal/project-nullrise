@@ -418,6 +418,19 @@ function ParkourController:_has_hang_body_clearance(position, normal, allowed_su
 	)
 	for _, part in ipairs(overlaps) do
 		if part.CanCollide then
+			self:_debug(
+				"hang clearance blocked; blocker=%s position=%s size=%s target=%s normal=%s strict=%s root_size=%s",
+				part:GetFullName(),
+				tostring(part.Position),
+				tostring(part.Size),
+				tostring(position),
+				tostring(facing),
+				tostring(strict == true),
+				tostring(root.Size)
+			)
+			for _, allowed in ipairs(allowed_surfaces or {}) do
+				self:_debug("hang clearance allowed surface: %s", allowed and allowed:GetFullName() or "nil")
+			end
 			return false, part
 		end
 	end
