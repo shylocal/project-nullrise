@@ -783,6 +783,68 @@ function ParkourController:_try_vault()
 		return false
 	end
 
+	-- Measure the part's full horizontal span, not only its thickness along
+	-- the approach. Long platforms/walls use a physics-driven hop onto the
+	-- sampled top instead of the scripted vault path through their geometry.
+	local obstacle_lateral = Vector3.new(-forward.Z, 0, forward.X)
+	local lateral_half_depth = (
+		math.abs(obstacle.CFrame.RightVector:Dot(obstacle_lateral)) * obstacle.Size.X
+		+ math.abs(obstacle.CFrame.UpVector:Dot(obstacle_lateral)) * obstacle.Size.Y
+		+ math.abs(obstacle.CFrame.LookVector:Dot(obstacle_lateral)) * obstacle.Size.Z
+	) * 0.5
+	local obstacle_length = math.max(half_depth * 2, lateral_half_depth * 2)
+	local long_obstacle_threshold = Config.VaultLongObstacleHopLength or 20
+	if obstacle_length >= long_obstacle_threshold then
+		local top_target = Vector3.new(
+			top.Position.X,
+			top.Position.Y + standing_height - 0.05,
+			top.Position.Z
+		)
+		local horizontal_velocity = flatten(root.AssemblyLinearVelocity)
+		local forward_speed = horizontal_velocity:Dot(forward)
+		local sprint_speed = math.max(0, humanoid.WalkSpeed)
+		local forward_boost = math.max(0, Config.VaultForwardBoostSpeed or 0)
+		local hop_forward_speed = math.max(forward_speed, sprint_speed) + forward_boost
+		local lateral_velocity = horizontal_velocity - forward * forward_speed
+		local target_distance = math.max(
+			0.5,
+			flatten(top_target - root.Position):Dot(forward)
+		)
+		local estimated_flight_time = math.clamp(
+			target_distance / math.max(hop_forward_speed, 1),
+			0.18,
+			0.6
+		)
+		local gravity = math.max(Workspace.Gravity, 1)
+		local target_rise = top_target.Y - root.Position.Y + 0.4
+		local required_vertical_speed = target_rise / estimated_flight_time
+			+ 0.5 * gravity * estimated_flight_time
+		local configured_jump_speed
+		if humanoid.UseJumpPower then
+			configured_jump_speed = humanoid.JumpPower
+		else
+			configured_jump_speed = math.sqrt(2 * gravity * math.max(0, humanoid.JumpHeight))
+		end
+		local hop_vertical_speed = math.max(configured_jump_speed, required_vertical_speed)
+
+		self.NextVaultAt = now + Config.VaultCooldown
+		self.GrabBlockedUntilJumpReleased = self.InputController:IsDown(Actions.Jump)
+		humanoid.Jump = true
+		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+		root.AssemblyLinearVelocity = Vector3.new(
+			lateral_velocity.X + forward.X * hop_forward_speed,
+			hop_vertical_speed,
+			lateral_velocity.Z + forward.Z * hop_forward_speed
+		)
+		vault_debug("LONG OBSTACLE: PHYSICS HOP TO TOP",
+			"part=", obstacle:GetFullName(), "horizontalLength=", obstacle_length,
+			"threshold=", long_obstacle_threshold, "height=", obstacle_height,
+			"topTarget=", top_target, "estimatedFlightTime=", estimated_flight_time,
+			"horizontalSpeed=", hop_forward_speed, "verticalSpeed=", hop_vertical_speed,
+			"customVaultAnimation=", false)
+		return true
+	end
+
 	local target_position = nil
 	local hop_distance = far_edge_distance + Config.VaultLandingGap
 	local landing_origin_y = math.max(root.Position.Y, top.Position.Y)
