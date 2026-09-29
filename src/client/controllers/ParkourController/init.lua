@@ -15,6 +15,16 @@ local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
 end
 
+-- Bias the vault arc toward an earlier lift while keeping its apex centered.
+-- The horizontal trajectory remains linear so the character does not stall
+-- against a taller obstacle during the first part of the vault.
+local function vault_arc_progress(linear)
+	if linear <= 0.5 then
+		return 0.5 * (linear * 2) ^ 0.8
+	end
+	return 1 - 0.5 * ((1 - linear) * 2) ^ 0.8
+end
+
 function ParkourController.new(character, input_controller, movement_controller)
 	local self = setmetatable({
 		Character = character,
@@ -435,8 +445,10 @@ function ParkourController:_step(dt)
 		local linear = self._vaultElapsed / duration
 		local eased = linear * linear * (3 - 2 * linear)
 		local base = self._vaultStart:Lerp(self._vaultTarget, eased)
-		local arc = math.sin(math.pi * linear) * self._vaultArcHeight
-		root.CFrame = CFrame.new(base.Position + Vector3.new(0, arc, 0)) * base.Rotation
+		local horizontal = self._vaultStart.Position:Lerp(self._vaultTarget.Position, linear)
+		local arc = math.sin(math.pi * vault_arc_progress(linear)) * self._vaultArcHeight
+		local position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
+		root.CFrame = CFrame.new(position + Vector3.new(0, arc, 0)) * base.Rotation
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 
@@ -698,12 +710,14 @@ function ParkourController:_try_vault()
 		math.max(root.Size.Y + 0.25, standing_height * 1.6),
 		root.Size.Z + 0.5
 	)
-	for _, alpha in ipairs({ 0.35, 0.5, 0.65, 0.85, 1 }) do
+	for _, alpha in ipairs({ 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1 }) do
 		local eased = alpha * alpha * (3 - 2 * alpha)
 		local base = start_cframe:Lerp(target_cframe, eased)
-		local arc = math.sin(math.pi * alpha) * arc_height
+		local horizontal = start_cframe.Position:Lerp(target_cframe.Position, alpha)
+		local arc = math.sin(math.pi * vault_arc_progress(alpha)) * arc_height
+		local sample_position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
 		local sample_cframe = CFrame.new(
-			base.Position + Vector3.new(0, arc, 0)
+			sample_position + Vector3.new(0, arc, 0)
 		) * base.Rotation
 		if not self:_has_vault_clearance(sample_cframe, clearance_size, obstacle) then
 			return false
