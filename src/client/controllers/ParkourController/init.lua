@@ -180,8 +180,7 @@ end
 
 function ParkourController:_step(dt)
 	if self.State == "Grounded" then
-		if self.InputController:IsDown(Actions.Jump)
-			and self.InputController:IsDown(Actions.Sprint) then
+		if self.InputController:IsDown(Actions.Jump) then
 			local surface, normal, position = self:_detect_surface()
 			if surface then self:_grab(surface, normal, position) end
 		end
@@ -193,36 +192,57 @@ end
 function ParkourController:_traverse(dt)
 	local root = self.Root
 	local surface = self.Surface
-	if not root or not surface or not surface:IsDescendantOf(Workspace) then
+	local normal = self.Normal
+	if not root or not surface or not normal or not surface:IsDescendantOf(Workspace) then
 		self:_release()
 		return
 	end
-
-	local tangent = self.Normal:Cross(Vector3.yAxis)
-	if tangent.Magnitude < 0.05 then
-		tangent = flatten(root.CFrame.RightVector)
-	end
-	if tangent.Magnitude < 0.05 then return end
-	tangent = tangent.Unit
 
 	local direction = 0
 	if self.InputController:IsDown(Actions.Right) then direction += 1 end
 	if self.InputController:IsDown(Actions.Left) then direction -= 1 end
 
 	if direction ~= 0 then
-		local delta = tangent * direction * TRAVERSE_SPEED * dt
-		local probe_origin = root.Position + delta + Vector3.new(0, 1.1, 0) + self.Normal * 0.3
-		local probe = self:_cast(probe_origin, -self.Normal * (WALL_GAP + SURFACE_PROBE))
+		-- Use the character's local right vector so A/D always match the
+		-- direction the character is facing, then re-sample the surface each
+		-- frame to follow curved walls instead of a fixed world-space axis.
+		local tangent = flatten(root.CFrame.RightVector)
+		if tangent.Magnitude < 0.05 then
+			tangent = flatten(Vector3.yAxis:Cross(normal))
+		end
+		if tangent.Magnitude < 0.05 then
+			self:_position_hanging()
+			return
+		end
+		tangent = tangent.Unit
+
+		local candidate_position = root.Position
+			+ tangent * direction * TRAVERSE_SPEED * math.max(dt, 0)
+		local probe_origin = candidate_position
+			+ Vector3.new(0, 1.1, 0)
+			+ normal * 0.3
+		local probe = self:_cast(
+			probe_origin,
+			-normal * (WALL_GAP + SURFACE_PROBE)
+		)
+
 		if probe and self:_is_climbable(probe.Instance) then
 			local top = self:_cast_top_surface(probe.Position, probe.Normal, root.Position)
 			if top and self:_is_climbable(top.Instance) then
-				self.Surface = probe.Instance
-				self.Normal = probe.Normal
-				self.HangPosition = top.Position + probe.Normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
+				local height_delta = root.Position.Y - top.Position.Y
+				if height_delta >= -MAX_GRAB_HEIGHT and height_delta <= MAX_GRAB_HEIGHT then
+					self.Surface = probe.Instance
+					self.Normal = probe.Normal
+					self.HangPosition = top.Position
+						+ probe.Normal * WALL_GAP
+						- Vector3.new(0, HANG_DROP, 0)
+				end
 			end
 		end
 	end
 
+	-- If the probe reaches the end of a ledge or finds an invalid surface,
+	-- keep the last valid hang transform rather than dropping unexpectedly.
 	self:_position_hanging()
 end
 
@@ -231,7 +251,7 @@ function ParkourController:_on_jump()
 		return
 	end
 
-	if self.State == "Grounded" and self.InputController:IsDown(Actions.Sprint) then
+	if self.State == "Grounded" then
 		local surface, normal, position = self:_detect_surface()
 		if surface then self:_grab(surface, normal, position) end
 	end
