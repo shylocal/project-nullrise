@@ -516,7 +516,7 @@ function ParkourController:_find_mantle_landing_position(top, normal)
 	-- from the wall. Do not require a separate collidable floor beneath it.
 	return top.Position
 		+ normal * WALL_GAP
-		+ Vector3.new(0, standing_height + 0.05, 0)
+		+ Vector3.new(0, standing_height - 0.05, 0)
 end
 
 function ParkourController:_complete_mantle(top, normal, standing_position)
@@ -533,7 +533,10 @@ function ParkourController:_complete_mantle(top, normal, standing_position)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 	if self.Humanoid then
-		self.Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		-- The character has been placed onto the guide top; resume the normal
+		-- locomotion state instead of requesting GettingUp, which can fall
+		-- straight back to Freefall before the new floor contact is processed.
+		self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
 	end
 	self:_debug(
 		"mantle placement applied; root=%s floor=%s humanoid_state=%s platform_stand=%s",
