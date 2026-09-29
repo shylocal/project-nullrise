@@ -497,13 +497,12 @@ function ParkourController:_traverse(dt)
 		end
 		tangent = tangent.Unit
 
-		-- A vertical Roblox cylinder has a continuously curved side, not discrete
-		-- planar faces. Advance around its local-X axis using arc length, then
-		-- derive the hang normal from the cylinder's radial geometry.
+		-- Roblox cylinders run along local X. For an upright cylinder that
+		-- axis is vertical; the previous predicate accidentally selected a
+		-- horizontal cylinder and skipped the common upright case.
 		local cylinder = climbable:IsA("BasePart")
 			and climbable.Shape == Enum.PartType.Cylinder
-			and math.abs(climbable.CFrame.RightVector.Y) < 0.25
-			and math.abs(climbable.CFrame.UpVector.Y) > 0.75
+			and math.abs(climbable.CFrame.RightVector.Y) >= 0.75
 			and climbable
 		if cylinder then
 			local axis = cylinder.CFrame.RightVector
