@@ -14,53 +14,76 @@ CharacterController.__index = CharacterController
 
 function CharacterController.new(character, input_controller, weapon_id)
 	local trove = Trove.new()
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	local weapon_controller = WeaponControllerModule.new(character)
-	local animation_controller = AnimationControllerModule.new(character)
-	local movement_controller = MovementControllerModule.new(character, input_controller)
-	local parkour_controller = ParkourControllerModule.new(character, input_controller, movement_controller)
-	local combat_controller = CombatControllerModule.new(
-		weapon_controller,
-		animation_controller,
-		movement_controller,
-		input_controller
-	)
-
 	local self = setmetatable({
 		Character = character,
 		Trove = trove,
-		WeaponController = weapon_controller,
-		AnimationController = animation_controller,
-		MovementController = movement_controller,
-		ParkourController = parkour_controller,
-		CombatController = combat_controller,
+		WeaponController = nil,
+		AnimationController = nil,
+		MovementController = nil,
+		ParkourController = nil,
+		CombatController = nil,
+		_destroyed = false,
 	}, CharacterController)
 
-	trove:AttachToInstance(self.Character)
-	trove:Add(animation_controller)
-	trove:Add(movement_controller)
-	trove:Add(parkour_controller)
-	trove:Add(combat_controller)
-	trove:Connect(movement_controller.SprintingChanged, function(sprinting)
-		animation_controller:SetSprinting(sprinting)
+	-- Attach ownership before building dependent controllers so a failed
+	-- initialization or character teardown cannot strand earlier resources.
+	trove:AttachToInstance(character)
+
+	local ok, err = pcall(function()
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		self.WeaponController = WeaponControllerModule.new(character)
+		self.AnimationController = AnimationControllerModule.new(character)
+		trove:Add(self.AnimationController)
+
+		self.MovementController = MovementControllerModule.new(character, input_controller)
+		trove:Add(self.MovementController)
+
+		self.ParkourController = ParkourControllerModule.new(
+			character,
+			input_controller,
+			self.MovementController
+		)
+		trove:Add(self.ParkourController)
+
+		self.CombatController = CombatControllerModule.new(
+			self.WeaponController,
+			self.AnimationController,
+			self.MovementController,
+			input_controller
+		)
+		trove:Add(self.CombatController)
+
+		trove:Connect(self.MovementController.SprintingChanged, function(sprinting)
+			self.AnimationController:SetSprinting(sprinting)
+		end)
+
+		if humanoid then
+			trove:Connect(humanoid.Died, function()
+				self.CombatController:Reset()
+			end)
+		end
+
+		local equipped = self.WeaponController:EquipById(weapon_id or "Fists")
+		if not equipped then
+			self.WeaponController:EquipById("Fists")
+		end
+		self.AnimationController:SetWeapon(self.WeaponController.Equipped)
+		self.AnimationController:SetSprinting(self.MovementController:IsSprinting())
 	end)
 
-	if humanoid then
-		trove:Connect(humanoid.Died, function()
-			combat_controller:Reset()
-		end)
+	if not ok then
+		trove:Destroy()
+		error(err, 0)
 	end
 
-	local equipped = weapon_controller:EquipById(weapon_id or "Fists")
-	if not equipped then weapon_controller:EquipById("Fists") end
-	animation_controller:SetWeapon(weapon_controller.Equipped)
-	animation_controller:SetSprinting(movement_controller:IsSprinting())
 	return self
 end
 
 function CharacterController:SetWeapon(weapon_id)
 	self.CombatController:Reset()
-	if not self.WeaponController:EquipById(weapon_id) then return false end
+	if not self.WeaponController:EquipById(weapon_id) then
+		return false
+	end
 	self.AnimationController:SetWeapon(self.WeaponController.Equipped)
 	return true
 end
@@ -71,6 +94,10 @@ function CharacterController:IsAlive()
 end
 
 function CharacterController:Destroy()
+	if self._destroyed then
+		return
+	end
+	self._destroyed = true
 	self.Trove:Destroy()
 end
 
