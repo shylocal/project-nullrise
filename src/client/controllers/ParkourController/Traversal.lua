@@ -139,7 +139,7 @@ function Traversal.traverse(self, dt)
 			-normal * (Config.WallGap + Config.SurfaceProbe)
 		)
 		local top = probe
-			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, active_top_y)
+			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, active_top_y, nil, probe.Instance)
 		local next_climbable = top
 			and (ClimbableQuery.get_guide(top.Instance) or top.Instance)
 		local same_height = top
@@ -210,7 +210,9 @@ function Traversal.traverse(self, dt)
 								corner_probe.Position,
 								corner_probe.Normal,
 								root.Position,
-								root.Position.Y + Config.HangDrop
+								root.Position.Y + Config.HangDrop,
+															nil,
+															corner_probe.Instance
 							)
 							local corner_guide = corner_top
 								and (ClimbableQuery.get_guide(corner_top.Instance) or corner_top.Instance)
