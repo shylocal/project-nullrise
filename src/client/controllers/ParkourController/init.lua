@@ -89,6 +89,8 @@ function ParkourController:_start()
 			self:_on_jump()
 		elseif action == Actions.Forward and self.State == "Hanging" then
 			self:_try_mantle()
+		elseif action == Actions.Backward and self.State == "Hanging" then
+			self:_try_lower_ledge()
 		end
 	end)
 
@@ -389,41 +391,40 @@ function ParkourController:_traverse(dt)
 			and top.Normal.Y >= 0.5
 		local horizontal_normal = probe and flatten(probe.Normal) or Vector3.zero
 
-		-- Probe for a perpendicular face proactively near the active guide's
-		-- edge, even when the old-normal ray still hits the current wall.
-		-- The side ray starts beyond the character's wall clearance and looks
-		-- back toward the corner plane; this avoids missing it from an origin
-		-- that is still short of the perpendicular face.
+		-- Probe for a perpendicular tagged face on every active A/D step.
+		-- The prior version gated this scan behind a failed front-face ray, so
+		-- a broad same-guide face masked the corner and the character never
+		-- acquired the new orientation. Sample just beyond the corner in both
+		-- longitudinal directions to cover outside and inside 90-degree turns.
 		local movement_tangent = tangent * direction
-		local active_half_extent = self:_get_guide_half_extent(active_top, tangent)
-		local lateral_from_center = flatten(root.Position - active_top.Position):Dot(tangent)
-		local edge_distance = active_half_extent - lateral_from_center * direction
-		local near_edge = edge_distance <= WALL_GAP + SURFACE_PROBE
-			and edge_distance >= -math.max(root.Size.X, 1)
+		local corner_turn_normals = { movement_tangent, -movement_tangent }
+		local corner_longitudinal_offsets = { -normal * 0.9, normal * 0.9 }
+		local best_corner = nil
+		local best_corner_score = math.huge
 
-		if near_edge then
-			local best_corner = nil
-			local best_corner_score = math.huge
-			for _, outward in ipairs({ movement_tangent, -movement_tangent }) do
+		for _, turn_normal in ipairs(corner_turn_normals) do
+			for _, longitudinal_offset in ipairs(corner_longitudinal_offsets) do
 				local corner_origin = candidate_position
 					+ Vector3.new(0, 1.5, 0)
-					+ outward * (WALL_GAP + 0.75)
+					+ longitudinal_offset
+					+ turn_normal * (WALL_GAP + 0.75)
 				local corner_probe = self:_cast(
 					corner_origin,
-					-outward * (WALL_GAP + SURFACE_PROBE + 1.25)
+					-turn_normal * (WALL_GAP + SURFACE_PROBE + 1.25)
 				)
 				if corner_probe and self:_is_climbable(corner_probe.Instance) then
 					local corner_normal = flatten(corner_probe.Normal)
 					if corner_normal.Magnitude >= 0.05 then
 						corner_normal = corner_normal.Unit
-						local normal_alignment = math.abs(corner_normal:Dot(normal))
-						local direction_alignment = corner_normal:Dot(outward)
-						local forward_distance = flatten(corner_probe.Position - root.Position):Dot(movement_tangent)
-						local is_perpendicular = normal_alignment <= 0.35
-							and direction_alignment >= 0.65
-						local is_at_corner = forward_distance >= -0.5
-							and forward_distance <= WALL_GAP + SURFACE_PROBE + 0.5
-						if is_perpendicular and is_at_corner then
+						local alignment_to_old = math.abs(corner_normal:Dot(normal))
+						local alignment_to_turn = corner_normal:Dot(turn_normal)
+						local along_movement = flatten(corner_probe.Position - root.Position):Dot(movement_tangent)
+						local perpendicular = alignment_to_old <= 0.35
+							and alignment_to_turn >= 0.65
+						local near_corner = along_movement >= -1
+							and along_movement <= WALL_GAP + SURFACE_PROBE + 0.75
+
+						if perpendicular and near_corner then
 							local corner_top = self:_cast_reachable_grab_top(
 								corner_probe.Position,
 								corner_probe.Normal,
@@ -434,9 +435,11 @@ function ParkourController:_traverse(dt)
 							local corner_height_ok = corner_top
 								and math.abs(corner_top.Position.Y - active_top.Position.Y) <= TRAVERSE_HEIGHT_TOLERANCE
 								and corner_top.Normal.Y >= 0.5
+
 							if corner_top and corner_guide and corner_height_ok then
-								local score = math.abs(forward_distance)
-									+ normal_alignment * 2
+								local score = math.abs(along_movement)
+									+ alignment_to_old * 2
+									+ math.abs(longitudinal_offset.Magnitude) * 0.05
 								if score < best_corner_score then
 									best_corner = {
 										Probe = corner_probe,
@@ -451,15 +454,15 @@ function ParkourController:_traverse(dt)
 					end
 				end
 			end
+		end
 
-			if best_corner then
-				probe = best_corner.Probe
-				top = best_corner.Top
-				next_climbable = best_corner.Guide
-				same_height = true
-				horizontal_normal = best_corner.Normal
-				self:_debug_traversal("perpendicular corner face acquired")
-			end
+		if best_corner then
+			probe = best_corner.Probe
+			top = best_corner.Top
+			next_climbable = best_corner.Guide
+			same_height = true
+			horizontal_normal = best_corner.Normal
+			self:_debug_traversal("perpendicular same-height corner face acquired")
 		end
 
 		if horizontal_normal.Magnitude >= 0.05 then
@@ -508,6 +511,97 @@ function ParkourController:_on_jump()
 		local climbable, normal, position = self:_detect_surface()
 		if climbable then self:_grab(climbable, normal, position) end
 	end
+end
+
+function ParkourController:_try_lower_ledge()
+	self:_debug("lower ledge requested; state=%s", self.State)
+	if self.State ~= "Hanging" or not self.Root or not self.CurrentClimbable
+		or not self.HangPosition or not self.Normal then
+		self:_debug("lower ledge aborted; missing hanging state or character parts")
+		return
+	end
+
+	local root = self.Root
+	local normal = flatten(self.Normal)
+	if normal.Magnitude < 0.05 then
+		self:_debug("lower ledge aborted; active wall normal is invalid")
+		return
+	end
+	normal = normal.Unit
+
+	local tangent = flatten(root.CFrame.RightVector)
+	if tangent.Magnitude < 0.05 then
+		tangent = flatten(Vector3.yAxis:Cross(normal))
+	end
+	if tangent.Magnitude < 0.05 then
+		self:_debug("lower ledge aborted; lateral axis is invalid")
+		return
+	end
+	tangent = tangent.Unit
+
+	local current_top = self.HangPosition - normal * WALL_GAP + Vector3.new(0, HANG_DROP, 0)
+	local best_top = nil
+	local best_drop = math.huge
+	local best_distance = math.huge
+	local best_lateral_offset = 0
+
+	-- S transfers only to a lower tagged guide. It does not dismount to
+	-- ordinary ground; W is reserved for mantling onto an upper surface.
+	for _, guide in ipairs(CollectionService:GetTagged(CLIMBABLE_TAG)) do
+		if guide ~= self.CurrentClimbable and guide:IsDescendantOf(Workspace) then
+			local top = self:_get_guide_top(guide)
+			if top and top.Normal.Y >= 0.5 then
+				local relative = top.Position - current_top
+				local drop = current_top.Y - top.Position.Y
+				local inward = relative:Dot(-normal)
+				local guide_center_lateral = flatten(relative):Dot(tangent)
+				local guide_half_extent = self:_get_guide_half_extent(top, tangent)
+				local player_lateral = flatten(root.Position - current_top):Dot(tangent)
+				local lateral_gap = math.max(
+					0,
+					math.abs(player_lateral - guide_center_lateral) - guide_half_extent
+				)
+				local safe_lateral_extent = math.max(0, guide_half_extent - LEDGE_EDGE_MARGIN)
+				local target_lateral_offset = math.clamp(
+					player_lateral - guide_center_lateral,
+					-safe_lateral_extent,
+					safe_lateral_extent
+				)
+				local in_vertical_range = drop >= 0.5 and drop <= MANTLE_MAX_RISE
+				local in_reach = inward >= -MANTLE_MAX_OUTWARD
+					and inward <= MANTLE_MAX_INWARD
+					and lateral_gap <= MANTLE_MAX_LATERAL
+
+				if in_vertical_range and in_reach then
+					local target_top_position = top.Position + tangent * target_lateral_offset
+					local horizontal_distance = flatten(target_top_position - current_top).Magnitude
+					if drop < best_drop or (drop == best_drop and horizontal_distance < best_distance) then
+						best_top = top
+						best_drop = drop
+						best_distance = horizontal_distance
+						best_lateral_offset = target_lateral_offset
+					end
+				end
+			end
+		end
+	end
+
+	if not best_top then
+		self:_debug("lower ledge: no reachable lower tagged guide; S ignored")
+		return
+	end
+
+	-- Sample the lower top at the player's selected lateral column, then use
+	-- the shared transfer/contact refresh so depth remains consistent.
+	local target_sample = best_top.Position + tangent * best_lateral_offset
+	best_top = self:_get_guide_top(best_top.Guide, target_sample) or best_top
+	self:_debug(
+		"lower ledge selected; guide=%s drop=%.2f horizontal_distance=%.2f",
+		best_top.Guide:GetFullName(),
+		best_drop,
+		best_distance
+	)
+	self:_transfer_hang_to_ledge(best_top)
 end
 
 function ParkourController:_standing_height()
