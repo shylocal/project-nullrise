@@ -2,6 +2,11 @@
 -- Kept separate from the controller so these curves can be reviewed and tested independently.
 local VaultMath = {}
 
+function VaultMath.smoothstep(value)
+	value = math.clamp(value, 0, 1)
+	return value * value * (3 - 2 * value)
+end
+
 -- Shape the vertical arc so its apex aligns with the obstacle.
 function VaultMath.arc_weight(linear, peak_progress)
 	local peak = math.clamp(peak_progress or 0.5, 0.2, 0.92)
