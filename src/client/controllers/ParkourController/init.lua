@@ -627,23 +627,30 @@ function ParkourController:_transfer_hang_to_ledge(top, normal)
 	local root = self.Root
 	if not root or not top or not normal then return false end
 
-	-- Preserve the current wall-depth vector when changing only ledge height.
-	-- Rebuilding this from the destination normal can shift the root into or
-	-- away from a same-depth ledge when its sampled normal differs slightly.
-	local depth_offset = self.HangDepthOffset
-	if not depth_offset or flatten(depth_offset).Magnitude < 0.05 then
-		local prior_normal = flatten(self.Normal or normal)
-		if prior_normal.Magnitude < 0.05 then
-			prior_normal = flatten(normal)
-		end
-		depth_offset = prior_normal.Unit * WALL_GAP
+	-- Keep the established scalar wall clearance, but orient its vector along
+	-- the destination face. Reusing the old world-space vector while changing
+	-- LookVector can rotate the body into a ledge when the sampled normals
+	-- differ slightly, even when both ledges have the same actual depth.
+	local depth = self.HangDepthOffset and self.HangDepthOffset.Magnitude or WALL_GAP
+	if depth < 0.05 then
+		depth = WALL_GAP
 	end
+	local target_normal = flatten(normal)
+	if target_normal.Magnitude < 0.05 then
+		target_normal = flatten(self.Normal or Vector3.zAxis)
+	end
+	if target_normal.Magnitude < 0.05 then
+		target_normal = Vector3.zAxis
+	else
+		target_normal = target_normal.Unit
+	end
+	local depth_offset = target_normal * depth
 	local hang_position = top.Position
 		+ depth_offset
 		- Vector3.new(0, HANG_DROP, 0)
 	self.State = "Hanging"
 	self.CurrentClimbable = top.Guide or self:_get_climbable_guide(top.Instance)
-	self.Normal = normal
+	self.Normal = target_normal
 	self.HangDepthOffset = depth_offset
 	self.HangPosition = hang_position
 
