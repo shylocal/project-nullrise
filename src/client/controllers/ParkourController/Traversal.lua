@@ -130,7 +130,7 @@ function Traversal.traverse(self, dt)
 		local top = probe
 			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, active_top_y)
 		local next_climbable = top
-			and ClimbableQuery.get_guide(top.Instance)
+			and (ClimbableQuery.get_guide(top.Instance) or top.Instance)
 		local same_height = top
 			and math.abs(top.Position.Y - active_top_y) <= Config.TraverseHeightTolerance
 			and top.Normal.Y >= 0.5
@@ -178,7 +178,7 @@ function Traversal.traverse(self, dt)
 					+ Vector3.new(0, 1.5, 0)
 					+ longitudinal_offset
 					+ turn_normal * (Config.WallGap + 0.75)
-				local corner_probe = self:_cast_climbable_side(
+				local corner_probe = self:_cast_grabbable_side(
 					corner_origin,
 					-turn_normal * (Config.WallGap + Config.SurfaceProbe + 2)
 				)
@@ -202,7 +202,7 @@ function Traversal.traverse(self, dt)
 								root.Position.Y + Config.HangDrop
 							)
 							local corner_guide = corner_top
-								and ClimbableQuery.get_guide(corner_top.Instance)
+								and (ClimbableQuery.get_guide(corner_top.Instance) or corner_top.Instance)
 							local corner_height_ok = corner_top
 								and math.abs(corner_top.Position.Y - active_top_y) <= Config.TraverseHeightTolerance
 								and corner_top.Normal.Y >= 0.5
