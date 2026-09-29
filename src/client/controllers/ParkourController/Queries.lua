@@ -77,11 +77,9 @@ function Queries.cast_grabbable_side(self, origin, direction)
 
 	return nil
 end
-function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_position, reference_y, max_above_height)
-	-- Sample a few nearby columns because the side hit can land on the wall's
-	-- edge or on query-only helper geometry rather than over its walkable top.
-	-- Candidate tops must also be near/above the side-hit height so the floor
-	-- behind a tall wall cannot be mistaken for that wall's ledge.
+function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_position, reference_y, max_above_height, wall_instance)
+	-- Sample nearby columns around the side hit. When a physical wall part is
+	-- known, query its own top first so an invisible climb guide cannot mask it.
 	local standing_height = self:_standing_height()
 	local origin = Vector3.new(
 		wall_position.X,
@@ -120,13 +118,76 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 	params.IgnoreWater = true
 	params.RespectCanCollide = false
 
+	local wall_top_params = self._wallTopParams or RaycastParams.new()
+	self._wallTopParams = wall_top_params
+	wall_top_params.FilterType = Enum.RaycastFilterType.Include
+	wall_top_params.FilterDescendantsInstances = {}
+	wall_top_params.IgnoreWater = true
+	wall_top_params.RespectCanCollide = true
+
 	local best = nil
 	local best_height_distance = math.huge
 	local first_candidate = nil
 	local first_walkable_surface = nil
 	local candidate_count = 0
+	local reference_height = reference_y or root_position.Y
+
+	local function consider_candidate(candidate, sample_offset, source)
+		if not candidate then return end
+
+		local root_height_delta = root_position.Y - candidate.Position.Y
+		local reference_height_delta = reference_height - candidate.Position.Y
+		local height_distance = math.abs(reference_height_delta)
+		local valid_surface = is_grabbable_surface(candidate.Instance)
+		local walkable = candidate.Normal.Y >= 0.5
+		local above_side_hit = candidate.Position.Y >= wall_position.Y - 0.5
+		-- Initial grabs measure "near the top" from the avatar's standing reach,
+		-- while the lower-side tolerance remains measured from the root. Existing
+		-- traversal callers keep their previous reference-height behavior.
+		local lower_reach_delta = if max_above_height ~= nil
+			then root_height_delta else reference_height_delta
+		local reachable = reference_height_delta >= -allowed_above_height
+			and lower_reach_delta <= Config.MaxGrabHeight
+			and above_side_hit
+
+		candidate_count += 1
+		local candidate_info = {
+			Instance = candidate.Instance,
+			Group = candidate.Instance:IsA("BasePart") and candidate.Instance.CollisionGroup or "nonpart",
+			CanCollide = candidate.Instance:IsA("BasePart") and candidate.Instance.CanCollide or false,
+			Tagged = ClimbableQuery.is_climbable(candidate.Instance),
+			Normal = candidate.Normal,
+			RootHeightDelta = root_height_delta,
+			ReferenceHeightDelta = reference_height_delta,
+			ValidSurface = valid_surface,
+			Walkable = walkable,
+			AboveSideHit = above_side_hit,
+			Reachable = reachable,
+			SampleOffset = sample_offset,
+			Source = source,
+		}
+		if not first_candidate then first_candidate = candidate_info end
+		if valid_surface and walkable and not first_walkable_surface then
+			first_walkable_surface = candidate_info
+		end
+
+		if valid_surface and walkable and reachable and height_distance < best_height_distance then
+			best = candidate
+			best_height_distance = height_distance
+		end
+	end
+
 	for _, sample_offset in ipairs(sample_offsets) do
 		local sample_origin = origin + sample_offset
+
+		-- Prefer the actual detected collidable wall part. This avoids choosing
+		-- a non-collidable Climbable marker above it as the apparent wall top.
+		if wall_instance and wall_instance:IsA("BasePart") and wall_instance.CanCollide then
+			wall_top_params.FilterDescendantsInstances = { wall_instance }
+			local wall_top = Workspace:Raycast(sample_origin, direction, wall_top_params)
+			consider_candidate(wall_top, sample_offset, "detected-wall")
+		end
+
 		local exclusions = { self.Character }
 		for hit_index = 1, Config.MaxTopSurfaceHits do
 			params.FilterDescendantsInstances = exclusions
@@ -135,38 +196,7 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 				break
 			end
 
-			local height_delta = (reference_y or root_position.Y) - candidate.Position.Y
-			local height_distance = math.abs(height_delta)
-			local valid_surface = is_grabbable_surface(candidate.Instance)
-			local walkable = candidate.Normal.Y >= 0.5
-			local above_side_hit = candidate.Position.Y >= wall_position.Y - 0.5
-			local reachable = height_delta >= -allowed_above_height
-				and height_delta <= Config.MaxGrabHeight
-				and above_side_hit
-			candidate_count += 1
-			local candidate_info = {
-				Instance = candidate.Instance,
-				Group = candidate.Instance:IsA("BasePart") and candidate.Instance.CollisionGroup or "nonpart",
-				CanCollide = candidate.Instance:IsA("BasePart") and candidate.Instance.CanCollide or false,
-				Tagged = ClimbableQuery.is_climbable(candidate.Instance),
-				Normal = candidate.Normal,
-				HeightDelta = height_delta,
-				ValidSurface = valid_surface,
-				Walkable = walkable,
-				AboveSideHit = above_side_hit,
-				Reachable = reachable,
-				SampleOffset = sample_offset,
-			}
-			if not first_candidate then first_candidate = candidate_info end
-			if valid_surface and walkable and not first_walkable_surface then
-				first_walkable_surface = candidate_info
-			end
-
-			if valid_surface and walkable and reachable and height_distance < best_height_distance then
-				best = candidate
-				best_height_distance = height_distance
-			end
-
+			consider_candidate(candidate, sample_offset, "world")
 			table.insert(exclusions, candidate.Instance)
 		end
 	end
@@ -175,18 +205,21 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 		local diagnostic = first_walkable_surface or first_candidate
 		debug_log(self, "grab-top-failed", 0.8, "no eligible reachable top",
 			"candidateCount", candidate_count,
+			"wallPart", wall_instance and wall_instance:GetFullName(),
 			"wallPosition", wall_position,
 			"wallNormal", wall_normal,
 			"rootY", root_position.Y,
-			"referenceY", reference_y or root_position.Y,
+			"referenceY", reference_height,
 			"allowedTopAbove", allowed_above_height,
 			"allowedTopBelow", Config.MaxGrabHeight,
 			"sampleCandidate", diagnostic and diagnostic.Instance:GetFullName(),
+			"candidateSource", diagnostic and diagnostic.Source,
 			"candidateGroup", diagnostic and diagnostic.Group,
 			"candidateCanCollide", diagnostic and diagnostic.CanCollide,
 			"candidateTagged", diagnostic and diagnostic.Tagged,
 			"candidateNormal", diagnostic and diagnostic.Normal,
-			"candidateHeightDelta", diagnostic and diagnostic.HeightDelta,
+			"candidateRootHeightDelta", diagnostic and diagnostic.RootHeightDelta,
+			"candidateReferenceHeightDelta", diagnostic and diagnostic.ReferenceHeightDelta,
 			"candidateValidSurface", diagnostic and diagnostic.ValidSurface,
 			"candidateWalkable", diagnostic and diagnostic.Walkable,
 			"candidateAboveSideHit", diagnostic and diagnostic.AboveSideHit,
@@ -235,28 +268,34 @@ function Queries.detect_surface(self)
 		return nil
 	end
 
+	local standing_height = self:_standing_height()
+	local grab_reference_y = root.Position.Y + standing_height
 	local top = Queries.cast_reachable_grab_top(
 		self,
 		wall.Position,
 		wall.Normal,
 		root.Position,
-		root.Position.Y,
-		Config.GrabTopProximity
+		grab_reference_y,
+		Config.GrabTopProximity,
+		wall.Instance
 	)
 	if not top then
 		debug_log(self, "detect-no-top", 0.8, "no reachable top", "wall", wall.Instance:GetFullName(),
 			"wallGroup", wall.Instance.CollisionGroup, "wallNormal", wall.Normal,
 			"wallPosition", wall.Position, "rootY", root.Position.Y,
+			"reachY", root.Position.Y + self:_standing_height(),
 			"move", humanoid.MoveDirection, "nearTopLimit", Config.GrabTopProximity,
 			"maxBelow", Config.MaxGrabHeight)
 		return nil
 	end
 
-	local height_delta = root.Position.Y - top.Position.Y
-	if height_delta < -Config.GrabTopProximity or height_delta > Config.MaxGrabHeight then
+	local root_height_delta = root.Position.Y - top.Position.Y
+	local reach_height_delta = grab_reference_y - top.Position.Y
+	if reach_height_delta < -Config.GrabTopProximity or root_height_delta > Config.MaxGrabHeight then
 		debug_log(self, "detect-height", 0.8, "top outside height range", "wall", wall.Instance:GetFullName(),
-			"top", top.Instance:GetFullName(), "delta", height_delta, "topY", top.Position.Y,
-			"rootY", root.Position.Y)
+			"top", top.Instance:GetFullName(), "rootDelta", root_height_delta,
+			"reachDelta", reach_height_delta, "topY", top.Position.Y,
+			"rootY", root.Position.Y, "reachY", grab_reference_y)
 		return nil
 	end
 
