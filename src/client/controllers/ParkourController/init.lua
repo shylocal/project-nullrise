@@ -714,10 +714,29 @@ function ParkourController:_try_vault()
 		return instance == obstacle
 	end
 
-	-- Prefer ground beyond the far edge. Search farther and across a narrow
-	-- lateral fan so an oblique approach or multi-part wall cannot be mistaken
-	-- for a valid landing on the wall's own top.
-	for _, extra_distance in ipairs({ 0, 0.75, 1.5, 2.5, 4, 6 }) do
+	-- Prefer ground beyond the far edge. Begin with nearby probes, then
+	-- continue through the remaining hop budget. The detected part can be only
+	-- one segment of a wider wall, so a fixed six-stud search can stop before
+	-- reaching the actual far side and incorrectly reject every tall-wall vault.
+	local landing_extra_distances = { 0, 0.75, 1.5, 2.5, 4, 6 }
+	local max_landing_extra = math.max(0, Config.VaultMaxHopDistance - hop_distance)
+	local next_landing_extra = 6.75
+	while next_landing_extra < max_landing_extra do
+		table.insert(landing_extra_distances, next_landing_extra)
+		next_landing_extra += 0.75
+	end
+	local has_limit_probe = false
+	for _, extra_distance in ipairs(landing_extra_distances) do
+		if math.abs(extra_distance - max_landing_extra) < 1e-4 then
+			has_limit_probe = true
+			break
+		end
+	end
+	if max_landing_extra > 0 and not has_limit_probe then
+		table.insert(landing_extra_distances, max_landing_extra)
+	end
+
+	for _, extra_distance in ipairs(landing_extra_distances) do
 		local landing_distance = hop_distance + extra_distance
 		if landing_distance <= Config.VaultMaxHopDistance then
 			for _, lateral_adjustment in ipairs({ 0, -0.75, 0.75 }) do
@@ -726,20 +745,24 @@ function ParkourController:_try_vault()
 				if side.Magnitude > 0.05 then
 					landing_xz += side.Unit * lateral_adjustment
 				end
-				local landing_ground = self:_cast(
-					Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
-					landing_ray,
-					true
-				)
-				if landing_ground and landing_ground.Normal.Y >= 0.5
-					and math.abs(landing_ground.Position.Y - current_ground_y) <= Config.VaultLandingHeightTolerance
-					and not is_obstacle_part(landing_ground.Instance) then
-					target_position = Vector3.new(
-						landing_ground.Position.X,
-						landing_ground.Position.Y + standing_height - 0.05,
-						landing_ground.Position.Z
+				-- Enforce the cap on the real horizontal displacement too;
+				-- the lateral fan otherwise adds a small amount beyond 24 studs.
+				if flatten(landing_xz - root.Position).Magnitude <= Config.VaultMaxHopDistance + 1e-4 then
+					local landing_ground = self:_cast(
+						Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
+						landing_ray,
+						true
 					)
-					break
+					if landing_ground and landing_ground.Normal.Y >= 0.5
+						and math.abs(landing_ground.Position.Y - current_ground_y) <= Config.VaultLandingHeightTolerance
+						and not is_obstacle_part(landing_ground.Instance) then
+						target_position = Vector3.new(
+							landing_ground.Position.X,
+							landing_ground.Position.Y + standing_height - 0.05,
+							landing_ground.Position.Z
+						)
+						break
+					end
 				end
 			end
 			if target_position then
