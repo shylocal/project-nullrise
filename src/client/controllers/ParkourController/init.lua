@@ -11,6 +11,10 @@ ParkourController.__index = ParkourController
 
 local Config = require(script.Config)
 
+local function vault_debug(...)
+	print("[ParkourVault]", ...)
+end
+
 local function flatten(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
 end
@@ -80,6 +84,9 @@ function ParkourController:_start()
 		if action == Actions.Jump and self.State == "Grounded" then
 			-- Space explicitly requests a vault; if no valid vault is found,
 			-- the ordinary jump or ledge-grab flow remains available.
+			vault_debug("Space action received; state=", self.State,
+				"sprinting=", self.MovementController and self.MovementController:IsSprinting() or false,
+				"jumpBlocked=", self.GrabBlockedUntilJumpReleased)
 			self:_try_vault()
 		elseif action == Actions.Forward and self.State == "Hanging" then
 			self:_try_mantle()
@@ -515,12 +522,32 @@ function ParkourController:_has_vault_clearance(cframe, size, obstacle)
 end
 
 function ParkourController:_try_vault()
-	if not Config.VaultEnabled
-		or self.State ~= "Grounded"
-		or self.GrabBlockedUntilJumpReleased
-		or os.clock() < (self.NextVaultAt or 0)
-		or not self.MovementController
-		or not self.MovementController:IsSprinting() then
+	local sprinting = self.MovementController and self.MovementController:IsSprinting() or false
+	vault_debug("attempt", "enabled=", Config.VaultEnabled, "state=", self.State,
+		"sprinting=", sprinting, "jumpBlocked=", self.GrabBlockedUntilJumpReleased,
+		"cooldownRemaining=", math.max(0, (self.NextVaultAt or 0) - os.clock()))
+	if not Config.VaultEnabled then
+		vault_debug("REJECT: VaultEnabled is false")
+		return false
+	end
+	if self.State ~= "Grounded" then
+		vault_debug("REJECT: character state is", self.State, "not Grounded")
+		return false
+	end
+	if self.GrabBlockedUntilJumpReleased then
+		vault_debug("REJECT: jump/grab lock is active")
+		return false
+	end
+	if os.clock() < (self.NextVaultAt or 0) then
+		vault_debug("REJECT: cooldown active")
+		return false
+	end
+	if not self.MovementController then
+		vault_debug("REJECT: MovementController missing")
+		return false
+	end
+	if not sprinting then
+		vault_debug("REJECT: not sprinting")
 		return false
 	end
 
@@ -529,6 +556,10 @@ function ParkourController:_try_vault()
 	local humanoid = self.Humanoid
 	if not root or not humanoid or humanoid.Health <= 0
 		or humanoid.FloorMaterial == Enum.Material.Air then
+		vault_debug("REJECT: missing/dead character or not grounded",
+			"root=", root ~= nil, "humanoid=", humanoid ~= nil,
+			"health=", humanoid and humanoid.Health or "nil",
+			"floor=", humanoid and humanoid.FloorMaterial or "nil")
 		return false
 	end
 
@@ -540,6 +571,8 @@ function ParkourController:_try_vault()
 		forward = facing
 	end
 	if forward.Magnitude < 0.05 then
+		vault_debug("REJECT: no movement/facing direction",
+			"moveDirection=", humanoid.MoveDirection, "lookVector=", root.CFrame.LookVector)
 		return false
 	end
 	forward = forward.Unit
@@ -556,8 +589,16 @@ function ParkourController:_try_vault()
 		true
 	)
 	if not current_ground or current_ground.Normal.Y < 0.5 then
+		vault_debug("REJECT: ground probe failed",
+			"origin=", root.Position + Vector3.new(0, 0.5, 0),
+			"hit=", current_ground and current_ground.Instance:GetFullName() or "nil",
+			"normal=", current_ground and current_ground.Normal or "nil",
+			"floorMaterial=", humanoid.FloorMaterial)
 		return false
 	end
+	vault_debug("ground OK", "part=", current_ground.Instance:GetFullName(),
+		"groundY=", current_ground.Position.Y, "root=", root.Position,
+		"standingHeight=", standing_height, "forward=", forward)
 
 	local detection_origin = Vector3.new(
 		root.Position.X,
@@ -615,17 +656,32 @@ function ParkourController:_try_vault()
 		end
 	end
 	if not obstacle_hit then
+		vault_debug("REJECT: obstacle detection missed",
+			"origin=", detection_origin, "forward=", forward,
+			"distance=", Config.VaultDetectionDistance,
+			"halfWidth=", half_width, "facing=", facing,
+			"moveDirection=", humanoid.MoveDirection)
 		return false
 	end
 
 	local obstacle = obstacle_hit.Instance
+	vault_debug("obstacle detected", "part=", obstacle:GetFullName(),
+		"class=", obstacle.ClassName, "distance=", obstacle_hit.Distance,
+		"hitPosition=", obstacle_hit.Position, "partPosition=", obstacle.Position,
+		"partSize=", obstacle:IsA("BasePart") and obstacle.Size or "not BasePart",
+		"canCollide=", obstacle:IsA("BasePart") and obstacle.CanCollide or false)
 	if not obstacle:IsA("BasePart") or not obstacle.CanCollide
 		or self:_is_climbable(obstacle) then
+		vault_debug("REJECT: detected part is not a collidable, non-climbable BasePart",
+			"part=", obstacle:GetFullName(), "class=", obstacle.ClassName,
+			"canCollide=", obstacle:IsA("BasePart") and obstacle.CanCollide or false,
+			"climbable=", self:_is_climbable(obstacle))
 		return false
 	end
 
 	local obstacle_model = obstacle:FindFirstAncestorOfClass("Model")
 	if obstacle_model and obstacle_model:FindFirstChildOfClass("Humanoid") then
+		vault_debug("REJECT: detected obstacle belongs to a Humanoid model", obstacle_model:GetFullName())
 		return false
 	end
 
@@ -640,7 +696,11 @@ function ParkourController:_try_vault()
 	local center_distance = (obstacle.Position - root.Position):Dot(forward)
 	local near_edge_distance = center_distance - half_depth
 	local far_edge_distance = center_distance + half_depth
+	vault_debug("obstacle projected bounds", "centerDistance=", center_distance,
+		"halfDepth=", half_depth, "nearEdge=", near_edge_distance,
+		"farEdge=", far_edge_distance, "hitDistance=", obstacle_hit.Distance)
 	if far_edge_distance <= 0 then
+		vault_debug("REJECT: projected obstacle far edge is behind/equal to root")
 		return false
 	end
 
@@ -689,12 +749,24 @@ function ParkourController:_try_vault()
 		end
 	end
 	if not top then
+		vault_debug("REJECT: top surface sampling failed",
+			"part=", obstacle:GetFullName(), "size=", obstacle.Size,
+			"partPosition=", obstacle.Position, "hitPosition=", obstacle_hit.Position,
+			"testedSamples=", #top_samples)
 		return false
 	end
 
 	local current_ground_y = current_ground.Position.Y
 	local obstacle_height = top.Position.Y - current_ground_y
+	vault_debug("top sampled", "part=", top.Instance:GetFullName(),
+		"topPosition=", top.Position, "topNormal=", top.Normal,
+		"groundY=", current_ground_y, "measuredHeight=", obstacle_height,
+		"allowedHeight=", Config.VaultMinHeight, "to", Config.VaultMaxHeight,
+		"tallThreshold=", Config.VaultFarSideOnlyHeight)
 	if obstacle_height < Config.VaultMinHeight or obstacle_height > Config.VaultMaxHeight then
+		vault_debug("REJECT: measured obstacle height outside configured range",
+			"measuredHeight=", obstacle_height, "min=", Config.VaultMinHeight,
+			"max=", Config.VaultMaxHeight)
 		return false
 	end
 
@@ -736,6 +808,8 @@ function ParkourController:_try_vault()
 		table.insert(landing_extra_distances, max_landing_extra)
 	end
 
+	local landing_stats = { probes = 0, overRange = 0, noHit = 0, steep = 0, wrongHeight = 0, obstaclePart = 0 }
+	local last_landing_hit = nil
 	for _, extra_distance in ipairs(landing_extra_distances) do
 		local landing_distance = hop_distance + extra_distance
 		if landing_distance <= Config.VaultMaxHopDistance then
@@ -747,22 +821,40 @@ function ParkourController:_try_vault()
 				end
 				-- Enforce the cap on the real horizontal displacement too;
 				-- the lateral fan otherwise adds a small amount beyond 24 studs.
-				if flatten(landing_xz - root.Position).Magnitude <= Config.VaultMaxHopDistance + 1e-4 then
+				local actual_hop_distance = flatten(landing_xz - root.Position).Magnitude
+				if actual_hop_distance <= Config.VaultMaxHopDistance + 1e-4 then
+					landing_stats.probes += 1
 					local landing_ground = self:_cast(
 						Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
 						landing_ray,
 						true
 					)
-					if landing_ground and landing_ground.Normal.Y >= 0.5
-						and math.abs(landing_ground.Position.Y - current_ground_y) <= Config.VaultLandingHeightTolerance
-						and not is_obstacle_part(landing_ground.Instance) then
-						target_position = Vector3.new(
-							landing_ground.Position.X,
-							landing_ground.Position.Y + standing_height - 0.05,
-							landing_ground.Position.Z
-						)
-						break
+					if not landing_ground then
+						landing_stats.noHit += 1
+					else
+						last_landing_hit = landing_ground
+						if landing_ground.Normal.Y < 0.5 then
+							landing_stats.steep += 1
+						elseif math.abs(landing_ground.Position.Y - current_ground_y) > Config.VaultLandingHeightTolerance then
+							landing_stats.wrongHeight += 1
+						elseif is_obstacle_part(landing_ground.Instance) then
+							landing_stats.obstaclePart += 1
+						else
+							target_position = Vector3.new(
+								landing_ground.Position.X,
+								landing_ground.Position.Y + standing_height - 0.05,
+								landing_ground.Position.Z
+							)
+							vault_debug("far-side landing found", "groundPart=", landing_ground.Instance:GetFullName(),
+								"groundPosition=", landing_ground.Position, "normal=", landing_ground.Normal,
+								"heightDelta=", landing_ground.Position.Y - current_ground_y,
+								"requestedDistance=", landing_distance, "actualDistance=", actual_hop_distance,
+								"extra=", extra_distance, "lateralAdjustment=", lateral_adjustment)
+							break
+						end
 					end
+				else
+					landing_stats.overRange += 1
 				end
 			end
 			if target_position then
@@ -776,6 +868,14 @@ function ParkourController:_try_vault()
 	-- instead of silently changing its destination.
 	if not target_position
 		and obstacle_height >= (Config.VaultFarSideOnlyHeight or math.huge) then
+		vault_debug("REJECT: tall obstacle has no validated far-side landing",
+			"height=", obstacle_height, "threshold=", Config.VaultFarSideOnlyHeight,
+			"farEdge=", far_edge_distance, "landingGap=", Config.VaultLandingGap,
+			"initialHopDistance=", hop_distance, "maxHop=", Config.VaultMaxHopDistance,
+			"landingStats=", landing_stats,
+			"lastGroundHit=", last_landing_hit and last_landing_hit.Instance:GetFullName() or "nil",
+			"lastHitPosition=", last_landing_hit and last_landing_hit.Position or "nil",
+			"lastHitNormal=", last_landing_hit and last_landing_hit.Normal or "nil")
 		return false
 	end
 
@@ -811,7 +911,16 @@ function ParkourController:_try_vault()
 	local required_apex_y = top.Position.Y + root.Size.Y * 0.5
 		+ Config.VaultObstacleClearance + tall_obstacle_clearance
 	local arc_height = math.max(Config.VaultMinArcHeight, required_apex_y - midpoint_y)
+	vault_debug("trajectory planned", "target=", target_position,
+		"hopDistance=", flatten(target_position - root.Position).Magnitude,
+		"arcHeight=", arc_height, "maxArc=", Config.VaultMaxArcHeight,
+		"arcPeak=", arc_peak_progress, "requiredApexY=", required_apex_y,
+		"tallClearance=", tall_obstacle_clearance, "durationFactor=", tall_height_factor)
 	if arc_height > Config.VaultMaxArcHeight then
+		vault_debug("REJECT: required arc exceeds configured maximum",
+			"arcHeight=", arc_height, "maxArc=", Config.VaultMaxArcHeight,
+			"obstacleTopY=", top.Position.Y, "rootY=", root.Position.Y,
+			"rootSizeY=", root.Size.Y, "midpointY=", midpoint_y)
 		return false
 	end
 
@@ -830,7 +939,13 @@ function ParkourController:_try_vault()
 		local sample_cframe = CFrame.new(
 			sample_position + Vector3.new(0, arc, 0)
 		) * base.Rotation
-		if not self:_has_vault_clearance(sample_cframe, clearance_size, obstacle) then
+		local clear, blocker = self:_has_vault_clearance(sample_cframe, clearance_size, obstacle)
+		if not clear then
+			vault_debug("REJECT: trajectory clearance blocked", "alpha=", alpha,
+				"samplePosition=", sample_cframe.Position,
+				"blocker=", blocker and blocker:GetFullName() or "unknown",
+				"blockerPosition=", blocker and blocker.Position or "unknown",
+				"obstacle=", obstacle:GetFullName())
 			return false
 		end
 	end
@@ -883,6 +998,9 @@ function ParkourController:_try_vault()
 	self.MovementController:SetSprintBlocked(true, self)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
+	vault_debug("VAULT STARTED", "obstacle=", obstacle:GetFullName(),
+		"height=", obstacle_height, "target=", target_position,
+		"duration=", vault_duration, "arcHeight=", arc_height)
 	return true
 end
 
