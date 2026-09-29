@@ -517,23 +517,6 @@ function ParkourController:_try_lower_ledge()
 		end
 	end
 
-	if best_top then
-		-- Re-sample at the player's intended landing column so the hang height
-		-- follows the actual top surface instead of the guide's center sample.
-		local target_sample = best_top.Position + tangent * best_lateral_offset
-		best_top = self:_get_guide_top(best_top.Guide, target_sample) or best_top
-		local target_normal = self:_get_guide_wall_normal(best_top.Guide, best_top, normal)
-		self:_debug(
-			"lower ledge selected; guide=%s drop=%.2f horizontal_distance=%.2f examined=%d",
-			best_top.Guide:GetFullName(),
-			best_drop,
-			best_distance,
-			examined
-		)
-		self:_transfer_hang_to_ledge(best_top, target_normal)
-		return
-	end
-
 	if not best_top then
 		-- S is strictly a lower-ledge transfer. Stay on the current guide
 		-- when no tagged lower ledge is reachable; never snap to the ground.
