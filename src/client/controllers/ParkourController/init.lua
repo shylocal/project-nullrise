@@ -141,7 +141,8 @@ function ParkourController:_bind_humanoid(humanoid)
 end
 
 function ParkourController:_cast(origin, direction, respect_can_collide)
-	local params = RaycastParams.new()
+	local params = self._castParams or RaycastParams.new()
+	self._castParams = params
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { self.Character }
 	params.IgnoreWater = true
@@ -150,7 +151,8 @@ function ParkourController:_cast(origin, direction, respect_can_collide)
 end
 
 function ParkourController:_cast_climbable_side(origin, direction)
-	local params = RaycastParams.new()
+	local params = self._sideCastParams or RaycastParams.new()
+	self._sideCastParams = params
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { self.Character }
 	params.IgnoreWater = true
@@ -505,7 +507,7 @@ function ParkourController:_traverse(dt)
 			-normal * (WALL_GAP + SURFACE_PROBE)
 		)
 		local top = probe
-			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position, root.Position.Y + (self.State == "Hanging" and HANG_DROP or 0))
+			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position, root.Position.Y + HANG_DROP)
 		local next_climbable = top
 			and self:_get_climbable_guide(top.Instance)
 		local same_height = top
@@ -680,24 +682,23 @@ function ParkourController:_traverse(dt)
 		local allowed_contact = {}
 		local contact_wall = is_corner_transfer and best_corner.WallInstance or (probe and probe.Instance)
 		if contact_wall then table.insert(allowed_contact, contact_wall) end
+		local pose_changed = (self.HangPosition - pose_snapshot.HangPosition).Magnitude > 1e-3
+			or self.Normal:Dot(pose_snapshot.Normal) < 0.999
 		local midpoint_clear = true
-		if is_corner_transfer then
+		if is_corner_transfer and self.Normal:Dot(pose_snapshot.Normal) < 0.707 then
 			local midpoint = pose_snapshot.HangPosition:Lerp(self.HangPosition, 0.5)
 			local midpoint_normal = flatten(pose_snapshot.Normal + self.Normal)
 			if midpoint_normal.Magnitude < 0.05 then midpoint_normal = self.Normal end
-			midpoint_clear = self:_has_hang_body_clearance(midpoint, midpoint_normal, allowed_contact, true)
+			midpoint_clear = self:_has_hang_body_clearance(midpoint, midpoint_normal, allowed_contact, false)
 		end
-		local body_clear = midpoint_clear and self:_has_hang_body_clearance(self.HangPosition, self.Normal, allowed_contact, true)
+		local body_clear = not pose_changed or (midpoint_clear and self:_has_hang_body_clearance(self.HangPosition, self.Normal, allowed_contact, false))
 		if not body_clear then
 			self:_restore_hang_pose(pose_snapshot)
 		else
-		if is_corner_transfer then
-			-- Keep the newly selected face stable until the root has moved away
-			-- from the seam. This prevents the fan from immediately reacquiring
-			-- the face we just left and flipping the character back and forth.
-			self.CornerLockPosition = self.HangPosition
-			self.CornerLockInputDirection = direction
-		end
+			if is_corner_transfer then
+				self.CornerLockPosition = self.HangPosition
+				self.CornerLockInputDirection = direction
+			end
 		end
 	end
 
@@ -1037,11 +1038,7 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 		self:_restore_hang_pose(pose_snapshot)
 		return false
 	end
-	if refreshed then
-		self:_debug("vertical transfer contact refreshed; guide=%s", target_guide:GetFullName())
-	else
-		self:_debug("vertical transfer contact refresh missed; keeping planned hang point for guide=%s", target_guide:GetFullName())
-	end
+	self:_debug("vertical transfer contact refreshed; guide=%s", target_guide:GetFullName())
 	local final_clear, final_blocker = self:_has_hang_body_clearance(
 		self.HangPosition,
 		self.Normal,
@@ -1049,13 +1046,7 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 		true
 	)
 	if not final_clear then
-		self.CurrentClimbable = previous_guide
-		self.Normal = previous_normal
-		self.HangDepthOffset = previous_depth_offset
-		self.HangPosition = previous_hang_position
-		root.CFrame = previous_cframe
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.AssemblyAngularVelocity = Vector3.zero
+		self:_restore_hang_pose(pose_snapshot)
 		self:_debug(
 			"vertical transfer rejected after contact refresh; blocked by %s",
 			tostring(final_blocker)
