@@ -31,7 +31,7 @@ return {
 	VaultDetectionHalfWidth = 1.25,
 	VaultForwardBoostSpeed = 13,
 	VaultHipHeightReduction = 1,
-	VaultDebug = false,
+	VaultDebug = true,
 	ClimbSmoothness = 18,
 	SurfaceProbe = 1.4,
 	MaxTopSurfaceHits = 16,
