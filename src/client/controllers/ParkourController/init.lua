@@ -12,6 +12,7 @@ ParkourController.__index = ParkourController
 
 local Config = require(script.Config)
 local VaultMath = require(script.VaultMath)
+local ClimbableQuery = require(script.ClimbableQuery)
 
 function ParkourController.new(character, input_controller, movement_controller)
 	local self = setmetatable({
@@ -149,7 +150,7 @@ function ParkourController:_cast_climbable_side(origin, direction)
 		if not hit then
 			return nil
 		end
-		if self:_is_climbable(hit.Instance) then
+		if ClimbableQuery.is_climbable(hit.Instance) then
 			return hit
 		end
 
@@ -161,21 +162,6 @@ function ParkourController:_cast_climbable_side(origin, direction)
 		table.insert(exclusions, hit.Instance)
 	end
 	return nil
-end
-
-function ParkourController:_get_climbable_guide(instance)
-	local current = instance
-	while current and current ~= Workspace do
-		if CollectionService:HasTag(current, Config.ClimbableTag) then
-			return current
-		end
-		current = current.Parent
-	end
-	return nil
-end
-
-function ParkourController:_is_climbable(instance)
-	return self:_get_climbable_guide(instance) ~= nil
 end
 
 function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, root_position, reference_y)
@@ -214,7 +200,7 @@ function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, 
 
 		local height_delta = (reference_y or root_position.Y) - candidate.Position.Y
 		local height_distance = math.abs(height_delta)
-		local climbable = self:_is_climbable(candidate.Instance)
+		local climbable = ClimbableQuery.is_climbable(candidate.Instance)
 		local walkable = candidate.Normal.Y >= 0.5
 		local reachable = height_delta >= -Config.MaxGrabHeight
 			and height_delta <= Config.MaxGrabHeight
@@ -253,7 +239,7 @@ function ParkourController:_detect_surface()
 	if not wall then
 				return nil
 	end
-	if not self:_is_climbable(wall.Instance) then
+	if not ClimbableQuery.is_climbable(wall.Instance) then
 				return nil
 	end
 
@@ -261,7 +247,7 @@ function ParkourController:_detect_surface()
 	if not top then
 				return nil
 	end
-	if not self:_is_climbable(top.Instance) then
+	if not ClimbableQuery.is_climbable(top.Instance) then
 				return nil
 	end
 
@@ -281,7 +267,7 @@ function ParkourController:_detect_surface()
 				return nil
 	end
 
-		return self:_get_climbable_guide(top.Instance), hang_normal, hang_position
+		return ClimbableQuery.get_guide(top.Instance), hang_normal, hang_position
 end
 
 function ParkourController:_grab(guide, normal, position)
@@ -642,7 +628,7 @@ function ParkourController:_try_vault()
 
 	local obstacle = obstacle_hit.Instance
 	if not obstacle:IsA("BasePart") or not obstacle.CanCollide
-		or self:_is_climbable(obstacle) then
+		or ClimbableQuery.is_climbable(obstacle) then
 		return false
 	end
 
@@ -1320,7 +1306,7 @@ function ParkourController:_traverse(dt)
 		local top = probe
 			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, active_top_y)
 		local next_climbable = top
-			and self:_get_climbable_guide(top.Instance)
+			and ClimbableQuery.get_guide(top.Instance)
 		local same_height = top
 			and math.abs(top.Position.Y - active_top_y) <= Config.TraverseHeightTolerance
 			and top.Normal.Y >= 0.5
@@ -1392,7 +1378,7 @@ function ParkourController:_traverse(dt)
 								root.Position.Y + Config.HangDrop
 							)
 							local corner_guide = corner_top
-								and self:_get_climbable_guide(corner_top.Instance)
+								and ClimbableQuery.get_guide(corner_top.Instance)
 							local corner_height_ok = corner_top
 								and math.abs(corner_top.Position.Y - active_top_y) <= Config.TraverseHeightTolerance
 								and corner_top.Normal.Y >= 0.5
@@ -1641,7 +1627,7 @@ function ParkourController:_refresh_hang_contact(expected_guide, expected_top_y)
 	end
 
 	local top = self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, candidate_position.Y + Config.HangDrop)
-	if not top or self:_get_climbable_guide(top.Instance) ~= expected_guide then
+	if not top or ClimbableQuery.get_guide(top.Instance) ~= expected_guide then
 		return false
 	end
 	if expected_top_y and math.abs(top.Position.Y - expected_top_y) > Config.TraverseHeightTolerance then
@@ -1674,7 +1660,7 @@ function ParkourController:_get_ledge_outward_normal(top, reference_position)
 	end
 
 	local part = top.Instance
-	local guide = top.Guide or self:_get_climbable_guide(part)
+	local guide = top.Guide or ClimbableQuery.get_guide(part)
 	if not guide then return nil end
 
 	-- The top surface normal is vertical and cannot tell us which vertical
@@ -1709,7 +1695,7 @@ function ParkourController:_get_ledge_outward_normal(top, reference_position)
 		local origin = Vector3.new(top.Position.X, probe_y, top.Position.Z)
 			+ outward * probe_length
 		local hit = self:_cast_climbable_side(origin, -outward * probe_length)
-		if hit and self:_get_climbable_guide(hit.Instance) == guide then
+		if hit and ClimbableQuery.get_guide(hit.Instance) == guide then
 			local face_normal = Vector.flatten(hit.Normal)
 			if face_normal.Magnitude >= 0.05 then
 				face_normal = face_normal.Unit
@@ -1756,7 +1742,7 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 	elseif not depth_offset or Vector.flatten(depth_offset).Magnitude < 0.05 then
 		depth_offset = destination_normal * Config.WallGap
 	end
-	local target_guide = top.Guide or self:_get_climbable_guide(top.Instance)
+	local target_guide = top.Guide or ClimbableQuery.get_guide(top.Instance)
 	if not target_guide then return false end
 
 	local planned_position = top.Position
@@ -1948,7 +1934,7 @@ function ParkourController:_try_ground_mantle(current_top, normal, tangent)
 				Vector3.new(0, -ray_length, 0),
 				true
 			)
-			if ground and ground.Normal.Y >= 0.5 and not self:_is_climbable(ground.Instance) then
+			if ground and ground.Normal.Y >= 0.5 and not ClimbableQuery.is_climbable(ground.Instance) then
 				local rise = ground.Position.Y - current_top.Y
 				local relative = ground.Position - current_top
 				local inward_distance = relative:Dot(-outward_normal)
