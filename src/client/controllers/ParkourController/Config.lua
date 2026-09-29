@@ -2,6 +2,7 @@
 -- be adjusted without editing detection, movement, and mantle algorithms.
 return {
 	ClimbableTag = "Climbable",
+	ClimbableCollisionGroup = "Climbable",
 	WallReach = 3.25,
 	MaxGrabHeight = 4.5,
 	HangDrop = 2.35,
@@ -39,7 +40,7 @@ return {
 	SurfaceProbe = 1.4,
 	MaxTopSurfaceHits = 16,
 	MantleMaxRise = 12.5,
-	GroundMantleMaxRise = 3.5,
+	GroundMantleMaxRise = 12.5,
 	MantleMaxInward = 8,
 	MantleMaxOutward = 2,
 	MantleMaxLateral = 5,
