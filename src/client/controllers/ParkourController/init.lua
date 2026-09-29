@@ -479,6 +479,53 @@ function ParkourController:_on_jump()
 	end
 end
 
+function ParkourController:_try_ground_dismount(current_top, normal)
+	local root = self.Root
+	if not root or not current_top or not normal then
+		return false
+	end
+
+	-- Dismount only onto ordinary collidable ground that a downward ray can
+	-- actually see beneath the hanging character. Non-collidable guide parts
+	-- do not block this visibility check.
+	local standing_height = self:_standing_height()
+	local ground = self:_cast(
+		root.Position + Vector3.new(0, 2, 0),
+		Vector3.new(0, -(MAX_GROUND_DROP + 2), 0),
+		true
+	)
+	if not ground or ground.Normal.Y < 0.5 or self:_is_climbable(ground.Instance) then
+		self:_debug("ground dismount: no visible collidable ground beneath the character")
+		return false
+	end
+
+	local drop = current_top.Y - ground.Position.Y
+	if drop < -0.25 or drop > MAX_GROUND_DROP then
+		self:_debug("ground dismount: visible surface drop %.2f is outside range", drop)
+		return false
+	end
+
+	local ground_position = Vector3.new(
+		ground.Position.X,
+		ground.Position.Y + standing_height - 0.05,
+		ground.Position.Z
+	)
+	self:_debug(
+		"ground dismount accepted; surface=%s drop=%.2f",
+		ground.Instance:GetFullName(),
+		drop
+	)
+	self.GrabBlockedUntilJumpReleased = true
+	self:_release()
+	root.CFrame = CFrame.lookAt(ground_position, ground_position - normal)
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	if self.Humanoid then
+		self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+	end
+	return true
+end
+
 function ParkourController:_try_lower_ledge()
 	self:_debug("lower ledge requested; state=%s", self.State)
 	if self.State ~= "Hanging" or not self.Root or not self.HangPosition or not self.Normal then
@@ -553,9 +600,11 @@ function ParkourController:_try_lower_ledge()
 	end
 
 	if not best_top then
-		-- S is strictly a lower-ledge transfer. Stay on the current guide
-		-- when no tagged lower ledge is reachable; never snap to the ground.
-		self:_debug("lower ledge: no eligible tagged guide found; remaining on current ledge")
+		-- Prefer a tagged lower ledge. If none is reachable, dismount only
+		-- when ordinary collidable ground is directly visible below.
+		if not self:_try_ground_dismount(current_top, normal) then
+			self:_debug("lower ledge: no reachable lower guide or visible ground; remaining on current ledge")
+		end
 		return
 	end
 
