@@ -624,7 +624,8 @@ function ParkourController:_traverse(dt)
 										"corner candidate has no supported top at tested offsets"
 									)
 								end
-							end							end
+							end
+							end
 						end
 					end
 				end
