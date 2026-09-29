@@ -516,6 +516,10 @@ function ParkourController:_try_lower_ledge()
 	end
 
 	if best_top then
+		-- Re-sample at the player's intended landing column so the hang height
+		-- follows the actual top surface instead of the guide's center sample.
+		local target_sample = best_top.Position + tangent * best_lateral_offset
+		best_top = self:_get_guide_top(best_top.Guide, target_sample) or best_top
 		local target_normal = self:_get_guide_wall_normal(best_top.Guide, best_top, normal)
 		self:_debug(
 			"lower ledge selected; guide=%s drop=%.2f horizontal_distance=%.2f examined=%d",
@@ -678,7 +682,7 @@ function ParkourController:_transfer_hang_to_ledge(top, normal, tangent, lateral
 	root.AssemblyAngularVelocity = Vector3.zero
 	self:_position_hanging()
 	self:_debug(
-		"climbed to higher ledge; guide=%s hang=%s state=%s",
+		"hang transferred; guide=%s hang=%s state=%s",
 		top.Instance:GetFullName(),
 		tostring(hang_position),
 		self.State
@@ -686,7 +690,7 @@ function ParkourController:_transfer_hang_to_ledge(top, normal, tangent, lateral
 	return true
 end
 
-function ParkourController:_get_guide_top(guide)
+function ParkourController:_get_guide_top(guide, sample_position)
 	local box_cframe
 	local box_size
 	local hit_instance
@@ -712,9 +716,9 @@ function ParkourController:_get_guide_top(guide)
 	params.RespectCanCollide = false
 	local ray_length = box_size.Magnitude * 2 + 8
 	local ray_origin = Vector3.new(
-		box_cframe.Position.X,
+		sample_position and sample_position.X or box_cframe.Position.X,
 		box_cframe.Position.Y + box_size.Magnitude + 4,
-		box_cframe.Position.Z
+		sample_position and sample_position.Z or box_cframe.Position.Z
 	)
 	local sampled_top = Workspace:Raycast(
 		ray_origin,
@@ -866,6 +870,10 @@ function ParkourController:_try_mantle()
 			considered,
 			rejected
 		)
+		-- Match the top sample to the character's target column to avoid a
+		-- small vertical mismatch when moving onto an offset or curved ledge.
+		local target_sample = best_top.Position + tangent * best_lateral_offset
+		best_top = self:_get_guide_top(best_top.Guide, target_sample) or best_top
 		local target_normal = self:_get_guide_wall_normal(best_top.Guide, best_top, normal)
 		self:_transfer_hang_to_ledge(best_top, target_normal, tangent, best_lateral_offset)
 	else
