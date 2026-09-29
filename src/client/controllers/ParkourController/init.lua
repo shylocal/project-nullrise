@@ -313,12 +313,16 @@ function ParkourController:_detect_surface()
 	end
 	hang_normal = hang_normal.Unit
 	local hang_position = top.Position + hang_normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
-	local body_clearance = self:_cast(
-		hang_position + Vector3.new(0, 0.8, 0),
-		-hang_normal * 0.35
+	local body_clear, blocking_part = self:_has_hang_body_clearance(
+		hang_position,
+		hang_normal,
+		{ wall.Instance, top.Instance }
 	)
-	if body_clearance and not self:_is_climbable(body_clearance.Instance) then
-		self:_debug_detection("clearance blocked by %s (not climbable)", body_clearance.Instance:GetFullName())
+	if not body_clear then
+		self:_debug_detection(
+			"grab pose blocked by %s",
+			tostring(blocking_part)
+		)
 		return nil
 	end
 
@@ -363,28 +367,23 @@ function ParkourController:_position_hanging()
 	root.CFrame = CFrame.lookAt(position, position - normal)
 end
 
-function ParkourController:_has_corner_body_clearance(position, new_normal, source_normal, allowed_surfaces)
+function ParkourController:_has_hang_body_clearance(position, normal, allowed_surfaces)
 	local root = self.Root
 	local character = self.Character
-	if not root or not character or not position or not new_normal or not source_normal then
+	if not root or not character or not position or not normal then
 		return false
 	end
 
-	local new_facing = flatten(new_normal)
-	local source_facing = flatten(source_normal)
-	if new_facing.Magnitude < 0.05 or source_facing.Magnitude < 0.05 then
+	local facing = flatten(normal)
+	if facing.Magnitude < 0.05 then
 		return false
 	end
-	new_facing = new_facing.Unit
-	source_facing = source_facing.Unit
+	facing = facing.Unit
 
-	-- Test the character's full current bounds reoriented at the proposed
-	-- hanging pose, rather than checking only whether the ledge top exists.
-	local bounds_cframe, bounds_size = character:GetBoundingBox()
-	local root_to_bounds = root.CFrame:ToObjectSpace(bounds_cframe)
-	local target_root_cframe = CFrame.lookAt(position, position - new_facing)
-	local target_bounds_cframe = target_root_cframe * root_to_bounds
-
+	-- Use the HumanoidRootPart collision envelope rather than the whole avatar
+	-- bounding box. Accessories and non-colliding limbs can extend well beyond
+	-- the actual movement collider and falsely reject tight but valid corners.
+	local target_cframe = CFrame.lookAt(position, position - facing)
 	local overlap_params = OverlapParams.new()
 	overlap_params.FilterType = Enum.RaycastFilterType.Exclude
 	local exclusions = { character }
@@ -396,43 +395,15 @@ function ParkourController:_has_corner_body_clearance(position, new_normal, sour
 	overlap_params.FilterDescendantsInstances = exclusions
 	overlap_params.RespectCanCollide = true
 
-	local bounds_padding = Vector3.new(0.1, 0.1, 0.1)
+	local padding = Vector3.new(0.08, 0.08, 0.08)
 	local overlaps = Workspace:GetPartBoundsInBox(
-		target_bounds_cframe,
-		bounds_size + bounds_padding,
+		target_cframe,
+		root.Size + padding,
 		overlap_params
 	)
 	for _, part in ipairs(overlaps) do
 		if part.CanCollide then
 			return false, part
-		end
-	end
-
-	-- Also require a small gap beyond the character's projected body extent
-	-- on the source-wall side. This catches a nearby wall even when its broad
-	-- part is also serving as the destination ledge's tagged surface.
-	local bounds_right = flatten(target_bounds_cframe.RightVector)
-	local bounds_look = flatten(target_bounds_cframe.LookVector)
-	local source_half_extent = math.abs(source_facing:Dot(bounds_right)) * bounds_size.X * 0.5
-		+ math.abs(source_facing:Dot(bounds_look)) * bounds_size.Z * 0.5
-	local source_clearance = 0.15
-	local ray_origin = target_bounds_cframe.Position
-		+ source_facing * (source_half_extent + source_clearance)
-	local ray_params = RaycastParams.new()
-	ray_params.FilterType = Enum.RaycastFilterType.Exclude
-	ray_params.FilterDescendantsInstances = { character }
-	ray_params.IgnoreWater = true
-	ray_params.RespectCanCollide = true
-	local source_wall_hit = Workspace:Raycast(
-		ray_origin,
-		-source_facing * source_clearance,
-		ray_params
-	)
-	if source_wall_hit then
-		local hit_normal = flatten(source_wall_hit.Normal)
-		if hit_normal.Magnitude >= 0.05
-			and hit_normal.Unit:Dot(source_facing) >= 0.65 then
-			return false, source_wall_hit.Instance
 		end
 	end
 
@@ -593,11 +564,10 @@ function ParkourController:_traverse(dt)
 									) + corner_normal * WALL_GAP
 								local body_clearance_valid, blocking_part = false, nil
 								if clearance_valid and proposed_hang_position then
-									body_clearance_valid, blocking_part = self:_has_corner_body_clearance(
+									body_clearance_valid, blocking_part = self:_has_hang_body_clearance(
 										proposed_hang_position,
 										corner_normal,
-										normal,
-										{ corner_probe.Instance, cleared_top.Instance }
+										{ active_top.Instance, corner_probe.Instance, cleared_top.Instance }
 									)
 								end
 								if clearance_valid and body_clearance_valid then
@@ -986,6 +956,37 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 	local target_guide = top.Guide or self:_get_climbable_guide(top.Instance)
 	if not target_guide then return false end
 
+	-- Resolve the source wall contact so only the intended source/destination
+	-- surfaces are exempt from the blocker query.
+	local source_contact = self:_cast(
+		root.Position + Vector3.new(0, 1.5, 0) + normal * 0.3,
+		-normal * (WALL_GAP + SURFACE_PROBE)
+	)
+	local allowed_surfaces = { top.Instance }
+	if source_contact then
+		table.insert(allowed_surfaces, source_contact.Instance)
+	end
+	local planned_position = top.Position
+		+ depth_offset
+		- Vector3.new(0, HANG_DROP, 0)
+	local planned_clear, planned_blocker = self:_has_hang_body_clearance(
+		planned_position,
+		destination_normal,
+		allowed_surfaces
+	)
+	if not planned_clear then
+		self:_debug(
+			"vertical transfer blocked by %s; retaining source ledge",
+			tostring(planned_blocker)
+		)
+		return false
+	end
+
+	local previous_guide = self.CurrentClimbable
+	local previous_normal = self.Normal
+	local previous_depth_offset = self.HangDepthOffset
+	local previous_hang_position = self.HangPosition
+	local previous_cframe = root.CFrame
 	self.State = "Hanging"
 	self.CurrentClimbable = target_guide
 	self.Normal = destination_normal
@@ -1002,6 +1003,25 @@ function ParkourController:_transfer_hang_to_ledge(top, target_normal)
 		self:_debug("vertical transfer contact refreshed; guide=%s", target_guide:GetFullName())
 	else
 		self:_debug("vertical transfer contact refresh missed; keeping planned hang point for guide=%s", target_guide:GetFullName())
+	end
+	local final_clear, final_blocker = self:_has_hang_body_clearance(
+		self.HangPosition,
+		self.Normal,
+		allowed_surfaces
+	)
+	if not final_clear then
+		self.CurrentClimbable = previous_guide
+		self.Normal = previous_normal
+		self.HangDepthOffset = previous_depth_offset
+		self.HangPosition = previous_hang_position
+		root.CFrame = previous_cframe
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		self:_debug(
+			"vertical transfer rejected after contact refresh; blocked by %s",
+			tostring(final_blocker)
+		)
+		return false
 	end
 	self:_position_hanging()
 	self:_debug(
