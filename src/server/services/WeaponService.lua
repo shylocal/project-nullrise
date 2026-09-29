@@ -188,7 +188,7 @@ function WeaponService:Equip(player, weapon_id)
 	end
 
 	local weapon = Catalog.Get(weapon_id)
-	if not weapon or typeof(weapon.Model) ~= "string" or weapon.Model == "" then
+	if not Catalog.IsMelee(weapon) or typeof(weapon.Model) ~= "string" or weapon.Model == "" then
 		return false
 	end
 
