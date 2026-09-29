@@ -275,10 +275,16 @@ function ParkourController:_detect_surface()
 		return nil
 	end
 
-	local hang_position = top.Position + wall.Normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
+	local hang_normal = flatten(wall.Normal)
+	if hang_normal.Magnitude < 0.05 then
+		self:_debug_detection("wall normal has no horizontal component; wall=%s", wall.Instance:GetFullName())
+		return nil
+	end
+	hang_normal = hang_normal.Unit
+	local hang_position = top.Position + hang_normal * WALL_GAP - Vector3.new(0, HANG_DROP, 0)
 	local body_clearance = self:_cast(
 		hang_position + Vector3.new(0, 0.8, 0),
-		-wall.Normal * 0.35
+		-hang_normal * 0.35
 	)
 	if body_clearance and not self:_is_climbable(body_clearance.Instance) then
 		self:_debug_detection("clearance blocked by %s (not climbable)", body_clearance.Instance:GetFullName())
@@ -291,7 +297,7 @@ function ParkourController:_detect_surface()
 		top.Instance:GetFullName(),
 		height_delta
 	)
-	return self:_get_climbable_guide(top.Instance), wall.Normal, hang_position
+	return self:_get_climbable_guide(top.Instance), hang_normal, hang_position
 end
 
 function ParkourController:_grab(guide, normal, position)
@@ -368,53 +374,53 @@ function ParkourController:_traverse(dt)
 
 		local candidate_position = root.Position
 			+ tangent * direction * TRAVERSE_SPEED * math.max(dt, 0)
-		local active_half_extent = self:_get_guide_half_extent(active_top, tangent)
-		local lateral_margin = math.max(root.Size.X * 0.5, 0.5)
-		local active_safe_extent = math.max(0, active_half_extent - lateral_margin)
-		local active_lateral_offset = flatten(candidate_position - active_top.Position):Dot(tangent)
-		local clamped_active_offset = math.clamp(
-			active_lateral_offset,
-			-active_safe_extent,
-			active_safe_extent
+		-- Re-sample locally every step so traversal can follow curved guides
+		-- (especially cylinders) instead of moving along a stale tangent.
+		local probe_origin = candidate_position
+			+ Vector3.new(0, 1.5, 0)
+			+ normal * 0.3
+		local probe = self:_cast(
+			probe_origin,
+			-normal * (WALL_GAP + SURFACE_PROBE)
 		)
-
-		if math.abs(active_lateral_offset) <= active_safe_extent then
-			-- Use the cached guide as the traversal anchor. Preserve the existing
-			-- wall offset and move only along the tangent; do not re-center on the
-			-- guide's bounding-box origin each frame.
-			self.HangPosition = candidate_position
+		local top = probe
+			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position)
+		local next_climbable = top
+			and self:_get_climbable_guide(top.Instance)
+		local same_height = top
+			and math.abs(top.Position.Y - active_top.Position.Y) <= TRAVERSE_HEIGHT_TOLERANCE
+			and top.Normal.Y >= 0.5
+		local horizontal_normal = probe and flatten(probe.Normal) or Vector3.zero
+		if horizontal_normal.Magnitude >= 0.05 then
+			horizontal_normal = horizontal_normal.Unit
 		else
-			-- At the active guide's edge, look for a connected, same-height guide.
-			-- Replace the cache only after this explicit transition is validated.
-			local probe_origin = candidate_position
-				+ Vector3.new(0, 1.5, 0)
-				+ normal * 0.3
-			local probe = self:_cast(
-				probe_origin,
-				-normal * (WALL_GAP + SURFACE_PROBE)
-			)
-			local next_top = probe
-				and self:_cast_reachable_grab_top(probe.Position, probe.Normal, root.Position)
-			local next_climbable = next_top
-				and self:_get_climbable_guide(next_top.Instance)
-			local same_height = next_top
-				and math.abs(next_top.Position.Y - active_top.Position.Y) <= TRAVERSE_HEIGHT_TOLERANCE
-				and next_top.Normal.Y >= 0.5
+			horizontal_normal = normal
+		end
 
-			if next_climbable and next_climbable ~= climbable and same_height then
-				-- The top ray is sampled at the player's attempted position, so
-				-- use its hit point rather than the new guide's center.
-				self.CurrentClimbable = next_climbable
-				self.Normal = probe.Normal
-				self.HangPosition = next_top.Position
-					+ self.Normal * WALL_GAP
-					- Vector3.new(0, HANG_DROP, 0)
-			else
-				-- No connected same-height guide: stop at the current guide edge,
-				-- retaining this guide in the cache.
-				self.HangPosition = candidate_position
-					+ tangent * (clamped_active_offset - active_lateral_offset)
-			end
+		if top and next_climbable == climbable and same_height then
+			-- Keep the cache on the active guide, but refresh the contact normal
+			-- from the local hit so round surfaces can turn beneath the player.
+			-- Preserve the current root height to prevent per-step vertical drift.
+			self.Normal = horizontal_normal
+			self.HangPosition = Vector3.new(
+				top.Position.X,
+				self.HangPosition.Y,
+				top.Position.Z
+			) + horizontal_normal * WALL_GAP
+		elseif top and next_climbable and next_climbable ~= climbable and same_height then
+			-- Switch the cache only after the local probe confirms a distinct,
+			-- adjacent tagged guide at the same height.
+			self.CurrentClimbable = next_climbable
+			self.Normal = horizontal_normal
+			self.HangPosition = Vector3.new(
+				top.Position.X,
+				self.HangPosition.Y,
+				top.Position.Z
+			) + horizontal_normal * WALL_GAP
+		else
+			-- Invalid or missing support stops movement at the last valid hang
+			-- transform rather than drifting down or snapping to a guide center.
+			self:_debug_traversal("local surface probe did not validate the active guide")
 		end
 	end
 
@@ -573,8 +579,20 @@ function ParkourController:_standing_height()
 end
 
 function ParkourController:_get_guide_half_extent(top, tangent)
-	-- Project the guide's horizontal bounding box onto the character's
-	-- sideways axis so a long guide remains climbable away from its center.
+	local guide = top.Guide
+	if guide and guide:IsA("BasePart") and guide.Shape == Enum.PartType.Cylinder then
+		-- Roblox cylinders run along their local X axis. Project that axis and
+		-- its circular cross-section separately instead of treating the shape
+		-- as a rectangular X/Z footprint.
+		local axis = guide.CFrame.RightVector
+		local axial_projection = math.clamp(math.abs(tangent:Dot(axis)), 0, 1)
+		local radius = math.max(guide.Size.Y, guide.Size.Z) * 0.5
+		return axial_projection * guide.Size.X * 0.5
+			+ math.sqrt(math.max(0, 1 - axial_projection * axial_projection)) * radius
+	end
+
+	-- Project a guide's horizontal bounding box onto the character's
+	-- sideways axis so a long rectangular guide remains traversable off-center.
 	local right = flatten(top.BoxCFrame.RightVector)
 	local look = flatten(top.BoxCFrame.LookVector)
 	return math.abs(tangent:Dot(right)) * top.BoxSize.X * 0.5
@@ -630,13 +648,44 @@ function ParkourController:_get_guide_top(guide)
 	end
 	if not hit_instance then return nil end
 
+	-- Sample the actual highest walkable surface at the guide's horizontal
+	-- center. This handles cylinders whose long axis is local X, including
+	-- cylinders rotated upright, without assuming local Y is their top.
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { guide }
+	params.IgnoreWater = true
+	params.RespectCanCollide = false
+	local ray_length = box_size.Magnitude * 2 + 8
+	local ray_origin = Vector3.new(
+		box_cframe.Position.X,
+		box_cframe.Position.Y + box_size.Magnitude + 4,
+		box_cframe.Position.Z
+	)
+	local sampled_top = Workspace:Raycast(
+		ray_origin,
+		Vector3.new(0, -ray_length, 0),
+		params
+	)
+	if sampled_top and sampled_top.Normal.Y >= 0.5 then
+		return {
+			Instance = sampled_top.Instance,
+			Guide = guide,
+			Position = sampled_top.Position,
+			Normal = sampled_top.Normal,
+			BoxCFrame = box_cframe,
+			BoxSize = box_size,
+		}
+	end
+
+	-- Retain the oriented-box fallback for guides whose center is hollow or
+	-- whose top cannot be sampled, but only when the box's own up axis is
+	-- sufficiently walkable.
 	local up = box_cframe.UpVector
 	if up.Y < 0.5 then
 		return nil
 	end
 
-	-- Keep the tagged guide itself so a Model guide can be retained as the
-	-- hanging surface even when its diagnostic BasePart is nested inside it.
 	return {
 		Instance = hit_instance,
 		Guide = guide,
