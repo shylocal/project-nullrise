@@ -19,6 +19,7 @@ function MovementController.new(character, input_controller)
 		Humanoid = nil,
 		DefaultWalkSpeed = MovementConfig.WalkSpeed,
 		SprintSpeed = MovementConfig.SprintSpeed,
+		HasSpeedOverride = false,
 		SprintBlocked = false,
 		Sprinting = false,
 
@@ -67,7 +68,9 @@ end
 
 function MovementController:_set_humanoid(humanoid)
 	self.Humanoid = humanoid
-	self.DefaultWalkSpeed = humanoid.WalkSpeed
+	if not self.HasSpeedOverride then
+		self.DefaultWalkSpeed = humanoid.WalkSpeed
+	end
 	self:_update_sprinting()
 end
 
@@ -98,6 +101,7 @@ function MovementController:SetSpeeds(walk_speed, sprint_speed)
 
 	self.DefaultWalkSpeed = walk_speed
 	self.SprintSpeed = sprint_speed
+	self.HasSpeedOverride = true
 	self:_update_sprinting()
 	return true
 end
