@@ -387,21 +387,15 @@ function ParkourController:_step(dt)
 			self._mantleTarget = nil
 			self._mantleElapsed = nil
 			self._mantleDuration = nil
+			-- Restore ordinary Humanoid movement when the mantle ends. The
+			-- jump/grab lock is independent and remains set until Space is released.
 			if self.Humanoid then
-				-- Keep the hang's jump lock until Space is released, even if the
-				-- mantle animation has already reached its grounded endpoint.
-				local jump_held = self.InputController:IsDown(Actions.Jump)
-				if not jump_held then
-					if self.AutoRotateBeforeHang ~= nil then self.Humanoid.AutoRotate = self.AutoRotateBeforeHang end
-					if self.PlatformStandBeforeHang ~= nil then self.Humanoid.PlatformStand = self.PlatformStandBeforeHang end
-					self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
-					self.AutoRotateBeforeHang = nil
-					self.PlatformStandBeforeHang = nil
-				end
-			else
-				self.AutoRotateBeforeHang = nil
-				self.PlatformStandBeforeHang = nil
+				if self.AutoRotateBeforeHang ~= nil then self.Humanoid.AutoRotate = self.AutoRotateBeforeHang end
+				if self.PlatformStandBeforeHang ~= nil then self.Humanoid.PlatformStand = self.PlatformStandBeforeHang end
+				self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
 			end
+			self.AutoRotateBeforeHang = nil
+			self.PlatformStandBeforeHang = nil
 			if self.MovementController then self.MovementController:SetSprintBlocked(false) end
 		end
 	end
