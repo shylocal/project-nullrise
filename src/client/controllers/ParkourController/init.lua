@@ -384,9 +384,15 @@ function ParkourController:_traverse(dt)
 				)
 			else
 				local height_delta = root.Position.Y - top.Position.Y
-				if height_delta >= -MAX_GRAB_HEIGHT and height_delta <= MAX_GRAB_HEIGHT then
+				local current_top_y = self.HangPosition.Y + HANG_DROP
+				local ledge_height_delta = top.Position.Y - current_top_y
+				if math.abs(ledge_height_delta) <= TRAVERSE_HEIGHT_TOLERANCE
+					and height_delta >= -MAX_GRAB_HEIGHT
+					and height_delta <= MAX_GRAB_HEIGHT then
 					self.LastTraversalDiagnostic = nil
-					self.Surface = probe.Instance
+					-- Track the tagged top that was validated, not a possibly
+					-- unrelated backing wall hit by the lateral probe.
+					self.Surface = top.Instance
 					self.Normal = probe.Normal
 					self.HangPosition = top.Position
 						+ probe.Normal * WALL_GAP
@@ -403,7 +409,12 @@ function ParkourController:_traverse(dt)
 						self.LastTraversalSuccessLogAt = now
 					end
 				else
-					self:_debug_traversal("top hit %s; height_delta=%.2f out of range", top.Instance:GetFullName(), height_delta)
+					self:_debug_traversal(
+						"top hit %s; height_delta=%.2f ledge_delta=%.2f out of range",
+						top.Instance:GetFullName(),
+						height_delta,
+						ledge_height_delta
+					)
 				end
 			end
 		end
