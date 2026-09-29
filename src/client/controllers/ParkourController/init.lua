@@ -20,6 +20,7 @@ local WALL_GAP = 0.8
 local TRAVERSE_SPEED = 5
 local SURFACE_PROBE = 1.4
 local LOWER_PROBE_OFFSETS = { 0.15, 0.45, 0.75, 1.05 }
+local GROUND_PROBE_OFFSETS = { 0.75, 1.05, 1.35, 1.65, 2.0 }
 local MAX_TOP_SURFACE_HITS = 16
 -- Max ledge-to-ledge rise; root-to-top range also accounts for the hang drop below the ledge.
 local MANTLE_MAX_RISE = 12.5
@@ -494,7 +495,58 @@ function ParkourController:_try_lower_ledge()
 	end
 
 	if not lower then
-		self:_debug("lower ledge: no valid tagged lower surface found")
+		-- If there is no tagged ledge below, allow S to dismount onto ordinary
+		-- collidable ground. Probe out from the wall so we do not mistake its
+		-- vertical face for a floor; the guide blocks themselves may stay
+		-- non-collidable.
+		local root = self.Root
+		local standing_height = self:_standing_height()
+		local ground = nil
+		local ground_offset = nil
+		for _, offset in ipairs(GROUND_PROBE_OFFSETS) do
+			local probe_origin = current_top
+				+ self.Normal * offset
+				+ Vector3.new(0, 2, 0)
+			local candidate = self:_cast(
+				probe_origin,
+				Vector3.new(0, -(MAX_GROUND_DROP + 2), 0),
+				true
+			)
+			if candidate and candidate.Normal.Y >= 0.5
+				and not self:_is_climbable(candidate.Instance) then
+				local drop = current_top.Y - candidate.Position.Y
+				if drop >= -0.25 and drop <= MAX_GROUND_DROP then
+					ground = candidate
+					ground_offset = offset
+					break
+				end
+			end
+		end
+
+		if not ground or not root then
+			self:_debug("lower ledge: no tagged lower guide or reachable ground found")
+			return
+		end
+
+		local ground_position = Vector3.new(
+			ground.Position.X,
+			ground.Position.Y + standing_height - 0.05,
+			ground.Position.Z
+		)
+		self:_debug(
+			"ground dismount accepted; surface=%s drop=%.2f probe_offset=%.2f",
+			ground.Instance:GetFullName(),
+			current_top.Y - ground.Position.Y,
+			ground_offset
+		)
+		self.GrabBlockedUntilJumpReleased = true
+		self:_release()
+		root.CFrame = CFrame.lookAt(ground_position, ground_position - self.Normal)
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		if self.Humanoid then
+			self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+		end
 		return
 	end
 
