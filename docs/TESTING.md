@@ -57,7 +57,10 @@ The suite includes:
 - `Protocol.spec.lua`: checks shared action and remote identifiers for valid, unique strings.
 - `CombatValidation.spec.lua`: checks rejection of malformed target, segment, and non-finite position inputs.
 - `InventoryValidation.spec.lua`: checks rejection of invalid slot values and unknown weapon IDs.
-- `RuntimeContracts.spec.lua`: smoke-checks configured remotes, required packages, weapon models, and server-module exports in the Studio place.
+- `RuntimeContracts.spec.lua`: smoke-checks configured remotes, required packages, weapon models, client controller constructors, and server-module exports in the Studio place.
+
+
+The suite currently defines **40 TestEZ cases** across these specs. This is a starting regression net, not exhaustive gameplay coverage; in particular, it does not simulate real parkour raycasts against the map, animation playback, or multiplayer combat timing.
 
 The behavior tests use isolated fixtures and avoid invoking live remotes or depending on map geometry. They are useful regression checks, but they do not replace Studio playtesting of real movement physics, parkour detection against authored map parts, animation asset availability, or multiplayer combat.
 
