@@ -25,7 +25,7 @@ local Bindings = {
 }
 
 function PCInput.new(on_began, on_ended)
-	local self = setmetatable({ Trove = Trove.new(), SprintKeysDown = {}, SprintActive = false }, PCInput)
+	local self = setmetatable({ Trove = Trove.new(), SprintKeysDown = {}, SprintActive = false, SprintRecoveryToken = 0 }, PCInput)
 	local ok, err = pcall(self._start, self, on_began, on_ended)
 	if not ok then
 		self:Destroy()
@@ -61,17 +61,29 @@ function PCInput:_on_sprint_input(action_name, input_state, input)
 	end
 
 	if input_state == Enum.UserInputState.Begin then
+		self.SprintRecoveryToken += 1
 		self.SprintKeysDown[key_code] = true
 		self:_set_sprint_active(true)
 	elseif input_state == Enum.UserInputState.End or input_state == Enum.UserInputState.Cancel then
 		local was_tracked = self.SprintKeysDown[key_code] == true
 		if was_tracked then
 			self.SprintKeysDown[key_code] = nil
+			self:_set_sprint_active(next(self.SprintKeysDown) ~= nil)
 		else
-			-- An unmatched End must not release another Shift key still tracked as held.
-			warn(("[InputDebug][PC] unmatched Shift end ignored key=%s"):format(tostring(key_code)))
+			-- Allow a counterpart event a brief chance to arrive, then clear
+			-- stale local state so sprint cannot remain latched indefinitely.
+			warn(("[InputDebug][PC] unmatched Shift end; scheduling stale-state recovery key=%s"):format(tostring(key_code)))
+			self.SprintRecoveryToken += 1
+			local recovery_token = self.SprintRecoveryToken
+			task.delay(0.2, function()
+				if self.Destroyed or self.SprintRecoveryToken ~= recovery_token then
+					return
+				end
+				table.clear(self.SprintKeysDown)
+				self:_set_sprint_active(false)
+				warn("[InputDebug][PC] stale Shift state cleared after unmatched release")
+			end)
 		end
-		self:_set_sprint_active(next(self.SprintKeysDown) ~= nil)
 	end
 
 	return Enum.ContextActionResult.Pass
