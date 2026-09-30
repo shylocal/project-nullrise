@@ -16,6 +16,21 @@ local Traversal = require(script.Traversal)
 local LedgeTraversal = require(script.LedgeTraversal)
 local VaultTraversal = require(script.VaultTraversal)
 
+local function restore_jumping_state(self)
+	local humanoid = self.Humanoid
+	local jumping_enabled = self.JumpingEnabledBeforeMantle
+	if jumping_enabled == nil then
+		jumping_enabled = self.VaultJumpingEnabledBefore
+	end
+
+	if humanoid and humanoid.Parent and jumping_enabled ~= nil then
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, jumping_enabled)
+	end
+
+	self.JumpingEnabledBeforeMantle = nil
+	self.VaultJumpingEnabledBefore = nil
+end
+
 function ParkourController.new(character, input_controller, movement_controller)
 	local self = setmetatable({
 		Character = character,
@@ -33,6 +48,7 @@ function ParkourController.new(character, input_controller, movement_controller)
 		AutoRotateBeforeHang = nil,
 		PlatformStandBeforeHang = nil,
 		GrabBlockedUntilJumpReleased = false,
+		_destroyed = false,
 		VaultJumpingEnabledBefore = nil,
 		VaultAutoRotateBefore = nil,
 		VaultPlatformStandBefore = nil,
@@ -76,16 +92,8 @@ function ParkourController:_start()
 		if action == Actions.Jump then
 			if self.GrabBlockedUntilJumpReleased then
 				self.GrabBlockedUntilJumpReleased = false
-				if self.Humanoid and self.State ~= "Vaulting" then
-					local jumping_enabled = self.JumpingEnabledBeforeMantle
-					if jumping_enabled == nil then
-						jumping_enabled = self.VaultJumpingEnabledBefore
-					end
-					if jumping_enabled ~= nil then
-						self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, jumping_enabled)
-						self.JumpingEnabledBeforeMantle = nil
-						self.VaultJumpingEnabledBefore = nil
-					end
+				if self.State ~= "Vaulting" then
+					restore_jumping_state(self)
 				end
 				if self.State == "Grounded" and self.Humanoid then
 					if self.AutoRotateBeforeHang ~= nil then self.Humanoid.AutoRotate = self.AutoRotateBeforeHang end
@@ -221,6 +229,9 @@ function ParkourController:_has_hang_body_clearance(position, normal)
 end
 
 function ParkourController:_step(dt)
+	if self._destroyed then
+		return
+	end
 	self._stepDelta = dt
 	-- Recover from a lost Forward ActionEnded event (focus changes or UI capture).
 	if self.ForwardBlockedUntilRelease and not self.InputController:IsDown(Actions.Forward) then
@@ -230,14 +241,9 @@ function ParkourController:_step(dt)
 	-- Recover from a lost Jump ActionEnded event (focus changes or UI capture).
 	if self.GrabBlockedUntilJumpReleased and not self.InputController:IsDown(Actions.Jump) then
 		self.GrabBlockedUntilJumpReleased = false
-		local humanoid = self.Humanoid
-		if humanoid and self.State ~= "Vaulting" then
-			local enabled = self.JumpingEnabledBeforeMantle
-			if enabled == nil then enabled = self.VaultJumpingEnabledBefore end
-			if enabled ~= nil then humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, enabled) end
+		if self.State ~= "Vaulting" then
+			restore_jumping_state(self)
 		end
-		self.JumpingEnabledBeforeMantle = nil
-		self.VaultJumpingEnabledBefore = nil
 	end
 
 	-- Track the airborne phase to release the hop guard on landing.
@@ -416,46 +422,38 @@ function ParkourController:_try_mantle()
 end
 
 function ParkourController:_release()
-	if self.State == "Hanging" or self.State == "Mantling" or self.State == "Vaulting" then
-	end
 	if self._topHopActive then
 		self:_finish_top_hop(false)
 	end
-	if self.State == "Vaulting" then
+
+	local state = self.State
+	if state == "Vaulting" then
 		self:_finish_vault(false)
 		return
 	end
-	if self.State == "Mantling" then
+
+	local was_traversing = state == "Hanging" or state == "Mantling"
+	if state == "Hanging" or state == "Mantling" then
 		self.State = "Grounded"
+	end
+
+	if state == "Hanging" then
+		self.CurrentClimbable = nil
+		self.Normal = nil
+		self.HangDepthOffset = nil
+		self.HangPosition = nil
+		self.CornerLockPosition = nil
+		self.CornerLockInputDirection = nil
+	end
+
+	if state == "Mantling" then
 		self._mantleStart = nil
 		self._mantleTarget = nil
 		self._mantleElapsed = nil
 		self._mantleDuration = nil
-		local humanoid = self.Humanoid
-		if humanoid then
-			if self.JumpingEnabledBeforeMantle ~= nil then
-				humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, self.JumpingEnabledBeforeMantle)
-				self.JumpingEnabledBeforeMantle = nil
-			end
-			if self.AutoRotateBeforeHang ~= nil then humanoid.AutoRotate = self.AutoRotateBeforeHang end
-			if self.PlatformStandBeforeHang ~= nil then humanoid.PlatformStand = self.PlatformStandBeforeHang end
-		end
-		self.AutoRotateBeforeHang = nil
-		self.PlatformStandBeforeHang = nil
-		self.GrabBlockedUntilJumpReleased = false
-		if self.MovementController then self.MovementController:SetSprintBlocked(false, self) end
-		return
 	end
-	if self.State ~= "Hanging" then
-		return
-	end
-	self.State = "Grounded"
-	self.CurrentClimbable = nil
-	self.Normal = nil
-	self.HangDepthOffset = nil
-	self.HangPosition = nil
-	self.CornerLockPosition = nil
-	self.CornerLockInputDirection = nil
+
+	restore_jumping_state(self)
 
 	local humanoid = self.Humanoid
 	if humanoid then
@@ -468,25 +466,31 @@ function ParkourController:_release()
 	end
 	self.AutoRotateBeforeHang = nil
 	self.PlatformStandBeforeHang = nil
-	if self.MovementController then
+	self.GrabBlockedUntilJumpReleased = false
+
+	if was_traversing and self.MovementController then
 		self.MovementController:SetSprintBlocked(false, self)
 	end
 end
 
 function ParkourController:Destroy()
-	self:_release()
-	if self.Humanoid then
-		if self.JumpingEnabledBeforeMantle ~= nil then
-			self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, self.JumpingEnabledBeforeMantle)
-		end
-		if self.VaultJumpingEnabledBefore ~= nil then
-			self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, self.VaultJumpingEnabledBefore)
-		end
-		if self.AutoRotateBeforeHang ~= nil then self.Humanoid.AutoRotate = self.AutoRotateBeforeHang end
-		if self.PlatformStandBeforeHang ~= nil then self.Humanoid.PlatformStand = self.PlatformStandBeforeHang end
+	if self._destroyed then
+		return
 	end
-	if self.MovementController then self.MovementController:SetSprintBlocked(false, self) end
+	self._destroyed = true
+
+	self:_release()
+	restore_jumping_state(self)
+
+	local humanoid = self.Humanoid
+	if humanoid then
+		if self.AutoRotateBeforeHang ~= nil then humanoid.AutoRotate = self.AutoRotateBeforeHang end
+		if self.PlatformStandBeforeHang ~= nil then humanoid.PlatformStand = self.PlatformStandBeforeHang end
+	end
+	self.AutoRotateBeforeHang = nil
+	self.PlatformStandBeforeHang = nil
 	self.GrabBlockedUntilJumpReleased = false
+
 	if self.HangClearanceProbe then
 		self.HangClearanceProbe:Destroy()
 		self.HangClearanceProbe = nil
