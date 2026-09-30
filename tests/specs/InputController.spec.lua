@@ -123,10 +123,11 @@ return function()
 		expect(#ended).to.equal(2)
 	end)
 
-	it("releases stale Sprint ownership when the final Shift end is misidentified", function()
+	it("preserves Sprint when Shift end is misidentified and reconciles final release", function()
 		local began_count = 0
 		local ended_count = 0
 		local held_keys = {}
+		local physical_keys = {}
 		controller.ActionBegan:Connect(function(action)
 			if action == Actions.Sprint then began_count += 1 end
 		end)
@@ -140,49 +141,58 @@ return function()
 		local function on_ended(action, source, source_id)
 			controller:_ended(action, source, source_id)
 		end
+		local function is_key_down(key_code)
+			return physical_keys[key_code] == true
+		end
+		local function begin_shift(key_code)
+			physical_keys[key_code] = true
+			return PCInput._begin_sprint_key(held_keys, key_code, on_began)
+		end
+		local function end_shift(event_key)
+			return PCInput._end_sprint_key(held_keys, event_key, on_ended, is_key_down)
+		end
 
-		-- Reproduce the observed Studio stream: LeftShift begins, pressing
-		-- RightShift generates no begin, releasing LeftShift generates no end,
-		-- and the final release arrives as an unmatched RightShift end.
-		local handled, began = PCInput._begin_sprint_key(held_keys, Enum.KeyCode.LeftShift, on_began)
+		-- Mirror the reported trace: only LeftShift begin is observed; the
+		-- engine reports a RightShift end while LeftShift is still physically down.
+		begin_shift(Enum.KeyCode.LeftShift)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+		physical_keys[Enum.KeyCode.RightShift] = true
+		physical_keys[Enum.KeyCode.RightShift] = false
+
+		local handled, matched, remains_active, removed_key, ended =
+			end_shift(Enum.KeyCode.RightShift)
 		expect(handled).to.equal(true)
-		expect(began).to.equal(true)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-
-		-- RightShift's begin is suppressed by the engine, so there is no
-		-- helper call and no second tracked key.
-		expect(held_keys[Enum.KeyCode.RightShift]).to.equal(nil)
-
-		-- The first physical release is suppressed: no helper call occurs.
-		expect(held_keys[Enum.KeyCode.LeftShift]).to.equal(true)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-
-		local ended_handled, matched, remains_active, removed_key =
-			PCInput._end_sprint_key(held_keys, Enum.KeyCode.RightShift, on_ended)
-		expect(ended_handled).to.equal(true)
 		expect(matched).to.equal(false)
-		expect(remains_active).to.equal(false)
-		expect(removed_key).to.equal(Enum.KeyCode.LeftShift)
+		expect(remains_active).to.equal(true)
+		expect(removed_key).to.equal(nil)
+		expect(ended).to.equal(false)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+		expect(ended_count).to.equal(0)
+
+		-- The later final release may be reported as either Shift key. Since
+		-- neither is physically down, it ends the aggregate Sprint source.
+		physical_keys[Enum.KeyCode.LeftShift] = false
+		physical_keys[Enum.KeyCode.RightShift] = false
+		local _, _, final_active, _, final_ended = end_shift(Enum.KeyCode.RightShift)
+		expect(final_active).to.equal(false)
+		expect(final_ended).to.equal(true)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(began_count).to.equal(1)
 		expect(ended_count).to.equal(1)
 
-		-- Standard two-edge input still preserves Sprint until the second key ends.
-		PCInput._begin_sprint_key(held_keys, Enum.KeyCode.LeftShift, on_began)
-		PCInput._begin_sprint_key(held_keys, Enum.KeyCode.RightShift, on_began)
+		-- The next press cycle must begin/end independently.
+		begin_shift(Enum.KeyCode.LeftShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-
-		PCInput._end_sprint_key(held_keys, Enum.KeyCode.LeftShift, on_ended)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		expect(ended_count).to.equal(1)
-
-		PCInput._end_sprint_key(held_keys, Enum.KeyCode.RightShift, on_ended)
+		physical_keys[Enum.KeyCode.LeftShift] = false
+		local _, _, next_active, _, next_ended = end_shift(Enum.KeyCode.LeftShift)
+		expect(next_active).to.equal(false)
+		expect(next_ended).to.equal(true)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(began_count).to.equal(2)
 		expect(ended_count).to.equal(2)
 	end)
 
-	it("keeps an action down until every source releases it", function()
+		it("keeps an action down until every source releases it", function()
 		local began_count = 0
 		local ended_count = 0
 		controller.ActionBegan:Connect(function(action)
