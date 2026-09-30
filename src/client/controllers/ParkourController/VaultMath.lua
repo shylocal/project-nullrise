@@ -24,7 +24,7 @@ function VaultMath.hip_height_weight(linear)
 	end
 
 	local fade_in = smoothstep(linear / 0.18)
-	local fade_out = smoothstep((1 - linear) / 0.22)
+	local fade_out = smoothstep((1 - linear) / 0.08)
 	return fade_in * fade_out
 end
 
