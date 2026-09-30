@@ -684,7 +684,8 @@ function LedgeTraversal.try_mantle(self)
 	local function consider_higher_top(guide, top)
 		if not top or top.Normal.Y < 0.5 then return end
 		if top.Instance:IsA("BasePart")
-			and top.Instance.CollisionGroup == Config.ClimbableCollisionGroup then
+			and top.Instance.CollisionGroup == Config.ClimbableCollisionGroup
+			and not ClimbableQuery.is_climbable(top.Instance) then
 			return
 		end
 		local relative = top.Position - current_top
