@@ -1,17 +1,21 @@
+--!strict
+-- Centralizes logical input state across device adapters.
+-- Adapters report (action, source family, physical source id); this module owns
+-- deduplication, aggregate held state, focus-loss recovery, and lifecycle.
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
-local Packages = ReplicatedStorage.packages
-local Trove = require(Packages.Trove)
-local Signal = require(Packages.Signal)
+local Packages = ReplicatedStorage:WaitForChild("packages")
+local Trove = require(Packages:WaitForChild("Trove"))
+local Signal = require(Packages:WaitForChild("Signal"))
 
 local PCInput = require(script.Parent.Parent.input.PC)
 local MobileInput = require(script.Parent.Parent.input.Mobile)
 
-local DEFAULT_INPUT_SOURCE = "Default"
--- Group concrete input types by device family so mouse/keyboard transitions
--- do not cancel each other, while switching to touch/gamepad releases stale holds.
-local INPUT_SOURCES = {
+local DEFAULT_SOURCE = "Default"
+
+local INPUT_SOURCES: { [Enum.UserInputType]: string } = {
 	[Enum.UserInputType.Keyboard] = "PC",
 	[Enum.UserInputType.MouseButton1] = "PC",
 	[Enum.UserInputType.MouseButton2] = "PC",
@@ -29,8 +33,23 @@ local INPUT_SOURCES = {
 	[Enum.UserInputType.Gamepad8] = "Gamepad",
 }
 
-local function get_input_source(input_type)
-	return INPUT_SOURCES[input_type]
+local function sourceFromInputType(inputType: Enum.UserInputType): string?
+	return INPUT_SOURCES[inputType]
+end
+
+local function isValidAction(action: any): boolean
+	return typeof(action) == "string" and action ~= ""
+end
+
+local function isValidSource(source: any): boolean
+	return typeof(source) == "string" and source ~= ""
+end
+
+local function isValidSourceId(sourceId: any): boolean
+	local kind = typeof(sourceId)
+	return (kind == "string" and sourceId ~= "")
+		or kind == "EnumItem"
+		or kind == "Instance"
 end
 
 local InputController = {}
@@ -41,15 +60,19 @@ function InputController.new()
 		Trove = Trove.new(),
 		ActionBegan = Signal.new(),
 		ActionEnded = Signal.new(),
-		Down = {},
+		-- SourcesDown[action][physicalSourceId] = sourceFamily.
+		-- This is the sole source of truth; IsDown derives from its membership.
 		SourcesDown = {},
-		ActiveInputSource = get_input_source(UserInputService:GetLastInputType()),
+		ActiveInputSource = sourceFromInputType(UserInputService:GetLastInputType()),
+		_Destroyed = false,
 	}, InputController)
 
 	self.Trove:Add(self.ActionBegan)
 	self.Trove:Add(self.ActionEnded)
 
-	local ok, err = pcall(self._start, self)
+	local ok, err = xpcall(function()
+		self:_start()
+	end, debug.traceback)
 	if not ok then
 		self:Destroy()
 		error(err, 0)
@@ -63,76 +86,73 @@ function InputController:_start()
 		self:_release_all()
 	end)
 
-	self.Trove:Connect(UserInputService.LastInputTypeChanged, function(input_type)
-		self:_set_active_source(get_input_source(input_type))
-	end)
-
-	local began = function(action, source, source_id)
+	-- Device changes are committed only when an adapter reports a real bound
+	-- action. LastInputTypeChanged also fires for passive mouse movement/drift.
+	local function began(action, source, sourceId)
+		if self._Destroyed then
+			return
+		end
 		self:_set_active_source(source)
-		self:_began(action, source, source_id)
+		self:_began(action, source, sourceId)
 	end
 
-	local ended = function(action, source, source_id)
-		self:_ended(action, source, source_id)
+	local function ended(action, source, sourceId)
+		if self._Destroyed then
+			return
+		end
+		self:_ended(action, source, sourceId)
 	end
 
 	self.Trove:Add(PCInput.new(began, ended))
-
 	if UserInputService.TouchEnabled then
 		self.Trove:Add(MobileInput.new(began, ended))
 	end
 end
 
-function InputController:_began(action, source, source_id)
-	source = source or DEFAULT_INPUT_SOURCE
-	source_id = source_id or source
+function InputController:_began(action, source, sourceId)
+	source = source or DEFAULT_SOURCE
+	sourceId = sourceId or source
 
-	warn(("[InputDebug][Controller] began action=%s source=%s sourceId=%s"):format(tostring(action), tostring(source), tostring(source_id)))
+	assert(isValidAction(action), "InputController: action must be a non-empty string")
+	assert(isValidSource(source), "InputController: source must be a non-empty string")
+	assert(isValidSourceId(sourceId), "InputController: sourceId must be a string, EnumItem, or Instance")
+
 	local sources = self.SourcesDown[action]
 	if not sources then
 		sources = {}
 		self.SourcesDown[action] = sources
 	end
 
-	if sources[source_id] then
-		warn(("[InputDebug][Controller] duplicate begin ignored action=%s sourceId=%s"):format(tostring(action), tostring(source_id)))
+	-- Ignore repeat Begin events from the same physical input.
+	if sources[sourceId] ~= nil then
 		return
 	end
 
-	sources[source_id] = source
-	if self.Down[action] then
-		local active_count = 0
-		for _ in pairs(sources) do active_count += 1 end
-		warn(("[InputDebug][Controller] action remains down action=%s activeSources=%d"):format(tostring(action), active_count))
-		return
+	local wasDown = next(sources) ~= nil
+	sources[sourceId] = source
+	if not wasDown then
+		self.ActionBegan:Fire(action)
 	end
-
-	self.Down[action] = true
-	self.ActionBegan:Fire(action)
 end
 
-function InputController:_ended(action, source, source_id)
-	source = source or DEFAULT_INPUT_SOURCE
-	source_id = source_id or source
+function InputController:_ended(action, source, sourceId)
+	source = source or DEFAULT_SOURCE
+	sourceId = sourceId or source
 
-	warn(("[InputDebug][Controller] ended action=%s source=%s sourceId=%s"):format(tostring(action), tostring(source), tostring(source_id)))
+	if not isValidAction(action) or not isValidSource(source) or not isValidSourceId(sourceId) then
+		return
+	end
+
 	local sources = self.SourcesDown[action]
-	if not sources or sources[source_id] ~= source then
-		warn(("[InputDebug][Controller] end ignored; source mismatch action=%s sourceId=%s recorded=%s"):format(tostring(action), tostring(source_id), tostring(sources and sources[source_id])))
+	if not sources or sources[sourceId] ~= source then
 		return
 	end
 
-	sources[source_id] = nil
-	if next(sources) ~= nil then
-		local remaining = {}
-		for id in pairs(sources) do table.insert(remaining, tostring(id)) end
-		warn(("[InputDebug][Controller] action still held action=%s remaining={%s}"):format(tostring(action), table.concat(remaining, ",")))
-		return
+	sources[sourceId] = nil
+	if next(sources) == nil then
+		self.SourcesDown[action] = nil
+		self.ActionEnded:Fire(action)
 	end
-
-	self.SourcesDown[action] = nil
-	self.Down[action] = nil
-	self.ActionEnded:Fire(action)
 end
 
 function InputController:_release_source(source)
@@ -140,53 +160,71 @@ function InputController:_release_source(source)
 		return
 	end
 
-	local affected_inputs = {}
+	local releases = {}
 	for action, sources in pairs(self.SourcesDown) do
-		for source_id, source_kind in pairs(sources) do
-			if source_kind == source then
-				table.insert(affected_inputs, {
-					Action = action,
-					SourceId = source_id,
-				})
+		for sourceId, sourceFamily in pairs(sources) do
+			if sourceFamily == source then
+				table.insert(releases, { action, sourceId })
 			end
 		end
 	end
 
-	for _, input in ipairs(affected_inputs) do
-		self:_ended(input.Action, source, input.SourceId)
+	-- Stable ordering makes simultaneous releases reproducible in tests/logs.
+	table.sort(releases, function(a, b)
+		local actionA, actionB = tostring(a[1]), tostring(b[1])
+		if actionA == actionB then
+			return tostring(a[2]) < tostring(b[2])
+		end
+		return actionA < actionB
+	end)
+
+	for _, release in ipairs(releases) do
+		self:_ended(release[1], source, release[2])
 	end
 end
 
 function InputController:_set_active_source(source)
-	if not source or source == self.ActiveInputSource then
+	if not isValidSource(source) or source == self.ActiveInputSource then
 		return
 	end
 
-	local previous_source = self.ActiveInputSource
+	local previousSource = self.ActiveInputSource
 	self.ActiveInputSource = source
-	self:_release_source(previous_source)
+	self:_release_source(previousSource)
 end
 
--- Release every held action when Roblox loses window focus. InputEnded is not
--- guaranteed to arrive after an application switch or an overlay transition.
+-- InputEnded may not arrive after focus changes, app switching, or overlays.
 function InputController:_release_all()
-	local held_actions = {}
-	for action in pairs(self.Down) do
-		table.insert(held_actions, action)
+	local actions = {}
+	for action in pairs(self.SourcesDown) do
+		table.insert(actions, action)
 	end
+	table.sort(actions, function(a, b)
+		return tostring(a) < tostring(b)
+	end)
 
-	for _, action in ipairs(held_actions) do
-		self.SourcesDown[action] = nil
-		self.Down[action] = nil
+	table.clear(self.SourcesDown)
+	for _, action in ipairs(actions) do
 		self.ActionEnded:Fire(action)
 	end
 end
 
 function InputController:IsDown(action)
-	return self.Down[action] == true
+	local sources = self.SourcesDown[action]
+	return sources ~= nil and next(sources) ~= nil
+end
+
+function InputController:GetActiveSource()
+	return self.ActiveInputSource
 end
 
 function InputController:Destroy()
+	if self._Destroyed then
+		return
+	end
+	self._Destroyed = true
+
+	-- Emit final releases while listeners are still alive, then dispose resources.
 	self:_release_all()
 	self.Trove:Destroy()
 end
