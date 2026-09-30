@@ -84,7 +84,10 @@ end
 
 function State.get_humanoid_value(controller, key, property)
 	local snapshot = State.get_humanoid_snapshot(controller, key)
-	return snapshot and snapshot[property] or nil
+	if not snapshot then
+		return nil
+	end
+	return snapshot[property]
 end
 
 function State.restore_humanoid(controller, key, properties)
