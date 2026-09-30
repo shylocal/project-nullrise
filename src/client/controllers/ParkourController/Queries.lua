@@ -6,6 +6,7 @@ local Actions = require(ReplicatedStorage.shared.input.Actions)
 
 local Config = require(script.Parent.Config)
 local ClimbableQuery = require(script.Parent.ClimbableQuery)
+local Metrics = require(script.Parent.Metrics)
 
 local Queries = {}
 
@@ -16,6 +17,7 @@ function Queries.cast(self, origin, direction, respect_can_collide)
 	params.FilterDescendantsInstances = { self.Character }
 	params.IgnoreWater = true
 	params.RespectCanCollide = respect_can_collide == true
+	Metrics.record(self, "Raycasts")
 	return Workspace:Raycast(origin, direction, params)
 end
 local function is_grabbable_surface(instance)
@@ -48,6 +50,8 @@ function Queries.cast_grabbable_side(self, origin, direction)
 	local exclusions = { self.Character }
 	for _ = 1, Config.MaxTopSurfaceHits do
 		params.FilterDescendantsInstances = exclusions
+		Metrics.record(self, "Raycasts")
+		Metrics.record(self, "Raycasts")
 		local hit = Workspace:Raycast(origin, direction, params)
 		if not hit then
 			return nil
@@ -146,6 +150,7 @@ local function cast_tall_wall_top(self, wall, wall_position, root_position)
 	params.IgnoreWater = true
 	params.RespectCanCollide = true
 
+	Metrics.record(self, "Raycasts")
 	local top = Workspace:Raycast(origin, direction, params)
 	if not top or top.Normal.Y < 0.5 then
 		return nil
@@ -270,6 +275,7 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 		-- a non-collidable Climbable marker above it as the apparent wall top.
 		if wall_instance and wall_instance:IsA("BasePart") and wall_instance.CanCollide then
 			wall_top_params.FilterDescendantsInstances = { wall_instance }
+			Metrics.record(self, "Raycasts")
 			local wall_top = Workspace:Raycast(sample_origin, direction, wall_top_params)
 			consider_candidate(wall_top, sample_offset, "detected-wall")
 		end
@@ -277,6 +283,7 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 		local exclusions = { self.Character }
 		for hit_index = 1, Config.MaxTopSurfaceHits do
 			params.FilterDescendantsInstances = exclusions
+			Metrics.record(self, "Raycasts")
 			local candidate = Workspace:Raycast(sample_origin, direction, params)
 			if not candidate then
 				break
@@ -419,6 +426,7 @@ function Queries.has_hang_body_clearance(self, position, normal)
 	overlap_params.CollisionGroup = Config.ClimbableCollisionGroup
 	overlap_params.RespectCanCollide = true
 
+	Metrics.record(self, "OverlapQueries")
 	local overlaps = Workspace:GetPartsInPart(probe, overlap_params)
 	for _, part in ipairs(overlaps) do
 		if part.CanCollide then
@@ -440,6 +448,7 @@ function Queries.has_vault_clearance(self, cframe, size, obstacle)
 		params.CollisionGroup = root.CollisionGroup
 	end
 
+	Metrics.record(self, "OverlapQueries")
 	for _, part in ipairs(Workspace:GetPartBoundsInBox(cframe, size, params)) do
 		if part.CanCollide then
 			return false, part
