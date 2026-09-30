@@ -144,6 +144,16 @@ return function()
 		local function is_key_down(key_code)
 			return physical_keys[key_code] == true
 		end
+
+		expect(PCInput._any_shift_down(is_key_down)).to.equal(false)
+		physical_keys[Enum.KeyCode.LeftShift] = true
+		expect(PCInput._any_shift_down(is_key_down)).to.equal(true)
+		physical_keys[Enum.KeyCode.LeftShift] = false
+		physical_keys[Enum.KeyCode.RightShift] = true
+		expect(PCInput._any_shift_down(is_key_down)).to.equal(true)
+		physical_keys[Enum.KeyCode.RightShift] = false
+		expect(PCInput._any_shift_down(is_key_down)).to.equal(false)
+
 		local function begin_shift(key_code)
 			physical_keys[key_code] = true
 			return PCInput._begin_sprint_key(held_keys, key_code, on_began)
