@@ -16,6 +16,25 @@ local function is_sprint_key(key_code)
 	return key_code == Enum.KeyCode.LeftShift or key_code == Enum.KeyCode.RightShift
 end
 
+local function get_pressed_sprint_keys()
+	local pressed = {}
+	for _, input in ipairs(UserInputService:GetKeysPressed()) do
+		if is_sprint_key(input.KeyCode) then
+			table.insert(pressed, tostring(input.KeyCode))
+		end
+	end
+	table.sort(pressed)
+	return #pressed > 0 and table.concat(pressed, ",") or "none"
+end
+
+local function log_pressed_sprint_keys(event_name, event_key)
+	warn(("[InputDebug][PC] %s key=%s GetKeysPressed={%s}"):format(
+		event_name,
+		tostring(event_key),
+		get_pressed_sprint_keys()
+	))
+end
+
 local Bindings = {
 	[Enum.UserInputType.MouseButton1] = Actions.Primary,
 	[Enum.KeyCode.LeftShift] = Actions.Sprint,
@@ -55,6 +74,7 @@ function PCInput:_start(on_began, on_ended)
 	self.Destroyed = false
 	self.Trove:Connect(UserInputService.InputBegan, function(input, game_processed)
 		warn(("[InputDebug][PC] raw InputBegan key=%s type=%s processed=%s"):format(tostring(input.KeyCode), tostring(input.UserInputType), tostring(game_processed)))
+		log_pressed_sprint_keys("keys at InputBegan", input.KeyCode)
 		if game_processed then
 			warn(("[InputDebug][PC] processed begin ignored key=%s"):format(tostring(input.KeyCode)))
 			return
@@ -70,6 +90,7 @@ function PCInput:_start(on_began, on_ended)
 	self.Trove:Connect(UserInputService.InputEnded, function(input)
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
+		log_pressed_sprint_keys("keys at InputEnded", input.KeyCode)
 		if action == Actions.Sprint or is_sprint_key(input.KeyCode) then
 			warn(("[InputDebug][PC] InputEnded key=%s type=%s action=%s sourceId=%s"):format(tostring(input.KeyCode), tostring(input.UserInputType), tostring(action), tostring(source_id)))
 			self:_release_sprint_key(input.KeyCode, on_ended)
