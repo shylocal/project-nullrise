@@ -18,15 +18,39 @@ local function is_sprint_key(key_code)
 	return key_code == Enum.KeyCode.LeftShift or key_code == Enum.KeyCode.RightShift
 end
 
--- Temporary diagnostics for the reported modifier-key event mismatch.
+-- GetKeysPressed provides a fresh list of InputObjects that Roblox currently
+-- considers pressed. Keep IsKeyDown in diagnostics to compare both views.
+local function get_pressed_shift_keys()
+	local pressed = {}
+	for _, input in ipairs(UserInputService:GetKeysPressed()) do
+		if is_sprint_key(input.KeyCode) then
+			pressed[input.KeyCode] = true
+		end
+	end
+	return pressed
+end
+
 local function get_shift_trace(held_keys)
+	local pressed = get_pressed_shift_keys()
+	local pressed_keys = {}
+	for _, key_code in ipairs(SPRINT_KEYS) do
+		if pressed[key_code] then
+			table.insert(pressed_keys, tostring(key_code))
+		end
+	end
+
 	return string.format(
-		"tracked[L=%s,R=%s] physical[L=%s,R=%s]",
+		"tracked[L=%s,R=%s] IsKeyDown[L=%s,R=%s] GetKeysPressed={%s}",
 		tostring(held_keys[Enum.KeyCode.LeftShift] == true),
 		tostring(held_keys[Enum.KeyCode.RightShift] == true),
 		tostring(UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)),
-		tostring(UserInputService:IsKeyDown(Enum.KeyCode.RightShift))
+		tostring(UserInputService:IsKeyDown(Enum.KeyCode.RightShift)),
+		table.concat(pressed_keys, ",")
 	)
+end
+
+local function is_shift_pressed(key_code, pressed_keys)
+	return pressed_keys[key_code] == true
 end
 
 local Bindings = {
@@ -120,10 +144,11 @@ function PCInput:_reconcile_sprint(on_ended, reason)
 	end
 
 	local was_active = self.SprintSourceActive
+	local pressed_keys = get_pressed_shift_keys()
 	local remains_active = PCInput._reconcile_sprint_keys(
 		self.HeldSprintKeys,
 		function(key_code)
-			return UserInputService:IsKeyDown(key_code)
+			return is_shift_pressed(key_code, pressed_keys)
 		end,
 		on_ended
 	)
@@ -236,12 +261,13 @@ function PCInput:_start(on_began, on_ended)
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
 
 		if is_shift then
+			local pressed_keys = get_pressed_shift_keys()
 			local handled, released_key, remains_active = PCInput._end_sprint_key(
 				self.HeldSprintKeys,
 				input.KeyCode,
 				on_ended,
 				function(key_code)
-					return UserInputService:IsKeyDown(key_code)
+					return is_shift_pressed(key_code, pressed_keys)
 				end
 			)
 			self.SprintSourceActive = remains_active
