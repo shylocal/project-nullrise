@@ -97,7 +97,7 @@ return function()
 			service:_hit_start(player, active.AttackIndex)
 
 			expect(service.ActiveAttacks[player]).to.equal(nil)
-			expect(active.HitActive).to.equal(true)
+			expect(active.HitActive).to.equal(false)
 		end)
 
 		it("clears an expired active hit window even before its timeout callback runs", function()
