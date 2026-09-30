@@ -16,6 +16,7 @@ local Traversal = require(script.Traversal)
 local LedgeTraversal = require(script.LedgeTraversal)
 local VaultTraversal = require(script.VaultTraversal)
 local ParkourState = require(script.State)
+local Metrics = require(script.Metrics)
 
 function ParkourController.new(character, input_controller, movement_controller)
 	local self = setmetatable({
@@ -49,6 +50,11 @@ function ParkourController.new(character, input_controller, movement_controller)
 end
 
 function ParkourController:_start()
+	self._queryMetricsEnabled = self.Character:GetAttribute("ParkourQueryMetrics") == true
+	self.Trove:Connect(self.Character:GetAttributeChangedSignal("ParkourQueryMetrics"), function()
+		self._queryMetricsEnabled = self.Character:GetAttribute("ParkourQueryMetrics") == true
+	end)
+
 	self.Trove:Connect(self.InputController.ActionBegan, function(action)
 		if action == Actions.Jump then
 			if self.State == "Grounded" then
@@ -394,6 +400,14 @@ end
 
 function ParkourController:_try_mantle()
 	return LedgeTraversal.try_mantle(self)
+end
+
+function ParkourController:GetQueryMetrics()
+	return Metrics.snapshot(self)
+end
+
+function ParkourController:ResetQueryMetrics()
+	Metrics.reset(self)
 end
 
 function ParkourController:_release()
