@@ -179,7 +179,6 @@ function Traversal.traverse(self, dt)
 		local best_corner_score = math.huge
 		local corner_probe_count = 0
 		local corner_valid_count = 0
-		print(string.format("[LedgeCorner] step dir=%d guide=%s pos=%s normal=%s lock=%s", direction, climbable:GetFullName(), tostring(self.HangPosition), tostring(normal), tostring(corner_locked)))
 		local corner_clearance = math.max(root.Size.X, root.Size.Z) * 0.5 + 0.1
 
 		for _, turn_normal in ipairs(corner_turn_normals) do
@@ -194,7 +193,6 @@ function Traversal.traverse(self, dt)
 				)
 				if corner_probe then
 					corner_probe_count += 1
-					print(string.format("[LedgeCorner] hit turn=%s offset=%.2f instance=%s pos=%s normal=%s", tostring(turn_normal), longitudinal_offset.Magnitude, corner_probe.Instance:GetFullName(), tostring(corner_probe.Position), tostring(corner_probe.Normal)))
 					local corner_normal = Vector.flatten(corner_probe.Normal)
 					if corner_normal.Magnitude >= 0.05 then
 						corner_normal = corner_normal.Unit
@@ -219,7 +217,6 @@ function Traversal.traverse(self, dt)
 								and math.abs(corner_top.Position.Y - active_top_y) <= Config.TraverseHeightTolerance
 								and corner_top.Normal.Y >= 0.5
 
-							print(string.format("[LedgeCorner] geometry perpendicular=%s near=%s along=%.3f oldAlign=%.3f turnAlign=%.3f top=%s guide=%s heightOK=%s", tostring(perpendicular), tostring(near_corner), along_movement, alignment_to_old, alignment_to_turn, tostring(corner_top and corner_top.Position), tostring(corner_guide and corner_guide:GetFullName()), tostring(corner_height_ok)))
 							if corner_top and corner_guide and corner_height_ok then
 								-- The root is centered at the corner seam after a 90-degree
 								-- turn, so its body can still overlap the old wall. Move one
@@ -251,13 +248,11 @@ function Traversal.traverse(self, dt)
 									end
 								end
 								local clearance_valid = cleared_top ~= nil
-								print(string.format("[LedgeCorner] coverage valid=%s distance=%.3f sample=%s top=%s", tostring(clearance_valid), cleared_distance, tostring(cleared_sample), tostring(cleared_top and cleared_top.Position)))
 								if clearance_valid then
 									local candidate_hang = cleared_top.Position
 										+ corner_normal * Config.WallGap
 										- Vector3.new(0, Config.HangDrop, 0)
 									local candidate_clear = self:_has_hang_body_clearance(candidate_hang, corner_normal)
-									print(string.format("[LedgeCorner] bodyClear=%s candidate=%s normal=%s", tostring(candidate_clear), tostring(candidate_hang), tostring(corner_normal)))
 									if candidate_clear then
 										corner_valid_count += 1
 									local turn_side_penalty = turn_normal:Dot(movement_tangent) >= 0 and 0 or 100
@@ -283,7 +278,6 @@ function Traversal.traverse(self, dt)
 			end
 		end
 
-		print(string.format("[LedgeCorner] probes=%d valid=%d selected=%s score=%.3f", corner_probe_count, corner_valid_count, tostring(best_corner and best_corner.WallInstance:GetFullName()), best_corner_score))
 		local is_corner_transfer = best_corner ~= nil
 		if is_corner_transfer then
 			top = best_corner.Top
@@ -337,7 +331,6 @@ function Traversal.traverse(self, dt)
 		local proposed_hang_position = self.HangPosition
 		local proposed_normal = self.Normal
 		local body_clear = not pose_changed or (midpoint_clear and self:_has_hang_body_clearance(self.HangPosition, self.Normal))
-		print(string.format("[LedgeCorner] result transfer=%s poseChanged=%s midpointClear=%s bodyClear=%s finalGuide=%s finalPos=%s finalNormal=%s", tostring(is_corner_transfer), tostring(pose_changed), tostring(midpoint_clear), tostring(body_clear), tostring(self.CurrentClimbable and self.CurrentClimbable:GetFullName()), tostring(self.HangPosition), tostring(self.Normal)))
 		if not body_clear then
 			Traversal.restore_hang_pose(self, pose_snapshot)
 		else
