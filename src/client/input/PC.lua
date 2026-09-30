@@ -57,6 +57,7 @@ function PCInput._release_unheld_sprint_keys(on_ended, released_key, is_key_down
 end
 
 function PCInput:_start(on_began, on_ended)
+	self.Destroyed = false
 	self.Trove:Connect(UserInputService.InputBegan, function(input, game_processed)
 		warn(("[InputDebug][PC] raw InputBegan key=%s type=%s processed=%s"):format(tostring(input.KeyCode), tostring(input.UserInputType), tostring(game_processed)))
 		if game_processed then
@@ -78,12 +79,16 @@ function PCInput:_start(on_began, on_ended)
 			PCInput._release_unheld_sprint_keys(on_ended, input.KeyCode, function(key_code)
 				return UserInputService:IsKeyDown(key_code)
 			end)
-			task.defer(function()
-				warn(("[InputDebug][PC] deferred key state after ended=%s leftDown=%s rightDown=%s"):format(
+			task.delay(0.1, function()
+				if self.Destroyed then return end
+				warn(("[InputDebug][PC] delayed reconcile after ended=%s leftDown=%s rightDown=%s"):format(
 					tostring(input.KeyCode),
 					tostring(UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)),
 					tostring(UserInputService:IsKeyDown(Enum.KeyCode.RightShift))
 				))
+				PCInput._release_unheld_sprint_keys(on_ended, Enum.KeyCode.Unknown, function(key_code)
+					return UserInputService:IsKeyDown(key_code)
+				end)
 			end)
 		elseif action then
 			on_ended(action, "PC", source_id)
@@ -92,6 +97,7 @@ function PCInput:_start(on_began, on_ended)
 end
 
 function PCInput:Destroy()
+	self.Destroyed = true
 	self.Trove:Destroy()
 end
 
