@@ -123,7 +123,7 @@ return function()
 		expect(#ended).to.equal(2)
 	end)
 
-	it("releases aliased sprint keys and recovers from an unmatched Shift end", function()
+	it("reconciles aliased sprint keys from the pressed-key snapshot", function()
 		local began_count = 0
 		local ended_count = 0
 		local held_keys = {}
@@ -134,55 +134,35 @@ return function()
 			if action == Actions.Sprint then ended_count += 1 end
 		end)
 
-		local function begin_shift(key_code)
-			return PCInput._begin_sprint_key(held_keys, key_code, function(action, source, source_id)
-				controller:_began(action, source, source_id)
-			end)
+		local function on_began(action, source, source_id)
+			controller:_began(action, source, source_id)
+		end
+		local function on_ended(action, source, source_id)
+			controller:_ended(action, source, source_id)
+		end
+		local function reconcile(pressed)
+			return PCInput._reconcile_sprint_keys(held_keys, pressed, on_began, on_ended)
 		end
 
-		local function end_shift(key_code)
-			return PCInput._end_sprint_key(held_keys, key_code, function(action, source, source_id)
-				controller:_ended(action, source, source_id)
-			end)
-		end
-
-		-- With both begin edges observed, releasing one key preserves Sprint
-		-- while the other tracked Shift remains held.
-		begin_shift(Enum.KeyCode.LeftShift)
-		begin_shift(Enum.KeyCode.RightShift)
-		expect(began_count).to.equal(1)
+		-- LeftShift begins. Roblox then reports an InputEnded for RightShift
+		-- while the pressed-key snapshot still says LeftShift is held.
+		PCInput._begin_sprint_key(held_keys, Enum.KeyCode.LeftShift, on_began)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-
-		local handled, matched, remains_active = end_shift(Enum.KeyCode.LeftShift)
-		expect(handled).to.equal(true)
-		expect(matched).to.equal(true)
-		expect(remains_active).to.equal(true)
+		expect(reconcile({ [Enum.KeyCode.LeftShift] = true })).to.equal(true)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
 		expect(ended_count).to.equal(0)
 
-		handled, matched, remains_active = end_shift(Enum.KeyCode.RightShift)
-		expect(handled).to.equal(true)
-		expect(matched).to.equal(true)
-		expect(remains_active).to.equal(false)
+		-- The final snapshot is empty after the remaining key is released.
+		expect(reconcile({})).to.equal(false)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(ended_count).to.equal(1)
 
-		-- Match the Studio trace: only LeftShift began, but Roblox reports
-		-- an InputEnded for RightShift. Treat this unmatched modifier end as
-		-- the terminal edge and clear the stale LeftShift source.
-		begin_shift(Enum.KeyCode.LeftShift)
+		-- A later fresh press must begin Sprint normally, proving the
+		-- reconciler did not leave a stale/latching state behind.
+		PCInput._begin_sprint_key(held_keys, Enum.KeyCode.RightShift, on_began)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		handled, matched, remains_active = end_shift(Enum.KeyCode.RightShift)
-		expect(handled).to.equal(true)
-		expect(matched).to.equal(false)
-		expect(remains_active).to.equal(false)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
-		expect(ended_count).to.equal(2)
-
-		-- A duplicate/unmatched end after cleanup does not emit another end.
-		handled, matched, remains_active = end_shift(Enum.KeyCode.RightShift)
-		expect(handled).to.equal(true)
-		expect(remains_active).to.equal(false)
+		expect(began_count).to.equal(2)
+		expect(reconcile({})).to.equal(false)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(ended_count).to.equal(2)
 	end)
