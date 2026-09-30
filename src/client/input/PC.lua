@@ -30,7 +30,7 @@ local Bindings = {
 }
 
 function PCInput.new(on_began, on_ended)
-	local self = setmetatable({ Trove = Trove.new() }, PCInput)
+	local self = setmetatable({ Trove = Trove.new(), SprintKeysDown = {} }, PCInput)
 	local ok, err = pcall(self._start, self, on_began, on_ended)
 	if not ok then
 		self:Destroy()
@@ -39,20 +39,23 @@ function PCInput.new(on_began, on_ended)
 	return self
 end
 
--- Shift is an aliased action with two physical keys. On release, reconcile
--- both keys against UserInputService so a missed/stale end edge cannot leave
--- Sprint held until that same key is pressed and released again.
-function PCInput._release_unheld_sprint_keys(on_ended, released_key, is_key_down)
-	local left_down = is_key_down(Enum.KeyCode.LeftShift)
-	local right_down = is_key_down(Enum.KeyCode.RightShift)
-	warn(("[InputDebug][PC] reconcile released=%s leftDown=%s rightDown=%s"):format(
-		tostring(released_key), tostring(left_down), tostring(right_down)
-	))
-	for _, key_code in ipairs(SPRINT_KEYS) do
-		if key_code == released_key or not is_key_down(key_code) then
-			warn(("[InputDebug][PC] emit Sprint end sourceId=%s"):format(tostring(key_code)))
-			on_ended(Actions.Sprint, "PC", key_code)
+-- Track Shift press edges ourselves because IsKeyDown may disagree with
+-- InputEnded timing. An unmatched release clears the sole tracked Shift key.
+function PCInput:_release_sprint_key(released_key, on_ended)
+	local held = self.SprintKeysDown
+	local key_to_release = held[released_key] and released_key or nil
+	if not key_to_release then
+		local only_key
+		for key_code in pairs(held) do
+			if only_key then only_key = nil; break end
+			only_key = key_code
 		end
+		key_to_release = only_key
+	end
+	warn(("[InputDebug][PC] tracked release key=%s matched=%s"):format(tostring(released_key), tostring(key_to_release)))
+	if key_to_release then
+		held[key_to_release] = nil
+		on_ended(Actions.Sprint, "PC", key_to_release)
 	end
 end
 
@@ -67,6 +70,7 @@ function PCInput:_start(on_began, on_ended)
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
 		if action then
+			if action == Actions.Sprint and is_sprint_key(input.KeyCode) then self.SprintKeysDown[input.KeyCode] = true end
 			warn(("[InputDebug][PC] InputBegan key=%s type=%s action=%s sourceId=%s processed=%s"):format(tostring(input.KeyCode), tostring(input.UserInputType), tostring(action), tostring(source_id), tostring(game_processed)))
 			on_began(action, "PC", source_id)
 		end
@@ -76,20 +80,7 @@ function PCInput:_start(on_began, on_ended)
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
 		if action == Actions.Sprint or is_sprint_key(input.KeyCode) then
 			warn(("[InputDebug][PC] InputEnded key=%s type=%s action=%s sourceId=%s"):format(tostring(input.KeyCode), tostring(input.UserInputType), tostring(action), tostring(source_id)))
-			PCInput._release_unheld_sprint_keys(on_ended, input.KeyCode, function(key_code)
-				return UserInputService:IsKeyDown(key_code)
-			end)
-			task.delay(0.1, function()
-				if self.Destroyed then return end
-				warn(("[InputDebug][PC] delayed reconcile after ended=%s leftDown=%s rightDown=%s"):format(
-					tostring(input.KeyCode),
-					tostring(UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)),
-					tostring(UserInputService:IsKeyDown(Enum.KeyCode.RightShift))
-				))
-				PCInput._release_unheld_sprint_keys(on_ended, Enum.KeyCode.Unknown, function(key_code)
-					return UserInputService:IsKeyDown(key_code)
-				end)
-			end)
+			self:_release_sprint_key(input.KeyCode, on_ended)
 		elseif action then
 			on_ended(action, "PC", source_id)
 		end
@@ -98,6 +89,7 @@ end
 
 function PCInput:Destroy()
 	self.Destroyed = true
+	table.clear(self.SprintKeysDown)
 	self.Trove:Destroy()
 end
 
