@@ -41,7 +41,7 @@ local Bindings = {
 
 function PCInput._begin_sprint_key(held_keys, key_code, on_began)
 	if not is_sprint_key(key_code) then
-		return false
+		return false, false, next(held_keys) ~= nil
 	end
 
 	local was_active = next(held_keys) ~= nil
@@ -49,35 +49,37 @@ function PCInput._begin_sprint_key(held_keys, key_code, on_began)
 	if not was_active then
 		on_began(Actions.Sprint, "PC", SPRINT_SOURCE_ID)
 	end
-	return true
+	return true, not was_active, true
 end
 
 -- Roblox may suppress the second Shift begin and report the final end using
--- the opposite key. If the reported key is not tracked, clear one outstanding
--- Shift press as that unmatched end represents the remaining modifier release.
+-- the opposite key. If the reported key is not tracked, consume one outstanding
+-- Shift edge as that unmatched end represents the remaining modifier release.
 function PCInput._end_sprint_key(held_keys, key_code, on_ended)
 	if not is_sprint_key(key_code) then
-		return false
+		return false, nil, next(held_keys) ~= nil
 	end
 
-	local released_key = key_code
+	local was_active = next(held_keys) ~= nil
+	local cleared_key = key_code
 	if held_keys[key_code] then
 		held_keys[key_code] = nil
 	else
 		for _, sprint_key in ipairs(SPRINT_KEYS) do
 			if held_keys[sprint_key] then
-				released_key = sprint_key
+				cleared_key = sprint_key
 				held_keys[sprint_key] = nil
 				break
 			end
 		end
 	end
 
-	if next(held_keys) == nil then
+	local remains_active = next(held_keys) ~= nil
+	if was_active and not remains_active then
 		on_ended(Actions.Sprint, "PC", SPRINT_SOURCE_ID)
 	end
 
-	return true, released_key, next(held_keys) ~= nil
+	return true, cleared_key, remains_active
 end
 
 function PCInput.new(on_began, on_ended)
