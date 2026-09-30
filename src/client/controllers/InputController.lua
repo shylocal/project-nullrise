@@ -194,7 +194,7 @@ function InputController:_set_active_source(source)
 	local previous_source = self.ActiveInputSource
 	self.ActiveInputSource = source
 	if previous_source == "PC" and self.PCInput then
-		self.PCInput:ResetHeldKeys()
+		self.PCInput:ResetHeldKeys("InputFamilyChanged:" .. tostring(source))
 	end
 	self:_release_source(previous_source)
 end
