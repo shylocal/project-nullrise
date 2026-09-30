@@ -53,9 +53,6 @@ end
 
 function ParkourController:_start()
 	self.Trove:Connect(self.InputController.ActionBegan, function(action)
-		if action == Actions.Jump or action == Actions.Forward or action == Actions.Backward
-			or action == Actions.Left or action == Actions.Right then
-		end
 		if action == Actions.Jump then
 			if self.State == "Grounded" then
 				-- Space explicitly requests a vault; if no valid vault is found,
@@ -63,15 +60,17 @@ function ParkourController:_start()
 				self:_try_vault()
 			end
 		elseif action == Actions.Forward and self.State == "Hanging" then
-			self:_try_mantle()
+			if not self.ForwardBlockedUntilRelease then
+				self:_try_mantle()
+			end
 		elseif action == Actions.Backward and self.State == "Hanging" then
 			self:_try_lower_ledge()
 		end
 	end)
 
 	self.Trove:Connect(self.InputController.ActionEnded, function(action)
-		if action == Actions.Jump or action == Actions.Forward or action == Actions.Backward
-			or action == Actions.Left or action == Actions.Right then
+		if action == Actions.Forward then
+			self.ForwardBlockedUntilRelease = false
 		end
 		if action == Actions.Jump then
 			if self.GrabBlockedUntilJumpReleased then
@@ -168,6 +167,9 @@ function ParkourController:_grab(guide, normal, position, edge_gap)
 		or humanoid_state == Enum.HumanoidStateType.Swimming
 		or humanoid_state == Enum.HumanoidStateType.Climbing then return end
 		self.State = "Hanging"
+	-- If Forward helped initiate the grab, consume that held press. The player
+	-- must release and press Forward again before it can trigger a mantle.
+	self.ForwardBlockedUntilRelease = self.InputController:IsDown(Actions.Forward)
 	self.CurrentClimbable = guide
 	self.Normal = normal
 	self.HangDepthOffset = Vector.flatten(normal).Unit * (edge_gap or Config.WallGap)
@@ -185,12 +187,6 @@ function ParkourController:_grab(guide, normal, position, edge_gap)
 		self.MovementController:SetSprintBlocked(true, self)
 	end
 	self:_position_hanging()
-
-	-- Preserve forward intent when the player pressed W before the ledge grab.
-	-- This lets a jump into a tall collidable part flow directly into the mantle.
-	if self.InputController:IsDown(Actions.Forward) then
-		self:_try_mantle()
-	end
 end
 
 function ParkourController:_position_hanging()
@@ -220,6 +216,11 @@ end
 
 function ParkourController:_step(dt)
 	self._stepDelta = dt
+	-- Recover from a lost Forward ActionEnded event (focus changes or UI capture).
+	if self.ForwardBlockedUntilRelease and not self.InputController:IsDown(Actions.Forward) then
+		self.ForwardBlockedUntilRelease = false
+	end
+
 	-- Recover from a lost Jump ActionEnded event (focus changes or UI capture).
 	if self.GrabBlockedUntilJumpReleased and not self.InputController:IsDown(Actions.Jump) then
 		self.GrabBlockedUntilJumpReleased = false
