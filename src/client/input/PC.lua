@@ -99,36 +99,6 @@ function PCInput._reconcile_sprint_keys(held_keys, is_key_down, on_ended)
 	return remains_active
 end
 
-function PCInput._end_sprint_key(held_keys, key_code, on_ended, is_key_down)
-	if not is_sprint_key(key_code) then
-		return false, nil, next(held_keys) ~= nil
-	end
-
-	-- Modifier-key events can identify the opposite Shift key, while Roblox's
-	-- queried state may keep the released side stuck as down. If the event has
-	-- no matching tracked key and exactly one Shift source remains, treat this
-	-- unmatched end as the release of that remaining aggregate Sprint hold.
-	if held_keys[key_code] ~= true then
-		local tracked_count = 0
-		local only_tracked_key = nil
-		for _, sprint_key in ipairs(SPRINT_KEYS) do
-			if held_keys[sprint_key] then
-				tracked_count += 1
-				only_tracked_key = sprint_key
-			end
-		end
-
-		if tracked_count == 1 then
-			held_keys[only_tracked_key] = nil
-			on_ended(Actions.Sprint, "PC", SPRINT_SOURCE_ID)
-			return true, only_tracked_key, false
-		end
-	end
-
-	local remains_active = PCInput._reconcile_sprint_keys(held_keys, is_key_down, on_ended)
-	return true, key_code, remains_active
-end
-
 function PCInput.new(on_began, on_ended)
 	local self = setmetatable({
 		Trove = Trove.new(),
@@ -306,25 +276,12 @@ function PCInput:_start(on_began, on_ended)
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
 
 		if is_shift then
-			local pressed_keys = get_pressed_shift_keys()
-			local handled, released_key, remains_active = PCInput._end_sprint_key(
-				self.HeldSprintKeys,
-				input.KeyCode,
-				on_ended,
-				function(key_code)
-					return is_shift_pressed(key_code, pressed_keys)
-				end
-			)
-			self.SprintSourceActive = remains_active
-			if not remains_active then
-				self:_stop_sprint_monitor("InputEnded")
-			end
+			-- InputEnded may identify the opposite Shift key. Do not mutate
+			-- tracked state from this edge; the aggregate GetKeysPressed monitor
+			-- reconciles after Roblox has updated its pressed-key snapshot.
 			print(string.format(
-				"[ShiftTrace][PC] Sprint end observed handled=%s eventKey=%s sampledKey=%s remainsActive=%s after{%s}",
-				tostring(handled),
+				"[ShiftTrace][PC] Shift end observed key=%s; deferring Sprint release to aggregate monitor %s",
 				tostring(input.KeyCode),
-				tostring(released_key),
-				tostring(remains_active),
 				get_shift_trace(self.HeldSprintKeys)
 			))
 		elseif action then
