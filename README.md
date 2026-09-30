@@ -90,6 +90,10 @@ rojo serve
 
 Third-party packages are managed through the Roblox package workflow rather than a repository-side package manager.
 
+## Tests
+
+TestEZ specs live under `tests/` and are mapped to Roblox `TestService`; they do not run automatically. See [docs/TESTING.md](docs/TESTING.md) for installing TestEZ and running the suite in Studio.
+
 ## Conventions
 
 Prefer plain modules over abstractions.
