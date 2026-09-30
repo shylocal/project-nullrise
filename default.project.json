@@ -39,6 +39,11 @@
       }
     },
 
+    "TestService": {
+      "$className": "TestService",
+      "$path": "tests"
+    },
+
     "StarterPlayer": {
       "$className": "StarterPlayer",
 
