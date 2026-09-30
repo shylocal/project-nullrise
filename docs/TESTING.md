@@ -72,8 +72,8 @@ The suite includes:
 - `RuntimeContracts.spec.lua`: smoke-checks configured remotes, required packages, weapon models, client controller constructors, and server-module exports in the Studio place.
 - `ParkourLifecycle.spec.lua`: verifies hanging and mantle restoration, preserves the vault Jumping snapshot until vault cleanup after Jump release, and checks idempotent controller teardown.
 
-The suite currently defines **44 TestEZ cases** across these specs. This is a starting regression net, not exhaustive gameplay coverage; in particular, it does not simulate real parkour raycasts against the map, animation playback, or multiplayer combat timing.
+The suite currently defines **45 TestEZ cases** across these specs. This is a starting regression net, not exhaustive gameplay coverage; in particular, it does not simulate real parkour raycasts against the map, animation playback, or multiplayer combat timing.
 
-The 40-case suite was previously confirmed by the user in Roblox Studio with **40 passed, 0 failed, 0 skipped**. The four lifecycle cases were added afterward and have only received static source checks so far; rerun the full suite and review the Output before treating the expanded 44-case suite as passing.
+The 44-case suite (including four initial lifecycle regressions) was confirmed by the user in Roblox Studio with **44 passed, 0 failed, 0 skipped**. The parkour state owner and a fifth transition-validation case have since been added, with the lifecycle specs updated to use the shared snapshot API. The current 45-case revision has passed static source checks only; rerun the full suite and review the Output before treating it as runtime-verified.
 
 The behavior tests use isolated fixtures and avoid invoking live remotes or depending on map geometry. They are useful regression checks, but they do not replace Studio playtesting of real movement physics, parkour detection against authored map parts, animation asset availability, or multiplayer combat.
