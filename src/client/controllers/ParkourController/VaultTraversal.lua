@@ -7,6 +7,7 @@ local Vector = require(ReplicatedStorage.shared.utility.Vector)
 local Config = require(script.Parent.Config)
 local ClimbableQuery = require(script.Parent.ClimbableQuery)
 local VaultMath = require(script.Parent.VaultMath)
+local ParkourState = require(script.Parent.State)
 
 local VaultTraversal = {}
 
@@ -560,6 +561,9 @@ function VaultTraversal.try_vault(self)
 		* math.max(0, Config.VaultTallDurationPerStud or 0)
 	vault_duration *= math.clamp(Config.VaultDurationMultiplier or 1, 0.5, 1.5)
 
+	if not ParkourState.transition(self, "Vaulting") then
+		return false
+	end
 	self.NextVaultAt = now + Config.VaultCooldown
 	self._vaultExitVelocity = horizontal_velocity
 	self._vaultStart = start_cframe
@@ -569,18 +573,18 @@ function VaultTraversal.try_vault(self)
 	self._vaultArcHeight = arc_height
 	self._vaultArcPeakProgress = arc_peak_progress
 	self._vaultObstacle = obstacle
-	self.VaultAutoRotateBefore = humanoid.AutoRotate
-	self.VaultPlatformStandBefore = humanoid.PlatformStand
-	self.VaultHipHeightBefore = humanoid.HipHeight
-	self.VaultHipHeightHumanoid = humanoid
-	self.VaultJumpingEnabledBefore = humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping)
+	ParkourState.capture_humanoid(self, "Vault", {
+		"AutoRotate",
+		"PlatformStand",
+		"HipHeight",
+		"JumpingEnabled",
+	})
 	self.GrabBlockedUntilJumpReleased = self.InputController:IsDown(Actions.Jump)
 
 	humanoid.AutoRotate = false
 	humanoid.PlatformStand = true
 	humanoid.Jump = false
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-	self.State = "Vaulting"
 	self.MovementController:SetSprintBlocked(true, self)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
@@ -608,7 +612,7 @@ function VaultTraversal.finish_vault(self, completed)
 	end
 
 	self._vaultDebugLastStage = nil
-	self.State = "Grounded"
+	ParkourState.transition(self, "Grounded")
 	local exit_velocity = self._vaultExitVelocity
 	self._vaultExitVelocity = nil
 	self._vaultStart = nil
@@ -620,13 +624,7 @@ function VaultTraversal.finish_vault(self, completed)
 	self._vaultObstacle = nil
 
 	local humanoid = self.Humanoid
-	local hip_height_humanoid = self.VaultHipHeightHumanoid
-	local original_hip_height = self.VaultHipHeightBefore
-	if hip_height_humanoid and hip_height_humanoid.Parent and original_hip_height ~= nil then
-		hip_height_humanoid.HipHeight = original_hip_height
-	end
-	self.VaultHipHeightHumanoid = nil
-	self.VaultHipHeightBefore = nil
+	ParkourState.restore_humanoid(self, "Vault", { "HipHeight", "AutoRotate", "PlatformStand" })
 
 	if completed and self.InputController:IsDown(Actions.Jump) then
 		self.GrabBlockedUntilJumpReleased = true
@@ -636,20 +634,9 @@ function VaultTraversal.finish_vault(self, completed)
 	end
 
 	if humanoid and humanoid.Parent then
-		if self.VaultAutoRotateBefore ~= nil then
-			humanoid.AutoRotate = self.VaultAutoRotateBefore
-		end
-		if self.VaultPlatformStandBefore ~= nil then
-			humanoid.PlatformStand = self.VaultPlatformStandBefore
-		end
 		humanoid.Jump = false
-
-		if self.VaultJumpingEnabledBefore ~= nil and not self.GrabBlockedUntilJumpReleased then
-			humanoid:SetStateEnabled(
-				Enum.HumanoidStateType.Jumping,
-				self.VaultJumpingEnabledBefore
-			)
-			self.VaultJumpingEnabledBefore = nil
+		if not self.GrabBlockedUntilJumpReleased then
+			ParkourState.restore_humanoid(self, "Vault", { "JumpingEnabled" })
 		end
 
 		if completed and humanoid.Health > 0 then
@@ -657,11 +644,6 @@ function VaultTraversal.finish_vault(self, completed)
 		end
 	end
 
-	self.VaultAutoRotateBefore = nil
-	self.VaultPlatformStandBefore = nil
-	if not self.GrabBlockedUntilJumpReleased then
-		self.VaultJumpingEnabledBefore = nil
-	end
 	if self.MovementController then
 		self.MovementController:SetSprintBlocked(false, self)
 	end
