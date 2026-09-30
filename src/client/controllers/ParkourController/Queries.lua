@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Vector = require(ReplicatedStorage.shared.utility.Vector)
+local Actions = require(ReplicatedStorage.shared.input.Actions)
 
 local Config = require(script.Parent.Config)
 local ClimbableQuery = require(script.Parent.ClimbableQuery)
@@ -207,7 +208,7 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 		local root_height_delta = root_position.Y - candidate.Position.Y
 		local reference_height_delta = reference_height - candidate.Position.Y
 		local height_distance = math.abs(reference_height_delta)
-		local valid_surface = is_grabbable_surface(candidate.Instance)
+		local valid_surface = ClimbableQuery.is_climbable(candidate.Instance)
 		local walkable = candidate.Normal.Y >= 0.5
 		local above_side_hit = candidate.Position.Y >= wall_position.Y - 0.5
 		-- Initial grabs measure "near the top" from the avatar's standing reach,
@@ -336,9 +337,9 @@ function Queries.detect_surface(self)
 		end
 	end
 
-	-- Keep the stable tagged-guide path first. Only if it does not find a
-	-- reachable ledge do we try the additive tall, collidable-part path.
-	if not top then
+	-- Keep the stable tagged-guide path first. Tall solid walls require
+	-- deliberate forward intent as well as Jump; Space alone must not latch.
+	if not top and self.InputController:IsDown(Actions.Forward) then
 		local physical_wall = Queries.cast(self, origin, direction * Config.WallReach, true)
 		if physical_wall and is_tall_wall_candidate(physical_wall.Instance, physical_wall.Normal) then
 			local physical_top = cast_tall_wall_top(self, physical_wall, physical_wall.Position, root.Position)
