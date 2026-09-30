@@ -350,9 +350,16 @@ function LedgeTraversal.get_guide_top(self, guide, sample_position)
 		}
 	end
 
-	-- Retain the oriented-box fallback for guides whose center is hollow or
-	-- whose top cannot be sampled, but only when the box's own up axis is
-	-- sufficiently walkable.
+	-- A caller-supplied sample is asking for the surface at that specific
+	-- horizontal location (not the guide's bounding-box center). Falling back
+	-- to the box center here can fabricate a distant top at a corner seam and
+	-- make coverage checks nondeterministic as the character moves.
+	if sample_position then
+		return nil
+	end
+
+	-- Retain the oriented-box fallback for center queries whose top cannot be
+	-- sampled, but only when the box's own up axis is sufficiently walkable.
 	local up = box_cframe.UpVector
 	if up.Y < 0.5 then
 		return nil
