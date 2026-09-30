@@ -123,11 +123,11 @@ return function()
 		expect(#ended).to.equal(2)
 	end)
 
-	it("ends aggregate Sprint on a mismatched Shift end despite stale key state", function()
+	it("keeps aggregate Sprint active when a mismatched Shift end arrives while the other key is pressed", function()
 		local began_count = 0
 		local ended_count = 0
 		local held_keys = {}
-		local physical_keys = {}
+		local pressed_keys = {}
 		controller.ActionBegan:Connect(function(action)
 			if action == Actions.Sprint then began_count += 1 end
 		end)
@@ -141,63 +141,48 @@ return function()
 		local function on_ended(action, source, source_id)
 			controller:_ended(action, source, source_id)
 		end
-		local function is_key_down(key_code)
-			return physical_keys[key_code] == true
+		local function get_pressed_keys()
+			return pressed_keys
+		end
+		local function reconcile(event_key)
+			local any_pressed = PCInput._any_shift_pressed(get_pressed_keys)
+			return PCInput._end_sprint_key(
+				held_keys,
+				event_key,
+				on_ended,
+				true,
+				any_pressed
+			)
 		end
 
-		expect(PCInput._any_shift_down(is_key_down)).to.equal(false)
-
-		-- Mirror the supplied trace: LeftShift is the only observed begin. On
-		-- the effective release, Roblox reports RightShift while its state
-		-- query still claims LeftShift is down.
-		physical_keys[Enum.KeyCode.LeftShift] = true
-		local handled_begin, began = PCInput._begin_sprint_key(
-			held_keys,
-			Enum.KeyCode.LeftShift,
-			on_began
-		)
+		-- Match the Studio trace: only LeftShift began, but InputEnded
+		-- reports RightShift while GetKeysPressed still contains LeftShift.
+		held_keys[Enum.KeyCode.LeftShift] = true
+		pressed_keys = {{ KeyCode = Enum.KeyCode.LeftShift }}
+		local handled_begin, began = PCInput._begin_sprint_key(held_keys, Enum.KeyCode.LeftShift, on_began)
 		expect(handled_begin).to.equal(true)
 		expect(began).to.equal(true)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
 
-		physical_keys[Enum.KeyCode.RightShift] = false
-		local handled_end, matched, remains_active, removed_key, ended =
-			PCInput._end_sprint_key(
-				held_keys,
-				Enum.KeyCode.RightShift,
-				on_ended,
-				true
-			)
+		local handled_end, matched, remains_active, _, ended =
+			reconcile(Enum.KeyCode.RightShift)
 		expect(handled_end).to.equal(true)
 		expect(matched).to.equal(false)
-		expect(remains_active).to.equal(false)
-		expect(removed_key).to.equal(nil)
-		expect(ended).to.equal(true)
-		expect(PCInput._any_shift_down(is_key_down)).to.equal(true)
+		expect(remains_active).to.equal(true)
+		expect(ended).to.equal(false)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+		expect(ended_count).to.equal(0)
+
+		-- When the final physical Shift key is released, its event may still
+		-- report either side; the empty pressed-key list ends Sprint.
+		pressed_keys = {}
+		held_keys[Enum.KeyCode.RightShift] = nil
+		local _, _, final_active, _, final_ended = reconcile(Enum.KeyCode.LeftShift)
+		expect(final_active).to.equal(false)
+		expect(final_ended).to.equal(true)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(began_count).to.equal(1)
 		expect(ended_count).to.equal(1)
-
-		-- A fresh press cycle must work despite the stale physical report.
-		table.clear(held_keys)
-		physical_keys[Enum.KeyCode.LeftShift] = false
-		local _, next_began = PCInput._begin_sprint_key(
-			held_keys,
-			Enum.KeyCode.RightShift,
-			on_began
-		)
-		expect(next_began).to.equal(true)
-		local _, _, next_active, _, next_ended = PCInput._end_sprint_key(
-			held_keys,
-			Enum.KeyCode.LeftShift,
-			on_ended,
-			true
-		)
-		expect(next_active).to.equal(false)
-		expect(next_ended).to.equal(true)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
-		expect(began_count).to.equal(2)
-		expect(ended_count).to.equal(2)
 	end)
 
 		it("keeps an action down until every source releases it", function()
