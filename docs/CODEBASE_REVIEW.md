@@ -13,6 +13,7 @@ Since the initial static review, the following behavior-preserving module bounda
 - Parkour spatial operations: `ParkourController/Queries.lua` owns raycast/overlap helpers and surface detection.
 - Parkour movement domains: `Traversal.lua` owns lateral hang traversal and pose snapshots; `LedgeTraversal.lua` owns ledge selection, transfers, and mantle searches; `VaultTraversal.lua` owns vault/top-hop setup and completion.
 - Parkour support: `ClimbableQuery.lua` owns tagged-guide discovery; `VaultMath.lua` owns pure vault easing/trajectory math; `Config.lua` remains the tuning source.
+- Parkour lifecycle hardening: `init.lua` now shares Jumping-state restoration across input recovery and release paths, retains the saved Jumping setting while a scripted vault is active even if Jump ends, restores pending grounded jump locks on release/destruction, and guards `Destroy()` against repeated calls. `tests/specs/ParkourLifecycle.spec.lua` adds four isolated regression cases for hang/mantle restoration, vault snapshot ownership, and teardown.
 - Combat input: `CombatController/AttackInput.lua` owns primary press buffering and charge intent.
 - Combat execution: `CombatController/AttackLifecycle.lua` owns attack setup, animation-marker wiring, hitbox lifecycle, sprint policy, and lifecycle cleanup. `CombatController/init.lua` remains the composition/orchestration layer, with the finish callback and public Attack/Charge/Reset interface.
 
@@ -22,14 +23,14 @@ Static consistency checks confirmed the extracted module references and controll
 
 ## TestEZ setup (2026-09-30)
 
-An expanded TestEZ suite is now present. The Rojo project maps the contents of `tests/` directly into Roblox `TestService`; the manual runner is Studio-guarded and does not execute automatically. The 40 cases cover pure parkour math and tuning invariants, input-state transitions, movement/sprint behavior with an isolated Humanoid fixture, weapon catalog/definition shape, shared protocol identifiers, malformed combat payload rejection, inventory slot validation, and client/server module/runtime contracts. The runner expects TestEZ at `ReplicatedStorage.packages.TestEZ`, following the project's Roblox-managed package convention; installation and usage instructions are in `docs/TESTING.md`.
+An expanded TestEZ suite is now present. The Rojo project maps the contents of `tests/` directly into Roblox `TestService`; the manual runner is Studio-guarded and does not execute automatically. The 44 cases cover pure parkour math and tuning invariants, parkour lifecycle cleanup with isolated controller fixtures, input-state transitions, movement/sprint behavior with an isolated Humanoid fixture, weapon catalog/definition shape, shared protocol identifiers, malformed combat payload rejection, inventory slot validation, and client/server module/runtime contracts. The runner expects TestEZ at `ReplicatedStorage.packages.TestEZ`, following the project's Roblox-managed package convention; installation and usage instructions are in `docs/TESTING.md`.
 
-The expanded test harness and specs are committed. TestEZ installation and the user's Studio run are in progress; no pass result for the expanded suite is claimed until its Output is reviewed.
+The user confirmed that the prior 40-case suite passed in Roblox Studio (`40 passed, 0 failed, 0 skipped`). Four parkour lifecycle cases have since been added and passed static source checks, but their Studio execution is still pending; do not treat the expanded 44-case suite as runtime-verified until its Output is reviewed.
 
 ## Findings
 
 ### P0 — Lifecycle and state restoration
-- Parkour traversal modes modify Humanoid state, movement locks, and root motion. Cleanup is distributed across release, vault completion, mantle completion, and Destroy; new exit paths can omit restoration.
+- Parkour traversal modes modify Humanoid state, movement locks, and root motion. Jumping-state restoration is now centralized, Jump release during a scripted vault preserves the saved state until vault completion, and `Destroy()` is idempotent. Traversal transitions and the remaining Humanoid snapshots are still distributed and are the next lifecycle-refactor target.
 - Parkour stores related snapshots in separate fields for hang, mantle, and vault. This obscures ownership and restoration order.
 - InputController now releases held actions on window focus loss. Device-change reconciliation and lifecycle behavior still merit focused verification.
 - CharacterController attaches its Trove to the character and exposes Destroy. Idempotence exists, but dependent-controller teardown ordering should be tested.
@@ -69,7 +70,7 @@ Avoid a generic Common/Utils dumping ground. Shared utilities should be pure, do
 ## Refactor sequence
 
 1. Safety baseline: test death and Destroy in every parkour state, focus loss while Jump is held, overlapping hop requests, weapon swap during attack, and player removal during combat.
-2. Parkour lifecycle: one transition path, one Humanoid snapshot, idempotent cleanup, explicit enter/exit behavior, and one owner per movement lock.
+2. Parkour lifecycle (active): the first pass now centralizes Jumping restoration, preserves vault snapshots across Jump release, and makes teardown idempotent, with four new regression cases. Next, consolidate traversal transitions and Humanoid snapshots behind an explicit state owner, then extend Studio checks to death/removal during each traversal state.
 3. Parkour performance: maintain tagged guides through CollectionService signals, spatially filter candidates, cache model bounds with invalidation, cache ancestry, and avoid unnecessary corner fans. Measure raycast counts.
 4. Parkour decomposition: extract query, detection/classification, landing search, and execution in that order. Keep detection/classification data-only and unit-testable.
 5. Input reconciliation: clear/reconcile held actions on focus loss and device changes, emitting matching end transitions.
