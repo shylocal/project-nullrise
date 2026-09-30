@@ -27,8 +27,9 @@ end
 return function()
 	describe("Built-in weapon definitions", function()
 		for _, weapon_id in ipairs({ "Fists", "Katana" }) do
-			it("keeps " .. weapon_id .. " structurally valid", function()
-				local weapon = Catalog.Get(weapon_id)
+			local current_weapon_id = weapon_id
+			it("keeps " .. current_weapon_id .. " structurally valid", function()
+				local weapon = Catalog.Get(current_weapon_id)
 
 				expect(typeof(weapon)).to.equal("table")
 				expect(weapon.Type).to.equal("Melee")
