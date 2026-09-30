@@ -58,7 +58,14 @@ function PCInput:_on_sprint_input(action_name, input_state, input)
 			warn(("[InputDebug][PC] CAS sprint end key=%s state=%s"):format(tostring(key_code), tostring(input_state)))
 			self.OnEnded(Actions.Sprint, "PC", key_code)
 		else
-			warn(("[InputDebug][PC] CAS unmatched sprint end key=%s state=%s"):format(tostring(key_code), tostring(input_state)))
+			-- Roblox can deliver an End for the other Shift alias without
+			-- ever delivering its Begin. Treat that unmatched End as a
+			-- fail-safe release so a lost key-up cannot leave sprint stuck.
+			warn(("[InputDebug][PC] CAS unmatched sprint end; clearing tracked Shift keys key=%s state=%s"):format(tostring(key_code), tostring(input_state)))
+			for tracked_key in pairs(self.SprintKeysDown) do
+				self.SprintKeysDown[tracked_key] = nil
+				self.OnEnded(Actions.Sprint, "PC", tracked_key)
+			end
 		end
 	end
 
