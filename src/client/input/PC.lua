@@ -9,7 +9,7 @@ local PCInput = {}
 PCInput.__index = PCInput
 
 local SPRINT_SOURCE_ID = "KeyboardSprint"
-local SHIFT_TRACE_VERSION = "diag-v8"
+local SHIFT_TRACE_VERSION = "diag-v9"
 local SPRINT_KEYS = {
 	Enum.KeyCode.LeftShift,
 	Enum.KeyCode.RightShift,
@@ -297,7 +297,15 @@ function PCInput:_start(on_began, on_ended)
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
 
 		if is_shift then
-			self:_reconcile_sprint(on_ended, "InputEnded", input.KeyCode)
+			-- InputEnded may run before GetKeysPressed has settled for this
+			-- frame. Leave the aggregate source active here; the Heartbeat
+			-- monitor performs the authoritative all-Shift-up check next frame.
+			print(string.format(
+				"[ShiftTrace][PC][%s] Shift InputEnded deferred to Heartbeat eventKey=%s active=%s",
+				SHIFT_TRACE_VERSION,
+				tostring(input.KeyCode),
+				tostring(self.SprintSourceActive)
+			))
 		elseif action then
 			on_ended(action, "PC", source_id)
 		end
