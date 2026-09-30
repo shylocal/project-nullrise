@@ -43,8 +43,14 @@ end
 -- both keys against UserInputService so a missed/stale end edge cannot leave
 -- Sprint held until that same key is pressed and released again.
 function PCInput._release_unheld_sprint_keys(on_ended, released_key, is_key_down)
+	local left_down = is_key_down(Enum.KeyCode.LeftShift)
+	local right_down = is_key_down(Enum.KeyCode.RightShift)
+	warn(("[InputDebug][PC] reconcile released=%s leftDown=%s rightDown=%s"):format(
+		tostring(released_key), tostring(left_down), tostring(right_down)
+	))
 	for _, key_code in ipairs(SPRINT_KEYS) do
 		if key_code == released_key or not is_key_down(key_code) then
+			warn(("[InputDebug][PC] emit Sprint end sourceId=%s"):format(tostring(key_code)))
 			on_ended(Actions.Sprint, "PC", key_code)
 		end
 	end
@@ -55,12 +61,16 @@ function PCInput:_start(on_began, on_ended)
 		if game_processed then return end
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
-		if action then on_began(action, "PC", source_id) end
+		if action then
+			warn(("[InputDebug][PC] InputBegan key=%s type=%s action=%s sourceId=%s processed=%s"):format(tostring(input.KeyCode), tostring(input.UserInputType), tostring(action), tostring(source_id), tostring(game_processed)))
+			on_began(action, "PC", source_id)
+		end
 	end)
 	self.Trove:Connect(UserInputService.InputEnded, function(input)
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
 		if action == Actions.Sprint or is_sprint_key(input.KeyCode) then
+			warn(("[InputDebug][PC] InputEnded key=%s type=%s action=%s sourceId=%s"):format(tostring(input.KeyCode), tostring(input.UserInputType), tostring(action), tostring(source_id)))
 			PCInput._release_unheld_sprint_keys(on_ended, input.KeyCode, function(key_code)
 				return UserInputService:IsKeyDown(key_code)
 			end)
