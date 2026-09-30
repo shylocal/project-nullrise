@@ -9,6 +9,8 @@ local PCInput = require(script.Parent.Parent.input.PC)
 local MobileInput = require(script.Parent.Parent.input.Mobile)
 
 local DEFAULT_INPUT_SOURCE = "Default"
+-- Group concrete input types by device family so mouse/keyboard transitions
+-- do not cancel each other, while switching to touch/gamepad releases stale holds.
 local INPUT_SOURCES = {
 	[Enum.UserInputType.Keyboard] = "PC",
 	[Enum.UserInputType.MouseButton1] = "PC",
