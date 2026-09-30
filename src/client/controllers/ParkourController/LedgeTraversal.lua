@@ -7,6 +7,7 @@ local Vector = require(ReplicatedStorage.shared.utility.Vector)
 local Config = require(script.Parent.Config)
 
 local ClimbableQuery = require(script.Parent.ClimbableQuery)
+local ParkourState = require(script.Parent.State)
 
 local LedgeTraversal = {}
 
@@ -259,7 +260,9 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 	end
 
 	local pose_snapshot = self:_snapshot_hang_pose()
-	self.State = "Hanging"
+	if not ParkourState.transition(self, "Hanging") then
+		return false
+	end
 	self.CurrentClimbable = target_guide
 	self.Normal = destination_normal
 	self.HangDepthOffset = depth_offset
@@ -502,9 +505,12 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 		best_ground.Position.Y + standing_height - 0.05,
 		best_ground.Position.Z
 	)
-		self.GrabBlockedUntilJumpReleased = true
+		if not ParkourState.transition(self, "Mantling") then
+		return false
+	end
+	self.GrabBlockedUntilJumpReleased = true
 	if self.Humanoid then
-		self.JumpingEnabledBeforeMantle = self.Humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping)
+		ParkourState.capture_humanoid(self, "Mantle", { "JumpingEnabled" })
 		self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
 		self.Humanoid.Jump = false
 	end
@@ -512,8 +518,7 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 	local target_cframe = CFrame.lookAt(grounded_position, grounded_position - outward_normal)
 	-- Keep the hang's movement lock while blending to the floor so the
 	-- Humanoid cannot fight the scripted mantle path.
-	self.State = "Mantling"
-	self.CurrentClimbable = nil
+		self.CurrentClimbable = nil
 	self.Normal = nil
 	self.HangDepthOffset = nil
 	self.HangPosition = nil
@@ -586,15 +591,17 @@ function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 		return false
 	end
 
+	if not ParkourState.transition(self, "Mantling") then
+		return false
+	end
 	self.GrabBlockedUntilJumpReleased = true
 	if self.Humanoid then
-		self.JumpingEnabledBeforeMantle = self.Humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping)
+		ParkourState.capture_humanoid(self, "Mantle", { "JumpingEnabled" })
 		self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
 		self.Humanoid.Jump = false
 	end
 
 	local target_cframe = CFrame.lookAt(standing_position, standing_position - normal)
-	self.State = "Mantling"
 	self.CurrentClimbable = nil
 	self.Normal = nil
 	self.HangDepthOffset = nil
