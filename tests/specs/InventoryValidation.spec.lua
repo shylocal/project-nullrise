@@ -66,6 +66,11 @@ return function()
 			expect(snapshot.Slots ~= inventory.Slots).to.equal(true)
 			expect(snapshot.SelectedSlot).to.equal(2)
 
+			local public_view = service:Get(player)
+			expect(public_view.Slots ~= inventory.Slots).to.equal(true)
+			public_view.Slots[2] = "Fists"
+			expect(inventory.Slots[2]).to.equal("Katana")
+
 			snapshot.Slots[2] = "Fists"
 			snapshot.Slots[3] = "Katana"
 
