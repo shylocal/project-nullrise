@@ -25,7 +25,7 @@ local Bindings = {
 }
 
 function PCInput.new(on_began, on_ended)
-	local self = setmetatable({ Trove = Trove.new(), SprintKeysDown = {}, SprintToggleOn = false }, PCInput)
+	local self = setmetatable({ Trove = Trove.new(), SprintKeysDown = {}, SprintActive = false }, PCInput)
 	local ok, err = pcall(self._start, self, on_began, on_ended)
 	if not ok then
 		self:Destroy()
@@ -65,10 +65,11 @@ function PCInput:_on_sprint_input(action_name, input_state, input)
 		self:_set_sprint_active(true)
 	elseif input_state == Enum.UserInputState.End or input_state == Enum.UserInputState.Cancel then
 		local was_tracked = self.SprintKeysDown[key_code] == true
-		self.SprintKeysDown[key_code] = nil
-		if not was_tracked then
-			warn(("[InputDebug][PC] unmatched Shift end; clearing stale tracking key=%s"):format(tostring(key_code)))
-			table.clear(self.SprintKeysDown)
+		if was_tracked then
+			self.SprintKeysDown[key_code] = nil
+		else
+			-- An unmatched End must not release another Shift key still tracked as held.
+			warn(("[InputDebug][PC] unmatched Shift end ignored key=%s"):format(tostring(key_code)))
 		end
 		self:_set_sprint_active(next(self.SprintKeysDown) ~= nil)
 	end
@@ -125,7 +126,7 @@ function PCInput:Destroy()
 	self.OnBegan = nil
 	self.OnEnded = nil
 	table.clear(self.SprintKeysDown)
-	self.SprintToggleOn = false
+	self.SprintActive = false
 	self.Trove:Destroy()
 end
 
