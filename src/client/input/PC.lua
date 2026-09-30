@@ -1,6 +1,5 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 
 local Trove = require(ReplicatedStorage.packages.Trove)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
@@ -9,27 +8,9 @@ local PCInput = {}
 PCInput.__index = PCInput
 
 local SPRINT_SOURCE_ID = "KeyboardSprint"
-local SHIFT_TRACE_VERSION = "diag-v9"
-local SPRINT_KEYS = {
-	Enum.KeyCode.LeftShift,
-	Enum.KeyCode.RightShift,
-}
-
+local SHIFT_TRACE_VERSION = "diag-v10"
 local function is_sprint_key(key_code)
 	return key_code == Enum.KeyCode.LeftShift or key_code == Enum.KeyCode.RightShift
-end
-
-function PCInput._any_shift_down(is_key_down)
-	return is_key_down(Enum.KeyCode.LeftShift) or is_key_down(Enum.KeyCode.RightShift)
-end
-
-function PCInput._any_shift_pressed(get_keys_pressed)
-	for _, input in ipairs(get_keys_pressed()) do
-		if is_sprint_key(input.KeyCode) then
-			return true
-		end
-	end
-	return false
 end
 
 local function get_shift_trace(held_keys)
@@ -84,7 +65,7 @@ function PCInput._begin_sprint_key(held_keys, key_code, on_began)
 	return true, not was_active, true
 end
 
-function PCInput._end_sprint_key(held_keys, key_code, on_ended, source_active, any_shift_pressed)
+function PCInput._end_sprint_key(held_keys, key_code, on_ended, source_active)
 	if not is_sprint_key(key_code) then
 		return false, false, source_active or next(held_keys) ~= nil, nil, false
 	end
@@ -93,19 +74,24 @@ function PCInput._end_sprint_key(held_keys, key_code, on_ended, source_active, a
 	local matched = held_keys[key_code] == true
 	local removed_key = matched and key_code or nil
 
-	-- InputEnded can identify the opposite Shift key. Preserve the aggregate
-	-- Sprint source whenever GetKeysPressed still reports either Shift held.
-	if any_shift_pressed then
-		return true, matched, was_active, nil, false
+	if matched then
+		held_keys[key_code] = nil
+	else
+		-- The trace showed Roblox reporting the opposite Shift key on end.
+		-- Treat an unmatched Shift end as the aggregate modifier release;
+		-- physical-key snapshots can remain stale in this Studio path.
+		table.clear(held_keys)
 	end
 
-	table.clear(held_keys)
-	local ended = was_active
-	if ended then
+	if next(held_keys) ~= nil then
+		return true, matched, true, removed_key, false
+	end
+
+	if was_active then
 		on_ended(Actions.Sprint, "PC", SPRINT_SOURCE_ID)
 	end
 
-	return true, matched, false, removed_key, ended
+	return true, matched, false, removed_key, was_active
 end
 
 function PCInput.new(on_began, on_ended)
@@ -113,7 +99,6 @@ function PCInput.new(on_began, on_ended)
 		Trove = Trove.new(),
 		HeldSprintKeys = {},
 		SprintSourceActive = false,
-		SprintMonitor = nil,
 		Destroyed = false,
 	}, PCInput)
 
@@ -126,87 +111,27 @@ function PCInput.new(on_began, on_ended)
 	return self
 end
 
-function PCInput:_stop_sprint_monitor(reason)
-	if self.SprintMonitor then
-		print(string.format(
-			"[ShiftTrace][PC][%s] monitor stopping reason=%s active=%s before{%s}",
-			SHIFT_TRACE_VERSION,
-			tostring(reason or "unspecified"),
-			tostring(self.SprintSourceActive),
-			get_shift_trace(self.HeldSprintKeys)
-		))
-		self.SprintMonitor:Disconnect()
-		self.SprintMonitor = nil
-	end
-end
-
 function PCInput:_reconcile_sprint(on_ended, reason, event_key)
-	local any_shift_pressed = PCInput._any_shift_pressed(function()
-		return UserInputService:GetKeysPressed()
-	end)
 	local handled, matched, remains_active, removed_key, ended = PCInput._end_sprint_key(
 		self.HeldSprintKeys,
 		event_key or Enum.KeyCode.LeftShift,
 		on_ended,
-		self.SprintSourceActive,
-		any_shift_pressed
+		self.SprintSourceActive
 	)
 
 	self.SprintSourceActive = remains_active
-	if not remains_active then
-		self:_stop_sprint_monitor(reason)
-	end
-
 	print(string.format(
-		"[ShiftTrace][PC][%s] reconcile reason=%s handled=%s matched=%s eventKey=%s removedKey=%s anyShiftPressed=%s remainsActive=%s ended=%s after{%s}",
+		"[ShiftTrace][PC][%s] reconcile reason=%s handled=%s matched=%s eventKey=%s removedKey=%s remainsActive=%s ended=%s after{%s}",
 		SHIFT_TRACE_VERSION,
 		tostring(reason),
 		tostring(handled),
 		tostring(matched),
 		tostring(event_key),
 		tostring(removed_key),
-		tostring(any_shift_pressed),
 		tostring(remains_active),
 		tostring(ended),
 		get_shift_trace(self.HeldSprintKeys)
 	))
-end
-
-function PCInput:_start_sprint_monitor(on_ended)
-	if self.SprintMonitor or not self.SprintSourceActive then
-		return
-	end
-
-	local trace_elapsed = 0
-	print(string.format(
-		"[ShiftTrace][PC][%s] monitor started active=%s before{%s}",
-		SHIFT_TRACE_VERSION,
-		tostring(self.SprintSourceActive),
-		get_shift_trace(self.HeldSprintKeys)
-	))
-
-	self.SprintMonitor = RunService.Heartbeat:Connect(function(delta_time)
-		if self.Destroyed or not self.SprintSourceActive then
-			return
-		end
-
-		trace_elapsed += delta_time
-		if trace_elapsed >= 0.5 then
-			trace_elapsed = 0
-			print(string.format(
-				"[ShiftTrace][PC][%s] heartbeat monitor active=%s %s",
-				SHIFT_TRACE_VERSION,
-				tostring(self.SprintSourceActive),
-				get_shift_trace(self.HeldSprintKeys)
-			))
-		end
-
-		if not PCInput._any_shift_pressed(function()
-			return UserInputService:GetKeysPressed()
-		end) then
-			self:_reconcile_sprint(on_ended, "HeartbeatBothShiftUp")
-		end
-	end)
 end
 
 function PCInput:ResetHeldKeys(reason)
@@ -219,7 +144,6 @@ function PCInput:ResetHeldKeys(reason)
 	))
 	self.SprintSourceActive = false
 	table.clear(self.HeldSprintKeys)
-	self:_stop_sprint_monitor(reason or "ResetHeldKeys")
 end
 
 function PCInput:_start(on_began, on_ended)
@@ -265,7 +189,6 @@ function PCInput:_start(on_began, on_ended)
 				on_began
 			)
 			self.SprintSourceActive = remains_active
-			self:_start_sprint_monitor(on_ended)
 			print(string.format(
 				"[ShiftTrace][PC][%s] Sprint begin handled=%s began=%s key=%s aggregateSource=%s after{%s}",
 				SHIFT_TRACE_VERSION,
@@ -297,15 +220,10 @@ function PCInput:_start(on_began, on_ended)
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
 
 		if is_shift then
-			-- InputEnded may run before GetKeysPressed has settled for this
-			-- frame. Leave the aggregate source active here; the Heartbeat
-			-- monitor performs the authoritative all-Shift-up check next frame.
-			print(string.format(
-				"[ShiftTrace][PC][%s] Shift InputEnded deferred to Heartbeat eventKey=%s active=%s",
-				SHIFT_TRACE_VERSION,
-				tostring(input.KeyCode),
-				tostring(self.SprintSourceActive)
-			))
+			-- In this Studio path, GetKeysPressed/IsKeyDown can retain a stale
+			-- Shift identity after the aggregate InputEnded edge. Trust the
+			-- event and reconcile by aggregate alias, not physical snapshot.
+			self:_reconcile_sprint(on_ended, "InputEnded", input.KeyCode)
 		elseif action then
 			on_ended(action, "PC", source_id)
 		end
