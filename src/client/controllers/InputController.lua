@@ -76,7 +76,8 @@ function InputController:_start()
 		self:_ended(action, source, source_id)
 	end
 
-	self.Trove:Add(PCInput.new(began, ended))
+	self.PCInput = PCInput.new(began, ended)
+	self.Trove:Add(self.PCInput)
 
 	if UserInputService.TouchEnabled then
 		self.Trove:Add(MobileInput.new(began, ended))
@@ -154,6 +155,9 @@ function InputController:_set_active_source(source)
 
 	local previous_source = self.ActiveInputSource
 	self.ActiveInputSource = source
+	if previous_source == "PC" and self.PCInput then
+		self.PCInput:ResetHeldKeys()
+	end
 	self:_release_source(previous_source)
 end
 
