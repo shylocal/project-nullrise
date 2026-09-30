@@ -26,7 +26,7 @@ return {
 	VaultMinArcHeight = 1,
 	VaultMaxArcHeight = 6.5,
 	VaultObstacleClearance = 0.5,
-	VaultTallObstacleClearancePerStud = 1.6,
+	VaultTallObstacleClearancePerStud = 0.3,
 	VaultTallDurationPerStud = 0.1,
 	VaultFarSideOnlyHeight = 2.5,
 	VaultLongObstacleHopLength = 20,
