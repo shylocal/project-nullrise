@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
 local Trove = require(ReplicatedStorage.packages.Trove)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
@@ -17,12 +18,14 @@ local function is_sprint_key(key_code)
 	return key_code == Enum.KeyCode.LeftShift or key_code == Enum.KeyCode.RightShift
 end
 
--- Temporary diagnostic logging for the reported simultaneous-Shift behavior.
+-- Temporary diagnostics for the reported modifier-key event mismatch.
 local function get_shift_trace(held_keys)
 	return string.format(
-		"tracked[L=%s,R=%s]",
+		"tracked[L=%s,R=%s] physical[L=%s,R=%s]",
 		tostring(held_keys[Enum.KeyCode.LeftShift] == true),
-		tostring(held_keys[Enum.KeyCode.RightShift] == true)
+		tostring(held_keys[Enum.KeyCode.RightShift] == true),
+		tostring(UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)),
+		tostring(UserInputService:IsKeyDown(Enum.KeyCode.RightShift))
 	)
 end
 
@@ -52,25 +55,15 @@ function PCInput._begin_sprint_key(held_keys, key_code, on_began)
 	return true, not was_active, true
 end
 
--- Roblox may suppress the second Shift begin and report the final end using
--- the opposite key. If the reported key is not tracked, consume one outstanding
--- Shift edge as that unmatched end represents the remaining modifier release.
-function PCInput._end_sprint_key(held_keys, key_code, on_ended)
-	if not is_sprint_key(key_code) then
-		return false, nil, next(held_keys) ~= nil
-	end
-
+-- Query both physical modifier keys instead of trusting InputEnded's key
+-- identity. Roblox may report the opposite Shift key or omit an edge.
+function PCInput._reconcile_sprint_keys(held_keys, is_key_down, on_ended)
 	local was_active = next(held_keys) ~= nil
-	local cleared_key = key_code
-	if held_keys[key_code] then
-		held_keys[key_code] = nil
-	else
-		for _, sprint_key in ipairs(SPRINT_KEYS) do
-			if held_keys[sprint_key] then
-				cleared_key = sprint_key
-				held_keys[sprint_key] = nil
-				break
-			end
+	for _, key_code in ipairs(SPRINT_KEYS) do
+		if is_key_down(key_code) then
+			held_keys[key_code] = true
+		else
+			held_keys[key_code] = nil
 		end
 	end
 
@@ -78,14 +71,25 @@ function PCInput._end_sprint_key(held_keys, key_code, on_ended)
 	if was_active and not remains_active then
 		on_ended(Actions.Sprint, "PC", SPRINT_SOURCE_ID)
 	end
+	return remains_active
+end
 
-	return true, cleared_key, remains_active
+function PCInput._end_sprint_key(held_keys, key_code, on_ended, is_key_down)
+	if not is_sprint_key(key_code) then
+		return false, nil, next(held_keys) ~= nil
+	end
+
+	local remains_active = PCInput._reconcile_sprint_keys(held_keys, is_key_down, on_ended)
+	return true, key_code, remains_active
 end
 
 function PCInput.new(on_began, on_ended)
 	local self = setmetatable({
 		Trove = Trove.new(),
 		HeldSprintKeys = {},
+		SprintSourceActive = false,
+		SprintMonitor = nil,
+		Destroyed = false,
 	}, PCInput)
 
 	local ok, err = pcall(self._start, self, on_began, on_ended)
@@ -97,13 +101,78 @@ function PCInput.new(on_began, on_ended)
 	return self
 end
 
-function PCInput:_start(on_began, on_ended)
-	self.Trove:Connect(UserInputService.WindowFocusReleased, function()
+function PCInput:_stop_sprint_monitor(reason)
+	if self.SprintMonitor then
 		print(string.format(
-			"[ShiftTrace][PC] focus released; clearing %s",
+			"[ShiftTrace][PC] monitor stopping reason=%s active=%s %s",
+			tostring(reason or "unspecified"),
+			tostring(self.SprintSourceActive),
 			get_shift_trace(self.HeldSprintKeys)
 		))
-		self:ResetHeldKeys()
+		self.SprintMonitor:Disconnect()
+		self.SprintMonitor = nil
+	end
+end
+
+function PCInput:_reconcile_sprint(on_ended, reason)
+	if not self.SprintSourceActive then
+		return false
+	end
+
+	local was_active = self.SprintSourceActive
+	local remains_active = PCInput._reconcile_sprint_keys(
+		self.HeldSprintKeys,
+		function(key_code)
+			return UserInputService:IsKeyDown(key_code)
+		end,
+		on_ended
+	)
+	self.SprintSourceActive = remains_active
+
+	if was_active and not remains_active then
+		self:_stop_sprint_monitor(reason or "PhysicalState")
+		print(string.format(
+			"[ShiftTrace][PC] Sprint source ended reason=%s %s",
+			tostring(reason or "PhysicalState"),
+			get_shift_trace(self.HeldSprintKeys)
+		))
+	end
+	return remains_active
+end
+
+function PCInput:_start_sprint_monitor(on_ended)
+	if self.SprintMonitor then
+		return
+	end
+
+	self.SprintSourceActive = true
+	local traceElapsed = 0
+	print(string.format(
+		"[ShiftTrace][PC] monitor started %s",
+		get_shift_trace(self.HeldSprintKeys)
+	))
+	self.SprintMonitor = RunService.Heartbeat:Connect(function(delta_time)
+		if self.Destroyed or not self.SprintSourceActive then
+			return
+		end
+
+		traceElapsed += delta_time
+		if traceElapsed >= 0.5 then
+			traceElapsed = 0
+			print(string.format(
+				"[ShiftTrace][PC] heartbeat active=%s %s",
+				tostring(self.SprintSourceActive),
+				get_shift_trace(self.HeldSprintKeys)
+			))
+		end
+
+		self:_reconcile_sprint(on_ended, "Heartbeat")
+	end)
+end
+
+function PCInput:_start(on_began, on_ended)
+	self.Trove:Connect(UserInputService.WindowFocusReleased, function()
+		self:ResetHeldKeys("WindowFocusReleased")
 	end)
 
 	self.Trove:Connect(UserInputService.InputBegan, function(input, game_processed)
@@ -132,15 +201,17 @@ function PCInput:_start(on_began, on_ended)
 		end
 
 		if action == Actions.Sprint then
-			local handled, _, remains_active = PCInput._begin_sprint_key(
+			local handled, began, remains_active = PCInput._begin_sprint_key(
 				self.HeldSprintKeys,
 				input.KeyCode,
 				on_began
 			)
+			self.SprintSourceActive = remains_active
+			self:_start_sprint_monitor(on_ended)
 			print(string.format(
-				"[ShiftTrace][PC] Sprint begin handled=%s action=%s sourceId=%s remainsActive=%s after{%s}",
+				"[ShiftTrace][PC] Sprint begin handled=%s began=%s sourceId=%s remainsActive=%s after{%s}",
 				tostring(handled),
-				tostring(action),
+				tostring(began),
 				SPRINT_SOURCE_ID,
 				tostring(remains_active),
 				get_shift_trace(self.HeldSprintKeys)
@@ -168,10 +239,17 @@ function PCInput:_start(on_began, on_ended)
 			local handled, released_key, remains_active = PCInput._end_sprint_key(
 				self.HeldSprintKeys,
 				input.KeyCode,
-				on_ended
+				on_ended,
+				function(key_code)
+					return UserInputService:IsKeyDown(key_code)
+				end
 			)
+			self.SprintSourceActive = remains_active
+			if not remains_active then
+				self:_stop_sprint_monitor("InputEnded")
+			end
 			print(string.format(
-				"[ShiftTrace][PC] Sprint end handled=%s reportedKey=%s clearedKey=%s remainsActive=%s after{%s}",
+				"[ShiftTrace][PC] Sprint end observed handled=%s eventKey=%s sampledKey=%s remainsActive=%s after{%s}",
 				tostring(handled),
 				tostring(input.KeyCode),
 				tostring(released_key),
@@ -184,12 +262,25 @@ function PCInput:_start(on_began, on_ended)
 	end)
 end
 
-function PCInput:ResetHeldKeys()
+function PCInput:ResetHeldKeys(reason)
+	print(string.format(
+		"[ShiftTrace][PC] ResetHeldKeys reason=%s activeBefore=%s before{%s}",
+		tostring(reason or "unspecified"),
+		tostring(self.SprintSourceActive),
+		get_shift_trace(self.HeldSprintKeys)
+	))
+	self.SprintSourceActive = false
 	table.clear(self.HeldSprintKeys)
+	self:_stop_sprint_monitor(reason or "ResetHeldKeys")
 end
 
 function PCInput:Destroy()
-	self:ResetHeldKeys()
+	if self.Destroyed then
+		return
+	end
+
+	self.Destroyed = true
+	self:ResetHeldKeys("Destroy")
 	self.Trove:Destroy()
 end
 
