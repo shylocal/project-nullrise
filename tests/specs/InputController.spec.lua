@@ -86,7 +86,6 @@ return function()
 		expect(ended[Actions.Sprint]).to.equal(1)
 	end)
 
-
 	it("releases held actions from the previous device when input changes", function()
 		local ended = {}
 		controller.ActionEnded:Connect(function(action)
@@ -107,6 +106,25 @@ return function()
 
 		controller:_ended(Actions.Jump, "PC")
 		expect(#ended).to.equal(2)
+	end)
+
+	it("keeps sprint active until both bound keyboard keys are released", function()
+		local ended_count = 0
+		controller.ActionEnded:Connect(function(action)
+			if action == Actions.Sprint then ended_count += 1 end
+		end)
+
+		controller:_began(Actions.Sprint, "PC", Enum.KeyCode.LeftShift)
+		controller:_began(Actions.Sprint, "PC", Enum.KeyCode.RightShift)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+
+		controller:_ended(Actions.Sprint, "PC", Enum.KeyCode.LeftShift)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+		expect(ended_count).to.equal(0)
+
+		controller:_ended(Actions.Sprint, "PC", Enum.KeyCode.RightShift)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
+		expect(ended_count).to.equal(1)
 	end)
 
 	it("keeps an action down until every source releases it", function()
@@ -132,8 +150,7 @@ return function()
 		expect(ended_count).to.equal(1)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 	end)
-
-		it("does not emit duplicate end events after a focus release", function()
+	it("does not emit duplicate end events after a focus release", function()
 		local ended_count = 0
 		controller.ActionEnded:Connect(function()
 			ended_count += 1
