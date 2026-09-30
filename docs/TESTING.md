@@ -35,7 +35,7 @@ local character = game:GetService("Players").LocalPlayer.Character
 character:SetAttribute("ParkourQueryMetrics", true)
 ```
 
-While hanging from tagged ledges, press **W** to attempt a mantle and **S** to search for a lower ledge. Each search prints one `[ParkourMetrics]` line to the client Output. It reports elapsed search time, raycasts, overlap queries, tagged guides enumerated/visited, guides inside/outside the conservative search bounds, sampled guide columns, and guide-top/stack raycasts. Metrics reset for each measured search. Disable profiling with:
+While hanging from tagged ledges, press **W** to attempt a mantle and **S** to search for a lower ledge. Each search prints one `[ParkourMetrics]` line to the client Output. It reports elapsed search time, raycasts, overlap queries, tagged guides enumerated/visited, guides inside/outside the conservative search bounds, sampled guide columns, `Model:GetBoundingBox()` calls (`ModelBoundsQueries`), and guide-top/stack raycasts. Metrics reset for each measured search. Disable profiling with:
 
 ```lua
 character:SetAttribute("ParkourQueryMetrics", false)
@@ -92,6 +92,6 @@ The suite includes:
 
 The suite currently defines **47 TestEZ cases** across these specs. This is a starting regression net, not exhaustive gameplay coverage; in particular, it does not simulate real parkour raycasts against the map, animation playback, or multiplayer combat timing.
 
-The user confirmed **47 passed, 0 failed, 0 skipped** in Studio for the profiling revision, before the mantle bounds-filter optimization. The optimization applies the existing conservative guide-bounds check before upper-mantle surface sampling. Re-sync the updated source, rerun the suite, and verify mantle/lower-ledge traversal in Studio; collect fresh `[ParkourMetrics]` lines at the same location to compare query counts. Query profiling instructions are in the section above.
+The user confirmed **47 passed, 0 failed, 0 skipped** in Studio before the mantle bounds-filter optimization. Subsequent Studio metrics confirmed the expected reduction: mantle sampling fell from 210 to 126 columns and raycasts from 387–388 to 261–262; lower-ledge sampling remained at 84 columns with 176–177 raycasts. Mantle timings were 0.90–0.93 ms in the supplied post-change samples versus 1.08–1.83 ms in the baseline, but the small sample is not enough to treat timing as a stable benchmark. The new `ModelBoundsQueries` counter was added after those measurements; re-sync and rerun the suite and profiling session to capture it and confirm the current revision. Query profiling instructions are in the section above.
 
 The behavior tests use isolated fixtures and avoid invoking live remotes or depending on map geometry. They are useful regression checks, but they do not replace Studio playtesting of real movement physics, parkour detection against authored map parts, animation asset availability, or multiplayer combat.
