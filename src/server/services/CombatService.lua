@@ -302,13 +302,29 @@ function CombatService:_charge(player)
 	self:_create_active(player, "Charge", charge, timing, wielded, character)
 end
 
+local function is_active_attacker_valid(self, player, active)
+	local session = self.PlayerService:Get(player)
+	if not session or session.Character ~= active.Character then
+		return false
+	end
+
+	local character = active.Character
+	if not character or character.Parent == nil then
+		return false
+	end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	return humanoid ~= nil and humanoid.Health > 0
+end
+
 function CombatService:_hit_start(player, attack_key)
 	local active = self.ActiveAttacks[player]
 	if not active or active.AttackIndex ~= attack_key or active.HitActive then
 		return
 	end
 
-	if active.Character.Parent == nil then
+	if not is_active_attacker_valid(self, player, active)
+		or os.clock() > active.ExpiresAt then
 		self:_clear_attack(player)
 		return
 	end
@@ -342,6 +358,11 @@ end
 function CombatService:_hit(player, attack_key, hit_character, segment_instance, hit_position)
 	local active = self.ActiveAttacks[player]
 	if not active or active.AttackIndex ~= attack_key or not active.HitActive then
+		return
+	end
+
+	if os.clock() > active.ExpiresAt or not is_active_attacker_valid(self, player, active) then
+		self:_clear_attack(player)
 		return
 	end
 
