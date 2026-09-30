@@ -85,9 +85,16 @@ function PCInput._end_sprint_key(held_keys, key_code, on_ended, is_key_down, sou
 	-- InputEnded may identify the opposite Shift key. Use current physical
 	-- state to reconcile tracked keys, and never release Sprint while either
 	-- Shift is still down.
+	local remains_active = was_active and (physical_left_down or physical_right_down)
 	for _, sprint_key in ipairs(SPRINT_KEYS) do
-		local physical_down = sprint_key == Enum.KeyCode.LeftShift and physical_left_down or physical_right_down
-		if physical_down then
+		local physical_down
+		if sprint_key == Enum.KeyCode.LeftShift then
+			physical_down = physical_left_down
+		else
+			physical_down = physical_right_down
+		end
+
+		if remains_active and physical_down then
 			held_keys[sprint_key] = true
 		elseif held_keys[sprint_key] then
 			held_keys[sprint_key] = nil
@@ -95,7 +102,6 @@ function PCInput._end_sprint_key(held_keys, key_code, on_ended, is_key_down, sou
 		end
 	end
 
-	local remains_active = physical_left_down or physical_right_down
 	local ended = was_active and not remains_active
 	if ended then
 		table.clear(held_keys)
