@@ -5,23 +5,23 @@ local function is_finite_number(value)
 	return typeof(value) == "number" and math.isfinite(value)
 end
 
-local function expect_animation(animation)
-	expect(typeof(animation)).to.equal("table")
-	expect(typeof(animation.Id)).to.equal("string")
-	expect(string.match(animation.Id, "^rbxassetid://%d+$") ~= nil).to.equal(true)
-	expect(animation.Priority ~= nil).to.equal(true)
-	expect(typeof(animation.Looped)).to.equal("boolean")
+local function expect_animation(animation, expect_fn)
+	expect_fn(typeof(animation)).to.equal("table")
+	expect_fn(typeof(animation.Id)).to.equal("string")
+	expect_fn(string.match(animation.Id, "^rbxassetid://%d+$") ~= nil).to.equal(true)
+	expect_fn(animation.Priority ~= nil).to.equal(true)
+	expect_fn(typeof(animation.Looped)).to.equal("boolean")
 end
 
-local function expect_attack(attack)
-	expect(typeof(attack)).to.equal("table")
-	expect(typeof(attack.Hitbox)).to.equal("string")
-	expect(attack.Hitbox ~= "").to.equal(true)
-	expect(is_finite_number(attack.Damage) and attack.Damage > 0).to.equal(true)
-	expect(is_finite_number(attack.Cooldown) and attack.Cooldown >= 0).to.equal(true)
-	expect(is_finite_number(attack.Range) and attack.Range > 0).to.equal(true)
-	expect(is_finite_number(attack.NetworkTolerance) and attack.NetworkTolerance >= 0).to.equal(true)
-	expect_animation(attack.Animation)
+local function expect_attack(attack, expect_fn)
+	expect_fn(typeof(attack)).to.equal("table")
+	expect_fn(typeof(attack.Hitbox)).to.equal("string")
+	expect_fn(attack.Hitbox ~= "").to.equal(true)
+	expect_fn(is_finite_number(attack.Damage) and attack.Damage > 0).to.equal(true)
+	expect_fn(is_finite_number(attack.Cooldown) and attack.Cooldown >= 0).to.equal(true)
+	expect_fn(is_finite_number(attack.Range) and attack.Range > 0).to.equal(true)
+	expect_fn(is_finite_number(attack.NetworkTolerance) and attack.NetworkTolerance >= 0).to.equal(true)
+	expect_animation(attack.Animation, expect_fn)
 end
 
 return function()
@@ -46,12 +46,12 @@ return function()
 				end
 
 				for _, animation_name in ipairs({ "Equip", "Idle", "Sprint", "Charge" }) do
-					expect_animation(weapon.Animations[animation_name])
+					expect_animation(weapon.Animations[animation_name], expect)
 				end
 
 				expect(typeof(weapon.Attacks)).to.equal("table")
-				expect_attack(weapon.Attacks[1])
-				expect_attack(weapon.Attacks[2])
+				expect_attack(weapon.Attacks[1], expect)
+				expect_attack(weapon.Attacks[2], expect)
 
 				expect(typeof(weapon.Charge)).to.equal("table")
 				expect(typeof(weapon.Charge.Hitbox)).to.equal("string")
@@ -61,7 +61,7 @@ return function()
 				expect(is_finite_number(weapon.Charge.Range) and weapon.Charge.Range > 0).to.equal(true)
 				expect(is_finite_number(weapon.Charge.NetworkTolerance) and weapon.Charge.NetworkTolerance >= 0).to.equal(true)
 				expect(is_finite_number(weapon.Charge.HoldTime) and weapon.Charge.HoldTime > 0).to.equal(true)
-				expect_animation(weapon.Charge.Animation)
+				expect_animation(weapon.Charge.Animation, expect)
 			end)
 		end
 	end)
