@@ -89,3 +89,10 @@ The project has a coherent foundation: native Luau, explicit dependencies, narro
 ## Review limitation
 
 This review is based on the files inspected in the repository snapshot and the testing history documented in `docs/TESTING.md`. It does not establish current live-server performance, exhaustive call-site usage, or a passing result for the latest pending Studio input reconciliation patch. Run the documented Studio suite and gameplay checks after syncing any subsequent changes.
+
+
+## Follow-up implementation: inventory read isolation
+
+The repository-wide server source audit found no callers of `InventoryService:Get(player)` outside its definition. The public method is retained for compatibility, but now returns the same detached snapshot shape used for replication rather than the authoritative inventory table. This preserves read access to `Slots` and `SelectedSlot` while preventing mutation through that API from silently bypassing service invariants. The existing inventory snapshot spec now also checks that the public view is detached. The implementation and test are committed separately on `main`.
+
+This is intentionally a narrow first step. The lifecycle consolidation, combat adversarial Studio scenarios, and parkour profiling recommendations remain follow-up work; this repository integration cannot run Roblox Studio or validate live physics/network behavior. Use the checklist in `docs/TESTING.md` after syncing the changes.
