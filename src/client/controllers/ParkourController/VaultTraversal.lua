@@ -518,7 +518,7 @@ function VaultTraversal.try_vault(self)
 	-- Reject low ceilings and blocked landing space before committing.
 	local clearance_size = Vector3.new(
 		root.Size.X + 0.5,
-		math.max(root.Size.Y + 0.25, standing_height * 1.6),
+		root.Size.Y + 0.25,
 		root.Size.Z + 0.5
 	)
 	for _, alpha in ipairs({ 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1 }) do
