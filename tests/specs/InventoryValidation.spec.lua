@@ -21,7 +21,6 @@ return function()
 			end
 		end)
 
-
 		it("accepts positive integer slots beyond the current keyboard bindings", function()
 			local player = {}
 			local inventory = {
