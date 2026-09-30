@@ -65,10 +65,21 @@ function PCInput.new(on_began, on_ended)
 	return self
 end
 
-function PCInput:_stop_sprint_monitor()
+function PCInput:_stop_sprint_monitor(reason)
 	if self.SprintMonitor then
+		print(string.format(
+			"[ShiftTrace][PC] monitor stopping reason=%s active=%s %s",
+			tostring(reason or "unspecified"),
+			tostring(self.SprintSourceActive),
+			get_shift_trace()
+		))
 		self.SprintMonitor:Disconnect()
 		self.SprintMonitor = nil
+	else
+		print(string.format(
+			"[ShiftTrace][PC] monitor stop requested reason=%s but no monitor is connected",
+			tostring(reason or "unspecified")
+		))
 	end
 end
 
@@ -78,7 +89,7 @@ function PCInput:_finish_sprint(on_ended, reason)
 	end
 
 	self.SprintSourceActive = false
-	self:_stop_sprint_monitor()
+	self:_stop_sprint_monitor("SprintEnded:" .. tostring(reason))
 	print(string.format(
 		"[ShiftTrace][PC] Sprint source ended reason=%s %s",
 		tostring(reason),
@@ -93,14 +104,37 @@ function PCInput:_start_sprint_monitor(on_ended)
 	end
 
 	self.SprintSourceActive = true
-	self.SprintMonitor = RunService.Heartbeat:Connect(function()
+	local traceElapsed = 0
+	print(string.format(
+		"[ShiftTrace][PC] monitor started active=%s %s",
+		tostring(self.SprintSourceActive),
+		get_shift_trace()
+	))
+	self.SprintMonitor = RunService.Heartbeat:Connect(function(deltaTime)
 		if self.Destroyed or not self.SprintSourceActive then
+			print(string.format(
+				"[ShiftTrace][PC] monitor callback inactive destroyed=%s active=%s",
+				tostring(self.Destroyed),
+				tostring(self.SprintSourceActive)
+			))
 			return
 		end
 
-		if not PCInput._any_shift_down(function(key_code)
-			return UserInputService:IsKeyDown(key_code)
-		end) then
+		local leftDown = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+		local rightDown = UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+		traceElapsed += deltaTime
+		if traceElapsed >= 0.5 then
+			traceElapsed = 0
+			print(string.format(
+				"[ShiftTrace][PC] heartbeat monitor active=%s trackedSource=%s physical[L=%s,R=%s]",
+				tostring(self.SprintSourceActive),
+				tostring(self.SprintSourceActive and "KeyboardSprint" or "none"),
+				tostring(leftDown),
+				tostring(rightDown)
+			))
+		end
+
+		if not leftDown and not rightDown then
 			print("[ShiftTrace][PC] Heartbeat observed both Shift keys up; reconciling Sprint")
 			self:_finish_sprint(on_ended, "Heartbeat")
 		end
@@ -109,7 +143,7 @@ end
 
 function PCInput:_start(on_began, on_ended)
 	self.Trove:Connect(UserInputService.WindowFocusReleased, function()
-		self:ResetHeldKeys()
+		self:ResetHeldKeys("WindowFocusReleased")
 	end)
 
 	self.Trove:Connect(UserInputService.InputBegan, function(input, game_processed)
@@ -180,9 +214,15 @@ function PCInput:_start(on_began, on_ended)
 	end)
 end
 
-function PCInput:ResetHeldKeys()
+function PCInput:ResetHeldKeys(reason)
+	print(string.format(
+		"[ShiftTrace][PC] ResetHeldKeys reason=%s activeBefore=%s %s",
+		tostring(reason or "unspecified"),
+		tostring(self.SprintSourceActive),
+		get_shift_trace()
+	))
 	self.SprintSourceActive = false
-	self:_stop_sprint_monitor()
+	self:_stop_sprint_monitor(reason or "ResetHeldKeys")
 end
 
 function PCInput:Destroy()
@@ -191,7 +231,7 @@ function PCInput:Destroy()
 	end
 
 	self.Destroyed = true
-	self:ResetHeldKeys()
+	self:ResetHeldKeys("Destroy")
 	self.Trove:Destroy()
 end
 
