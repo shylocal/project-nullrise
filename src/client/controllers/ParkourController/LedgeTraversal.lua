@@ -10,14 +10,6 @@ local ClimbableQuery = require(script.Parent.ClimbableQuery)
 
 local LedgeTraversal = {}
 
-local function debug_log(self, key, interval, ...)
-	local now = os.clock()
-	self._parkourDebugTimes = self._parkourDebugTimes or {}
-	if now - (self._parkourDebugTimes[key] or 0) < interval then return end
-	self._parkourDebugTimes[key] = now
-	print("[ParkourDebug][" .. key .. "]", ...)
-end
-
 function LedgeTraversal.try_lower_ledge(self)
 		if self.State ~= "Hanging" or not self.Root or not self.CurrentClimbable
 		or not self.HangPosition or not self.Normal then
@@ -25,8 +17,6 @@ function LedgeTraversal.try_lower_ledge(self)
 	end
 
 	local root = self.Root
-	debug_log(self, "lower-ledge", 0, "begin", "surface", self.CurrentClimbable:GetFullName(),
-		"hangPosition", self.HangPosition, "root", root.Position)
 	local normal = Vector.flatten(self.Normal)
 	if normal.Magnitude < 0.05 then
 				return
@@ -96,8 +86,6 @@ function LedgeTraversal.try_lower_ledge(self)
 	end
 
 	if not best_top then
-		debug_log(self, "lower-ledge", 0, "no lower tagged ledge found",
-			"source", self.CurrentClimbable:GetFullName(), "currentTop", current_top)
 		return
 	end
 
@@ -112,8 +100,6 @@ function LedgeTraversal.try_lower_ledge(self)
 		target_normal = normal
 			end
 	local transferred = self:_transfer_hang_to_ledge(best_top, target_normal)
-	debug_log(self, "lower-ledge", 0, "transfer result", transferred,
-		"destination", best_top.Instance:GetFullName(), "targetNormal", target_normal)
 end
 function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_y)
 	local root = self.Root
@@ -135,8 +121,6 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 		-normal * (Config.WallGap + Config.SurfaceProbe)
 	)
 	if not probe then
-		debug_log(self, "refresh-contact", 0, "no side hit", "expected", expected_guide:GetFullName(),
-			"origin", probe_origin, "direction", -normal * (Config.WallGap + Config.SurfaceProbe))
 		return false
 	end
 
@@ -147,19 +131,13 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 		candidate_position.Y + Config.HangDrop
 	)
 	if not top then
-		debug_log(self, "refresh-contact", 0, "no reachable top", "expected", expected_guide:GetFullName(),
-			"sideHit", probe.Instance:GetFullName(), "sideNormal", probe.Normal)
 		return false
 	end
 	local actual_guide = ClimbableQuery.get_guide(top.Instance) or top.Instance
 	if actual_guide ~= expected_guide then
-		debug_log(self, "refresh-contact", 0, "guide mismatch", "expected", expected_guide:GetFullName(),
-			"actual", actual_guide:GetFullName(), "top", top.Instance:GetFullName())
 		return false
 	end
 	if expected_top_y and math.abs(top.Position.Y - expected_top_y) > Config.TraverseHeightTolerance then
-		debug_log(self, "refresh-contact", 0, "height mismatch", "expectedY", expected_top_y,
-			"actualY", top.Position.Y, "tolerance", Config.TraverseHeightTolerance)
 		return false
 	end
 
@@ -277,9 +255,6 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 		destination_normal
 	)
 	if not planned_clear then
-		debug_log(self, "transfer", 0, "planned clearance rejected", "destination", target_guide:GetFullName(),
-			"blocker", planned_blocker and planned_blocker:GetFullName(), "position", planned_position,
-			"normal", destination_normal)
 		return false
 	end
 
@@ -300,8 +275,6 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 	-- into the ledge during simultaneous sideways and vertical input.
 	local refreshed = self:_refresh_hang_contact(target_guide, top.Position.Y)
 	if not refreshed then
-		debug_log(self, "transfer", 0, "refresh contact rejected", "destination", target_guide:GetFullName(),
-			"top", top.Instance:GetFullName(), "topPosition", top.Position)
 		self:_restore_hang_pose(pose_snapshot)
 		return false
 	end
@@ -310,15 +283,10 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 		self.Normal
 	)
 	if not final_clear then
-		debug_log(self, "transfer", 0, "final clearance rejected", "destination", target_guide:GetFullName(),
-			"blocker", final_blocker and final_blocker:GetFullName(), "position", self.HangPosition,
-			"normal", self.Normal)
 		self:_restore_hang_pose(pose_snapshot)
 		return false
 	end
 	self:_position_hanging()
-	debug_log(self, "transfer", 0, "accepted", "destination", target_guide:GetFullName(),
-		"position", self.HangPosition, "normal", self.Normal)
 	return true
 end
 function LedgeTraversal.get_guide_top(self, guide, sample_position)
@@ -743,15 +711,10 @@ function LedgeTraversal.try_mantle(self)
 		else
 			transferred = self:_transfer_hang_to_ledge(best_top)
 		end
-		debug_log(self, "mantle", 0, "tagged destination", best_top.Instance:GetFullName(),
-			"rise", best_height, "distance", best_distance, "transfer", transferred)
 	else
 		-- No higher tagged guide was found. W may still mantle onto any visible,
 		-- walkable surface above the current wall.
 		local ground_mantled = self:_try_ground_mantle(current_top, normal, tangent)
-		debug_log(self, "mantle", 0, "no tagged destination; ground mantle result", ground_mantled,
-			"source", self.CurrentClimbable and self.CurrentClimbable:GetFullName(),
-			"currentTop", current_top, "maxRise", Config.GroundMantleMaxRise)
 	end
 end
 
