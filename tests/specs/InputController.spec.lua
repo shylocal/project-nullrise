@@ -157,7 +157,6 @@ return function()
 
 		-- Match the Studio trace: only LeftShift began, but InputEnded
 		-- reports RightShift while GetKeysPressed still contains LeftShift.
-		held_keys[Enum.KeyCode.LeftShift] = true
 		pressed_keys = {{ KeyCode = Enum.KeyCode.LeftShift }}
 		local handled_begin, began = PCInput._begin_sprint_key(held_keys, Enum.KeyCode.LeftShift, on_began)
 		expect(handled_begin).to.equal(true)
