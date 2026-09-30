@@ -135,13 +135,13 @@ return function()
 			controller:_began(Actions.Sprint, "PC", key_code)
 		end
 
-		local function release_shift(key_code, reported_key)
+		local function release_shift(key_code)
 			held_keys[key_code] = false
 			PCInput._release_unheld_sprint_keys(
 				function(action, source, source_id)
 					controller:_ended(action, source, source_id)
 				end,
-				reported_key or key_code,
+				key_code,
 				function(queried_key)
 					return held_keys[queried_key] == true
 				end
@@ -156,11 +156,18 @@ return function()
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
 		expect(ended_count).to.equal(0)
 
-		-- Even if the release edge is associated with the other Shift key,
-		-- the physical-key state clears the final stale source.
-		release_shift(Enum.KeyCode.RightShift, Enum.KeyCode.LeftShift)
+		release_shift(Enum.KeyCode.RightShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(ended_count).to.equal(1)
+
+		-- If the first release edge was missed, the final edge reconciles
+		-- the stale source against both physical key states.
+		press_shift(Enum.KeyCode.LeftShift)
+		press_shift(Enum.KeyCode.RightShift)
+		held_keys[Enum.KeyCode.LeftShift] = false
+		release_shift(Enum.KeyCode.RightShift)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
+		expect(ended_count).to.equal(2)
 	end)
 
 	it("keeps an action down until every source releases it", function()
