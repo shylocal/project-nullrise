@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local StarterPlayer = game:GetService("StarterPlayer")
 
 return function()
 	describe("Studio runtime contracts", function()
@@ -22,6 +23,32 @@ return function()
 				expect(packages:FindFirstChild("TestEZ") ~= nil).to.equal(true)
 			end
 			expect(ReplicatedStorage:FindFirstChild("weapon_models") ~= nil).to.equal(true)
+		end)
+
+		it("loads client controller modules and exposes constructors", function()
+			local client = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("client")
+			local controllers = client:WaitForChild("controllers")
+			local names = {
+				"AnimationController",
+				"CharacterController",
+				"CombatController",
+				"InputController",
+				"MovementController",
+				"ParkourController",
+				"PlayerController",
+				"UIController",
+				"WeaponController",
+			}
+
+			for _, name in ipairs(names) do
+				local module = controllers:FindFirstChild(name)
+				expect(module ~= nil and module:IsA("ModuleScript")).to.equal(true)
+				if module then
+					local exported = require(module)
+					expect(typeof(exported)).to.equal("table")
+					expect(typeof(exported.new)).to.equal("function")
+				end
+			end
 		end)
 
 		it("loads server modules and exposes their public entrypoints", function()
