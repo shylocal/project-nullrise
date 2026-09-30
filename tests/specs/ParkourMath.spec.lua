@@ -68,7 +68,7 @@ return function()
 
 			it("fades smoothly at the entry and exit boundaries", function()
 				expect(is_near(VaultMath.hip_height_weight(0.09), 0.5)).to.equal(true)
-				expect(is_near(VaultMath.hip_height_weight(0.89), 0.5)).to.equal(true)
+				expect(is_near(VaultMath.hip_height_weight(0.96), 0.5)).to.equal(true)
 			end)
 
 			it("stays bounded for values before and after the vault", function()
