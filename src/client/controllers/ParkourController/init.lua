@@ -55,8 +55,6 @@ function ParkourController:_start()
 	self.Trove:Connect(self.InputController.ActionBegan, function(action)
 		if action == Actions.Jump or action == Actions.Forward or action == Actions.Backward
 			or action == Actions.Left or action == Actions.Right then
-			print("[ParkourDebug][input] began", action, "state", self.State,
-				"root", self.Root and self.Root.Position, "move", self.Humanoid and self.Humanoid.MoveDirection)
 		end
 		if action == Actions.Jump then
 			if self.State == "Grounded" then
@@ -74,8 +72,6 @@ function ParkourController:_start()
 	self.Trove:Connect(self.InputController.ActionEnded, function(action)
 		if action == Actions.Jump or action == Actions.Forward or action == Actions.Backward
 			or action == Actions.Left or action == Actions.Right then
-			print("[ParkourDebug][input] ended", action, "state", self.State,
-				"root", self.Root and self.Root.Position, "move", self.Humanoid and self.Humanoid.MoveDirection)
 		end
 		if action == Actions.Jump then
 			if self.GrabBlockedUntilJumpReleased then
@@ -171,8 +167,6 @@ function ParkourController:_grab(guide, normal, position, edge_gap)
 	if humanoid_state == Enum.HumanoidStateType.Dead
 		or humanoid_state == Enum.HumanoidStateType.Swimming
 		or humanoid_state == Enum.HumanoidStateType.Climbing then return end
-		print("[ParkourDebug][grab] accepted", guide:GetFullName(), "class", guide.ClassName,
-			"normal", normal, "hangPosition", position, "humanoidState", humanoid_state)
 		self.State = "Hanging"
 	self.CurrentClimbable = guide
 	self.Normal = normal
@@ -339,7 +333,6 @@ function ParkourController:_step(dt)
 	end
 end
 
-
 function ParkourController:_has_vault_clearance(cframe, size, obstacle)
 	return Queries.has_vault_clearance(self, cframe, size, obstacle)
 end
@@ -417,10 +410,6 @@ end
 
 function ParkourController:_release()
 	if self.State == "Hanging" or self.State == "Mantling" or self.State == "Vaulting" then
-		print("[ParkourDebug][release] state", self.State, "surface",
-			self.CurrentClimbable and self.CurrentClimbable:GetFullName(),
-			"jumpDown", self.InputController:IsDown(Actions.Jump),
-			"root", self.Root and self.Root.Position)
 	end
 	if self._topHopActive then
 		self:_finish_top_hop(false)
