@@ -34,11 +34,13 @@ function PCInput:_start(on_began, on_ended)
 	self.Trove:Connect(UserInputService.InputBegan, function(input, game_processed)
 		if game_processed then return end
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
-		if action then on_began(action, "PC") end
+		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
+		if action then on_began(action, "PC", source_id) end
 	end)
 	self.Trove:Connect(UserInputService.InputEnded, function(input)
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
-		if action then on_ended(action, "PC") end
+		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
+		if action then on_ended(action, "PC", source_id) end
 	end)
 end
 
