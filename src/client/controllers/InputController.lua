@@ -65,12 +65,13 @@ function InputController:_start()
 		self:_set_active_source(get_input_source(input_type))
 	end)
 
-	local began = function(action, source)
-		self:_began(action, source)
+	local began = function(action, source, source_id)
+		self:_set_active_source(source)
+		self:_began(action, source, source_id)
 	end
 
-	local ended = function(action, source)
-		self:_ended(action, source)
+	local ended = function(action, source, source_id)
+		self:_ended(action, source, source_id)
 	end
 
 	self.Trove:Add(PCInput.new(began, ended))
@@ -80,8 +81,9 @@ function InputController:_start()
 	end
 end
 
-function InputController:_began(action, source)
+function InputController:_began(action, source, source_id)
 	source = source or DEFAULT_INPUT_SOURCE
+	source_id = source_id or source
 
 	local sources = self.SourcesDown[action]
 	if not sources then
@@ -89,11 +91,11 @@ function InputController:_began(action, source)
 		self.SourcesDown[action] = sources
 	end
 
-	if sources[source] then
+	if sources[source_id] then
 		return
 	end
 
-	sources[source] = true
+	sources[source_id] = source
 	if self.Down[action] then
 		return
 	end
@@ -102,15 +104,16 @@ function InputController:_began(action, source)
 	self.ActionBegan:Fire(action)
 end
 
-function InputController:_ended(action, source)
+function InputController:_ended(action, source, source_id)
 	source = source or DEFAULT_INPUT_SOURCE
+	source_id = source_id or source
 
 	local sources = self.SourcesDown[action]
-	if not sources or not sources[source] then
+	if not sources or sources[source_id] ~= source then
 		return
 	end
 
-	sources[source] = nil
+	sources[source_id] = nil
 	if next(sources) ~= nil then
 		return
 	end
@@ -125,15 +128,20 @@ function InputController:_release_source(source)
 		return
 	end
 
-	local affected_actions = {}
+	local affected_inputs = {}
 	for action, sources in pairs(self.SourcesDown) do
-		if sources[source] then
-			table.insert(affected_actions, action)
+		for source_id, source_kind in pairs(sources) do
+			if source_kind == source then
+				table.insert(affected_inputs, {
+					Action = action,
+					SourceId = source_id,
+				})
+			end
 		end
 	end
 
-	for _, action in ipairs(affected_actions) do
-		self:_ended(action, source)
+	for _, input in ipairs(affected_inputs) do
+		self:_ended(input.Action, source, input.SourceId)
 	end
 end
 
