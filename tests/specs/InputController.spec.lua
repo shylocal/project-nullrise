@@ -86,6 +86,20 @@ return function()
 		expect(ended[Actions.Sprint]).to.equal(1)
 	end)
 
+	it("preserves held actions when switching within the same device family", function()
+		local ended_count = 0
+		controller.ActionEnded:Connect(function()
+			ended_count += 1
+		end)
+
+		controller.ActiveInputSource = "PC"
+		controller:_began(Actions.Jump, "PC", Enum.KeyCode.Space)
+		controller:_set_active_source("PC")
+
+		expect(controller:IsDown(Actions.Jump)).to.equal(true)
+		expect(ended_count).to.equal(0)
+	end)
+
 	it("releases held actions from the previous device when input changes", function()
 		local ended = {}
 		controller.ActionEnded:Connect(function(action)
