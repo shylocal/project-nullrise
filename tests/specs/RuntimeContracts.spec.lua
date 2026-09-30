@@ -1,6 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local StarterPlayer = game:GetService("StarterPlayer")
+local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 
 return function()
 	describe("Studio runtime contracts", function()
@@ -23,6 +24,42 @@ return function()
 				expect(packages:FindFirstChild("TestEZ") ~= nil).to.equal(true)
 			end
 			expect(ReplicatedStorage:FindFirstChild("weapon_models") ~= nil).to.equal(true)
+		end)
+
+		it("resolves built-in weapon bindings and hitboxes in their model templates", function()
+			local weapon_models = ReplicatedStorage:WaitForChild("weapon_models")
+
+			for _, weapon_id in ipairs({ "Fists", "Katana" }) do
+				local weapon = Catalog.Get(weapon_id)
+				expect(typeof(weapon)).to.equal("table")
+				if not weapon then
+					continue
+				end
+
+				local model = weapon_models:FindFirstChild(weapon.Model)
+				expect(model ~= nil).to.equal(true)
+				if not model then
+					continue
+				end
+
+				for wield_name in pairs(weapon.Wield or {}) do
+					local wielded = model:FindFirstChild(wield_name, true)
+					expect(wielded ~= nil and wielded:IsA("BasePart")).to.equal(true)
+				end
+
+				local function expect_hitbox(attack)
+					local hitbox = model:FindFirstChild(attack.Hitbox, true)
+					expect(hitbox ~= nil and hitbox:IsA("BasePart")).to.equal(true)
+				end
+
+				for _, attack in pairs(weapon.Attacks or {}) do
+					expect_hitbox(attack)
+				end
+
+				if weapon.Charge then
+					expect_hitbox(weapon.Charge)
+				end
+			end
 		end)
 
 		it("loads client controller modules and exposes constructors", function()
