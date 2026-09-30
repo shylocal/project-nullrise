@@ -79,7 +79,7 @@ end
 -- Reconcile the aliased Sprint keys from Roblox's current pressed-key snapshot.
 -- InputEnded's KeyCode is not reliable for simultaneous Shift modifiers: an
 -- event for RightShift may arrive while GetKeysPressed still reports LeftShift.
-function PCInput._reconcile_sprint_keys(held_keys, pressed_keys, on_began, on_ended)
+function PCInput._reconcile_sprint_keys(held_keys, pressed_keys)
 	local was_active = next(held_keys) ~= nil
 	table.clear(held_keys)
 
@@ -89,14 +89,7 @@ function PCInput._reconcile_sprint_keys(held_keys, pressed_keys, on_began, on_en
 		end
 	end
 
-	local remains_active = next(held_keys) ~= nil
-	if not was_active and remains_active then
-		on_began(Actions.Sprint, "PC", SPRINT_SOURCE_ID)
-	elseif was_active and not remains_active then
-		on_ended(Actions.Sprint, "PC", SPRINT_SOURCE_ID)
-	end
-
-	return remains_active
+	return was_active, next(held_keys) ~= nil
 end
 
 function PCInput.new(on_began, on_ended)
@@ -162,20 +155,23 @@ function PCInput:_start_sprint_monitor(on_ended)
 			self.SprintReleasePendingFrames -= 1
 			if self.SprintReleasePendingFrames == 0 then
 				local pressed_keys = get_pressed_shift_keys()
-				local remains_active = PCInput._reconcile_sprint_keys(
+				local was_active, remains_active = PCInput._reconcile_sprint_keys(
 					self.HeldSprintKeys,
-					pressed_keys,
-					on_began,
-					on_ended
+					pressed_keys
 				)
-				self.SprintSourceActive = remains_active
 				print(string.format(
-					"[ShiftTrace][PC] reconciled pressed snapshot remainsActive=%s %s",
+					"[ShiftTrace][PC] reconciled pressed snapshot wasActive=%s remainsActive=%s %s",
+					tostring(was_active),
 					tostring(remains_active),
 					get_shift_trace(self.HeldSprintKeys)
 				))
-				if not remains_active then
+				if was_active and not remains_active then
 					self:_finish_sprint(on_ended, "GetKeysPressed")
+				else
+					self.SprintSourceActive = remains_active
+					if not was_active and remains_active then
+						PCInput._begin_sprint(on_began)
+					end
 				end
 			end
 		end
