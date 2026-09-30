@@ -80,7 +80,8 @@ function MovementController:_set_humanoid(humanoid)
 end
 
 function MovementController:_update_sprinting()
-	local sprinting = not self.SprintBlocked and self.InputController:IsDown(Actions.Sprint)
+	local action_down = self.InputController:IsDown(Actions.Sprint)
+	local sprinting = not self.SprintBlocked and action_down
 	local changed = self.Sprinting ~= sprinting
 
 	self.Sprinting = sprinting
@@ -89,6 +90,16 @@ function MovementController:_update_sprinting()
 	if humanoid and humanoid.Parent ~= nil then
 		humanoid.WalkSpeed = sprinting and self.SprintSpeed or self.DefaultWalkSpeed
 	end
+
+	print(string.format(
+		"[ShiftTrace][MovementController] update actionDown=%s blocked=%s previous=%s next=%s changed=%s WalkSpeed=%s",
+		tostring(action_down),
+		tostring(self.SprintBlocked),
+		tostring(not changed and sprinting or not sprinting),
+		tostring(sprinting),
+		tostring(changed),
+		tostring(humanoid and humanoid.WalkSpeed or "no-humanoid")
+	))
 
 	if changed then
 		self.SprintingChanged:Fire(sprinting)
