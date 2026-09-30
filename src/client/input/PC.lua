@@ -38,6 +38,12 @@ end
 -- concrete key sources so releasing one alias cannot end the other.
 function PCInput:_on_sprint_input(action_name, input_state, input)
 	local key_code = input.KeyCode
+	warn(("[InputDebug][PC] CAS callback action=%s state=%s key=%s inputType=%s"):format(
+		tostring(action_name),
+		tostring(input_state),
+		tostring(key_code),
+		tostring(input.UserInputType)
+	))
 	if not is_sprint_key(key_code) then
 		return Enum.ContextActionResult.Pass
 	end
