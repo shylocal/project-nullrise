@@ -4,6 +4,7 @@ local StarterPlayer = game:GetService("StarterPlayer")
 local Signal = require(ReplicatedStorage.packages.Signal)
 local Client = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("client")
 local InputController = require(Client.controllers.InputController)
+local PCInput = require(Client.input.PC)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 
 local function make_controller()
@@ -122,21 +123,42 @@ return function()
 		expect(#ended).to.equal(2)
 	end)
 
-	it("keeps sprint active until both bound keyboard keys are released", function()
+	it("reconciles aliased sprint keys when either keyboard key is released", function()
 		local ended_count = 0
+		local held_keys = {}
 		controller.ActionEnded:Connect(function(action)
 			if action == Actions.Sprint then ended_count += 1 end
 		end)
 
-		controller:_began(Actions.Sprint, "PC", Enum.KeyCode.LeftShift)
-		controller:_began(Actions.Sprint, "PC", Enum.KeyCode.RightShift)
+		local function press_shift(key_code)
+			held_keys[key_code] = true
+			controller:_began(Actions.Sprint, "PC", key_code)
+		end
+
+		local function release_shift(key_code, reported_key)
+			held_keys[key_code] = false
+			PCInput._release_unheld_sprint_keys(
+				function(action, source, source_id)
+					controller:_ended(action, source, source_id)
+				end,
+				reported_key or key_code,
+				function(queried_key)
+					return held_keys[queried_key] == true
+				end
+			)
+		end
+
+		press_shift(Enum.KeyCode.LeftShift)
+		press_shift(Enum.KeyCode.RightShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
 
-		controller:_ended(Actions.Sprint, "PC", Enum.KeyCode.LeftShift)
+		release_shift(Enum.KeyCode.LeftShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
 		expect(ended_count).to.equal(0)
 
-		controller:_ended(Actions.Sprint, "PC", Enum.KeyCode.RightShift)
+		-- Even if the release edge is associated with the other Shift key,
+		-- the physical-key state clears the final stale source.
+		release_shift(Enum.KeyCode.RightShift, Enum.KeyCode.LeftShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(ended_count).to.equal(1)
 	end)
