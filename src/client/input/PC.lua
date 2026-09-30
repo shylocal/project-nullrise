@@ -9,6 +9,7 @@ local PCInput = {}
 PCInput.__index = PCInput
 
 local SPRINT_SOURCE_ID = "KeyboardSprint"
+local SHIFT_TRACE_VERSION = "diag-v5"
 local SPRINT_KEYS = {
 	Enum.KeyCode.LeftShift,
 	Enum.KeyCode.RightShift,
@@ -217,6 +218,11 @@ function PCInput:_start_sprint_monitor(on_ended)
 end
 
 function PCInput:_start(on_began, on_ended)
+	print(string.format(
+		"[ShiftTrace][PC][%s] adapter started; Shift diagnostics include InputBegan, InputChanged, InputEnded, state snapshots, and monitor lifecycle",
+		SHIFT_TRACE_VERSION
+	))
+
 	self.Trove:Connect(UserInputService.WindowFocusReleased, function()
 		self:ResetHeldKeys("WindowFocusReleased")
 	end)
@@ -267,13 +273,31 @@ function PCInput:_start(on_began, on_ended)
 		end
 	end)
 
-	self.Trove:Connect(UserInputService.InputEnded, function(input)
+	self.Trove:Connect(UserInputService.InputChanged, function(input, game_processed)
+		if not is_sprint_key(input.KeyCode) then
+			return
+		end
+
+		print(string.format(
+			"[ShiftTrace][PC][%s] InputChanged key=%s type=%s state=%s processed=%s %s",
+			SHIFT_TRACE_VERSION,
+			tostring(input.KeyCode),
+			tostring(input.UserInputType),
+			tostring(input.UserInputState),
+			tostring(game_processed),
+			get_shift_trace(self.HeldSprintKeys)
+		))
+	end)
+
+	self.Trove:Connect(UserInputService.InputEnded, function(input, game_processed)
 		local is_shift = is_sprint_key(input.KeyCode)
 		if is_shift then
 			print(string.format(
-				"[ShiftTrace][PC] InputEnded key=%s type=%s before{%s}",
+				"[ShiftTrace][PC][%s] InputEnded key=%s type=%s processed=%s before{%s}",
+				SHIFT_TRACE_VERSION,
 				tostring(input.KeyCode),
 				tostring(input.UserInputType),
+				tostring(game_processed),
 				get_shift_trace(self.HeldSprintKeys)
 			))
 		end
