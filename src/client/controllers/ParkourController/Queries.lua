@@ -441,7 +441,7 @@ function Queries.has_vault_clearance(self, cframe, size, obstacle)
 	local params = self._vaultOverlapParams or OverlapParams.new()
 	self._vaultOverlapParams = params
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { self.Character }
+	params.FilterDescendantsInstances = { self.Character, obstacle }
 	params.RespectCanCollide = true
 
 	local root = self.Root
