@@ -92,6 +92,6 @@ The suite includes:
 
 The suite currently defines **47 TestEZ cases** across these specs. This is a starting regression net, not exhaustive gameplay coverage; in particular, it does not simulate real parkour raycasts against the map, animation playback, or multiplayer combat timing.
 
-The user confirmed **45 passed, 0 failed, 0 skipped** for the state-owner revision. Opt-in query instrumentation and two metrics tests were added afterward; the current 47-case revision has only received static source checks and needs a Studio rerun. Query profiling instructions are in the section above.
+The user confirmed **47 passed, 0 failed, 0 skipped** in Studio for the profiling revision, before the mantle bounds-filter optimization. The optimization applies the existing conservative guide-bounds check before upper-mantle surface sampling. Re-sync the updated source, rerun the suite, and verify mantle/lower-ledge traversal in Studio; collect fresh `[ParkourMetrics]` lines at the same location to compare query counts. Query profiling instructions are in the section above.
 
 The behavior tests use isolated fixtures and avoid invoking live remotes or depending on map geometry. They are useful regression checks, but they do not replace Studio playtesting of real movement physics, parkour detection against authored map parts, animation asset availability, or multiplayer combat.
