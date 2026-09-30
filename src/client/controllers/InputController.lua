@@ -88,6 +88,15 @@ function InputController:_began(action, source, source_id)
 	source = source or DEFAULT_INPUT_SOURCE
 	source_id = source_id or source
 
+	if action == "Sprint" and source == "PC" then
+		print(string.format(
+			"[ShiftTrace][InputController] begin received sourceId=%s activeFamily=%s downBefore=%s",
+			tostring(source_id),
+			tostring(self.ActiveInputSource),
+			tostring(self.Down[action])
+		))
+	end
+
 	local sources = self.SourcesDown[action]
 	if not sources then
 		sources = {}
@@ -112,17 +121,46 @@ function InputController:_ended(action, source, source_id)
 	source_id = source_id or source
 
 	local sources = self.SourcesDown[action]
+	if action == "Sprint" and source == "PC" then
+		local held = {}
+		for held_id, held_source in pairs(sources or {}) do
+			table.insert(held, tostring(held_id) .. ":" .. tostring(held_source))
+		end
+		table.sort(held)
+		print(string.format(
+			"[ShiftTrace][InputController] end received sourceId=%s matched=%s downBefore=%s heldBefore={%s}",
+			tostring(source_id),
+			tostring(sources ~= nil and sources[source_id] == source),
+			tostring(self.Down[action]),
+			table.concat(held, ",")
+		))
+	end
+
 	if not sources or sources[source_id] ~= source then
+		if action == "Sprint" and source == "PC" then
+			print("[ShiftTrace][InputController] end ignored: source identity did not match")
+		end
 		return
 	end
 
 	sources[source_id] = nil
 	if next(sources) ~= nil then
+		if action == "Sprint" and source == "PC" then
+			local held = {}
+			for held_id, held_source in pairs(sources) do
+				table.insert(held, tostring(held_id) .. ":" .. tostring(held_source))
+			end
+			table.sort(held)
+			print(string.format("[ShiftTrace][InputController] source removed; Sprint remains down; heldAfter={%s}", table.concat(held, ",")))
+		end
 		return
 	end
 
 	self.SourcesDown[action] = nil
 	self.Down[action] = nil
+	if action == "Sprint" and source == "PC" then
+		print("[ShiftTrace][InputController] last Sprint source removed; firing ActionEnded")
+	end
 	self.ActionEnded:Fire(action)
 end
 
