@@ -8,6 +8,7 @@ local REPORT_FIELDS = {
 	"GuidesVisited",
 	"GuidesInSearchBounds",
 	"GuidesOutsideSearchBounds",
+	"ModelBoundsQueries",
 	"GuideColumns",
 	"GuideTopQueries",
 	"GuideTopRaycasts",
