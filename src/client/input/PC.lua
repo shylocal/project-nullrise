@@ -39,19 +39,11 @@ function PCInput.new(on_began, on_ended)
 	return self
 end
 
--- Track Shift press edges ourselves because IsKeyDown may disagree with
--- InputEnded timing. An unmatched release clears the sole tracked Shift key.
+-- Release only the Shift key whose matching press edge was observed. An
+-- unmatched alias release must not clear a different key that is still held.
 function PCInput:_release_sprint_key(released_key, on_ended)
 	local held = self.SprintKeysDown
 	local key_to_release = held[released_key] and released_key or nil
-	if not key_to_release then
-		local only_key
-		for key_code in pairs(held) do
-			if only_key then only_key = nil; break end
-			only_key = key_code
-		end
-		key_to_release = only_key
-	end
 	warn(("[InputDebug][PC] tracked release key=%s matched=%s"):format(tostring(released_key), tostring(key_to_release)))
 	if key_to_release then
 		held[key_to_release] = nil
