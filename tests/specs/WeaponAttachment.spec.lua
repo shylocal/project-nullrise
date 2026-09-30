@@ -21,8 +21,8 @@ return function()
 		end)
 
 		afterEach(function()
-			for _, instance in ipairs(created) do
-				instance:Destroy()
+			for index = #created, 1, -1 do
+				created[index]:Destroy()
 			end
 		end)
 
