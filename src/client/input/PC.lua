@@ -25,7 +25,7 @@ local Bindings = {
 }
 
 function PCInput.new(on_began, on_ended)
-	local self = setmetatable({ Trove = Trove.new(), SprintKeysDown = {} }, PCInput)
+	local self = setmetatable({ Trove = Trove.new(), SprintKeysDown = {}, SprintToggleOn = false }, PCInput)
 	local ok, err = pcall(self._start, self, on_began, on_ended)
 	if not ok then
 		self:Destroy()
@@ -36,6 +36,21 @@ end
 
 -- ContextActionService owns both Shift aliases as one sprint action. Keep
 -- concrete key sources so releasing one alias cannot end the other.
+function PCInput:_set_sprint_toggle(enabled)
+	if self.SprintToggleOn == enabled then
+		return
+	end
+	self.SprintToggleOn = enabled
+	if enabled then
+		self.OnBegan(Actions.Sprint, "PC", "SprintToggle")
+	else
+		self.OnEnded(Actions.Sprint, "PC", "SprintToggle")
+	end
+end
+
+-- Sprint is a toggle rather than a held-key action. Roblox may omit a Shift
+-- Begin while still delivering End; an unmatched End therefore acts as a
+-- recovery toggle edge instead of leaving the input adapter latched.
 function PCInput:_on_sprint_input(action_name, input_state, input)
 	local key_code = input.KeyCode
 	warn(("[InputDebug][PC] CAS callback action=%s state=%s key=%s inputType=%s"):format(
@@ -50,22 +65,13 @@ function PCInput:_on_sprint_input(action_name, input_state, input)
 
 	if input_state == Enum.UserInputState.Begin then
 		self.SprintKeysDown[key_code] = true
-		warn(("[InputDebug][PC] CAS sprint begin key=%s"):format(tostring(key_code)))
-		self.OnBegan(Actions.Sprint, "PC", key_code)
+		self:_set_sprint_toggle(not self.SprintToggleOn)
 	elseif input_state == Enum.UserInputState.End or input_state == Enum.UserInputState.Cancel then
 		if self.SprintKeysDown[key_code] then
 			self.SprintKeysDown[key_code] = nil
-			warn(("[InputDebug][PC] CAS sprint end key=%s state=%s"):format(tostring(key_code), tostring(input_state)))
-			self.OnEnded(Actions.Sprint, "PC", key_code)
 		else
-			-- Roblox can deliver an End for the other Shift alias without
-			-- ever delivering its Begin. Treat that unmatched End as a
-			-- fail-safe release so a lost key-up cannot leave sprint stuck.
-			warn(("[InputDebug][PC] CAS unmatched sprint end; clearing tracked Shift keys key=%s state=%s"):format(tostring(key_code), tostring(input_state)))
-			for tracked_key in pairs(self.SprintKeysDown) do
-				self.SprintKeysDown[tracked_key] = nil
-				self.OnEnded(Actions.Sprint, "PC", tracked_key)
-			end
+			warn(("[InputDebug][PC] unmatched Shift end used as toggle recovery key=%s"):format(tostring(key_code)))
+			self:_set_sprint_toggle(not self.SprintToggleOn)
 		end
 	end
 
@@ -121,6 +127,7 @@ function PCInput:Destroy()
 	self.OnBegan = nil
 	self.OnEnded = nil
 	table.clear(self.SprintKeysDown)
+	self.SprintToggleOn = false
 	self.Trove:Destroy()
 end
 
