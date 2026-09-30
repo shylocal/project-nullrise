@@ -8,8 +8,15 @@ local CombatRemote = ReplicatedStorage.remotes.Combat
 
 local AttackLifecycle = {}
 
+function AttackLifecycle.is_current_attack(self, attack_trove, lifecycle_id)
+	return self.AttackTrove == attack_trove and self.AttackLifecycleId == lifecycle_id
+end
+
 function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_action)
 	AttackLifecycle.clear_attack_lifecycle(self)
+
+	self.AttackLifecycleId = (self.AttackLifecycleId or 0) + 1
+	local lifecycle_id = self.AttackLifecycleId
 
 	self.Charging = attack_key == "Charge"
 	self.ChargeReady = false
@@ -28,6 +35,10 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 	attack_trove:Connect(
 		track:GetMarkerReachedSignal("HitStart"),
 		function()
+			if not AttackLifecycle.is_current_attack(self, attack_trove, lifecycle_id) then
+				return
+			end
+
 			if attack_key == "Charge" and self.PrimaryHeld then
 				self.ChargeReady = true
 				self.AnimationController.Combat:Pause(track)
@@ -35,13 +46,17 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 			end
 
 			CombatRemote:FireServer(Protocol.Combat.HitStart, attack_key)
-			AttackLifecycle.start_hitbox(self, attack_key, attack)
+			AttackLifecycle.start_hitbox(self, attack_key, attack, attack_trove, lifecycle_id)
 		end
 	)
 
 	attack_trove:Connect(
 		track:GetMarkerReachedSignal("HitStop"),
 		function()
+			if not AttackLifecycle.is_current_attack(self, attack_trove, lifecycle_id) then
+				return
+			end
+
 			AttackLifecycle.stop_hitbox(self)
 			CombatRemote:FireServer(Protocol.Combat.HitStop, attack_key)
 		end
@@ -63,6 +78,10 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 	end)
 
 	task.delay(cooldown, function()
+		if self.AttackLifecycleId ~= lifecycle_id then
+			return
+		end
+
 		if self.BufferedAttack and self.PrimaryHeld then
 			self:_resolve_buffered_attack()
 		end
@@ -97,7 +116,7 @@ function AttackLifecycle.can_sprint_while_attacking(self, attack)
 
 	return weapon and weapon.CanSprintWhileAttacking == true
 end
-function AttackLifecycle.start_hitbox(self, attack_key, attack)
+function AttackLifecycle.start_hitbox(self, attack_key, attack, expected_trove, expected_lifecycle_id)
 	if self.Hitbox then
 		return
 	end
@@ -108,7 +127,11 @@ function AttackLifecycle.start_hitbox(self, attack_key, attack)
 	end
 
 	local attack_trove = self.AttackTrove
-	if not attack_trove then
+	local lifecycle_id = expected_lifecycle_id or self.AttackLifecycleId
+	if not attack_trove
+		or (expected_trove and attack_trove ~= expected_trove)
+		or lifecycle_id == nil
+		or not AttackLifecycle.is_current_attack(self, attack_trove, lifecycle_id) then
 		return
 	end
 
@@ -116,6 +139,10 @@ function AttackLifecycle.start_hitbox(self, attack_key, attack)
 		self.WeaponController.Character,
 		wielded,
 		function(hit_character, raycast_result, segment_instance)
+			if not AttackLifecycle.is_current_attack(self, attack_trove, lifecycle_id) then
+				return
+			end
+
 			self.Hit:Fire(hit_character, raycast_result)
 
 			CombatRemote:FireServer(
