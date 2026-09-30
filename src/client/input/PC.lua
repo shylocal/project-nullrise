@@ -23,6 +23,15 @@ function PCInput._any_shift_down(is_key_down)
 	return is_key_down(Enum.KeyCode.LeftShift) or is_key_down(Enum.KeyCode.RightShift)
 end
 
+function PCInput._any_shift_pressed(get_keys_pressed)
+	for _, input in ipairs(get_keys_pressed()) do
+		if is_sprint_key(input.KeyCode) then
+			return true
+		end
+	end
+	return false
+end
+
 local function get_shift_trace(held_keys)
 	local pressed_keys = {}
 	for _, input in ipairs(UserInputService:GetKeysPressed()) do
@@ -75,7 +84,7 @@ function PCInput._begin_sprint_key(held_keys, key_code, on_began)
 	return true, not was_active, true
 end
 
-function PCInput._end_sprint_key(held_keys, key_code, on_ended, source_active)
+function PCInput._end_sprint_key(held_keys, key_code, on_ended, source_active, any_shift_pressed)
 	if not is_sprint_key(key_code) then
 		return false, false, source_active or next(held_keys) ~= nil, nil, false
 	end
@@ -84,9 +93,12 @@ function PCInput._end_sprint_key(held_keys, key_code, on_ended, source_active)
 	local matched = held_keys[key_code] == true
 	local removed_key = matched and key_code or nil
 
-	-- In the simultaneous-Shift failure, Roblox emits one effective end edge
-	-- but reports the opposite KeyCode and leaves IsKeyDown/GetKeysPressed stale.
-	-- Those per-key state queries therefore cannot safely gate this release.
+	-- InputEnded can identify the opposite Shift key. Preserve the aggregate
+	-- Sprint source whenever GetKeysPressed still reports either Shift held.
+	if any_shift_pressed then
+		return true, matched, was_active, nil, false
+	end
+
 	table.clear(held_keys)
 	local ended = was_active
 	if ended then
@@ -129,11 +141,15 @@ function PCInput:_stop_sprint_monitor(reason)
 end
 
 function PCInput:_reconcile_sprint(on_ended, reason, event_key)
+	local any_shift_pressed = PCInput._any_shift_pressed(function()
+		return UserInputService:GetKeysPressed()
+	end)
 	local handled, matched, remains_active, removed_key, ended = PCInput._end_sprint_key(
 		self.HeldSprintKeys,
 		event_key or Enum.KeyCode.LeftShift,
 		on_ended,
-		self.SprintSourceActive
+		self.SprintSourceActive,
+		any_shift_pressed
 	)
 
 	self.SprintSourceActive = remains_active
@@ -142,13 +158,14 @@ function PCInput:_reconcile_sprint(on_ended, reason, event_key)
 	end
 
 	print(string.format(
-		"[ShiftTrace][PC][%s] reconcile reason=%s handled=%s matched=%s eventKey=%s removedKey=%s remainsActive=%s ended=%s after{%s}",
+		"[ShiftTrace][PC][%s] reconcile reason=%s handled=%s matched=%s eventKey=%s removedKey=%s anyShiftPressed=%s remainsActive=%s ended=%s after{%s}",
 		SHIFT_TRACE_VERSION,
 		tostring(reason),
 		tostring(handled),
 		tostring(matched),
 		tostring(event_key),
 		tostring(removed_key),
+		tostring(any_shift_pressed),
 		tostring(remains_active),
 		tostring(ended),
 		get_shift_trace(self.HeldSprintKeys)
@@ -184,8 +201,8 @@ function PCInput:_start_sprint_monitor(on_ended)
 			))
 		end
 
-		if not PCInput._any_shift_down(function(key_code)
-			return UserInputService:IsKeyDown(key_code)
+		if not PCInput._any_shift_pressed(function()
+			return UserInputService:GetKeysPressed()
 		end) then
 			self:_reconcile_sprint(on_ended, "HeartbeatBothShiftUp")
 		end
