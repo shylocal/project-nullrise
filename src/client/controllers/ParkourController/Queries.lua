@@ -89,6 +89,7 @@ function Queries.cast_climbable_side(self, origin, direction)
 	local exclusions = { self.Character }
 	for _ = 1, Config.MaxTopSurfaceHits do
 		params.FilterDescendantsInstances = exclusions
+		Metrics.record(self, "Raycasts")
 		local hit = Workspace:Raycast(origin, direction, params)
 		if not hit then
 			return nil
