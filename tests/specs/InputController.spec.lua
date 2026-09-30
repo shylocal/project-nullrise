@@ -149,10 +149,9 @@ return function()
 		expect(began).to.equal(true)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
 
-		handled, began = PCInput._begin_sprint_key(held_keys, Enum.KeyCode.RightShift, on_began)
-		expect(handled).to.equal(true)
-		expect(began).to.equal(false)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+		-- RightShift's begin is suppressed by the engine, so there is no
+		-- helper call and no second tracked key.
+		expect(held_keys[Enum.KeyCode.RightShift]).to.equal(nil)
 
 		-- The first physical release is suppressed: no helper call occurs.
 		expect(held_keys[Enum.KeyCode.LeftShift]).to.equal(true)
