@@ -309,6 +309,7 @@ function LedgeTraversal.get_guide_top(self, guide, sample_position)
 		box_size = guide.Size
 		hit_instance = guide
 	elseif guide:IsA("Model") then
+		Metrics.record(self, "ModelBoundsQueries")
 		box_cframe, box_size = guide:GetBoundingBox()
 		hit_instance = guide.PrimaryPart or guide:FindFirstChildWhichIsA("BasePart", true)
 	else
@@ -555,6 +556,7 @@ function LedgeTraversal.is_guide_within_mantle_search(self, guide, current_top, 
 		bounds_cframe = guide.CFrame
 		bounds_size = guide.Size
 	elseif guide:IsA("Model") then
+		Metrics.record(self, "ModelBoundsQueries")
 		bounds_cframe, bounds_size = guide:GetBoundingBox()
 	else
 		return false
