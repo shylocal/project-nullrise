@@ -1,6 +1,6 @@
 # Running Tests
 
-The project uses TestEZ for small, deterministic Luau tests. Tests are mapped into Roblox `TestService` and are not run automatically during game startup.
+The project uses TestEZ for small, deterministic Luau tests. Rojo maps the contents of the `tests/` directory directly into Roblox `TestService` (so there is no `TestService.tests` parent folder). Tests are not run automatically during game startup.
 
 ## Install TestEZ once
 
@@ -21,14 +21,14 @@ TestEZ's upstream repository is archived, so keep the dependency pinned to the s
 5. Run:
 
 ```lua
-require(game:GetService("TestService").tests.RunTests).Run()
+require(game:GetService("TestService").RunTests).Run()
 ```
 
 TestEZ's text reporter writes the test results to the Output window. The runner returns TestEZ's results object. It also checks `RunService:IsStudio()`, so it cannot be invoked in a published server.
 
 ## Add a test
 
-Create a ModuleScript file ending in `.spec.lua` under `tests/specs`. Rojo maps the `tests` folder into `TestService`, and TestEZ recursively discovers spec ModuleScripts under `TestService.tests.specs`.
+Create a ModuleScript file ending in `.spec.lua` under `tests/specs`. Rojo maps the contents of `tests/` into `TestService`, placing the specs folder at `TestService.specs`. TestEZ recursively discovers spec ModuleScripts under that folder.
 
 A spec module returns a function and uses TestEZ's `describe`, `it`, and `expect` functions:
 
