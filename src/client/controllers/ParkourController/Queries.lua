@@ -87,6 +87,37 @@ function Queries.cast_grabbable_side(self, origin, direction)
 	return nil
 end
 
+-- Preserve the stable tagged-guide probe for traversal and corner following.
+-- Unlike the generic grab probe, it never adopts an untagged solid wall.
+function Queries.cast_climbable_side(self, origin, direction)
+	local params = self._climbableSideCastParams or RaycastParams.new()
+	self._climbableSideCastParams = params
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { self.Character }
+	params.IgnoreWater = true
+	params.RespectCanCollide = false
+
+	local exclusions = { self.Character }
+	for _ = 1, Config.MaxTopSurfaceHits do
+		params.FilterDescendantsInstances = exclusions
+		local hit = Workspace:Raycast(origin, direction, params)
+		if not hit then
+			return nil
+		end
+		if ClimbableQuery.is_climbable(hit.Instance) then
+			return hit
+		end
+
+		-- Skip decorative non-collidable geometry, but do not ray through
+		-- solid non-climbable obstructions.
+		if not hit.Instance:IsA("BasePart") or hit.Instance.CanCollide then
+			return nil
+		end
+		table.insert(exclusions, hit.Instance)
+	end
+	return nil
+end
+
 local function is_tall_wall_candidate(instance, normal)
 	if not instance:IsA("BasePart")
 		or not instance.CanCollide
