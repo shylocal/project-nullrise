@@ -101,7 +101,9 @@ function InputController:_began(action, source, source_id)
 
 	sources[source_id] = source
 	if self.Down[action] then
-		warn(("[InputDebug][Controller] action remains down action=%s activeSources=%d"):format(tostring(action), #table.clone({})))
+		local active_count = 0
+		for _ in pairs(sources) do active_count += 1 end
+		warn(("[InputDebug][Controller] action remains down action=%s activeSources=%d"):format(tostring(action), active_count))
 		return
 	end
 
