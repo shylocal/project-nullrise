@@ -141,7 +141,13 @@ return function()
 			controller:_ended(action, source, source_id)
 		end
 		local function reconcile(pressed)
-			return PCInput._reconcile_sprint_keys(held_keys, pressed, on_began, on_ended)
+			local was_active, remains_active = PCInput._reconcile_sprint_keys(held_keys, pressed)
+			if not was_active and remains_active then
+				on_began(Actions.Sprint, "PC", "KeyboardSprint")
+			elseif was_active and not remains_active then
+				on_ended(Actions.Sprint, "PC", "KeyboardSprint")
+			end
+			return remains_active
 		end
 
 		-- LeftShift begins. Roblox then reports an InputEnded for RightShift
