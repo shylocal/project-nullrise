@@ -23,16 +23,19 @@ return function()
 		Metrics.record(controller, "Raycasts")
 		Metrics.record(controller, "Raycasts", 4)
 		Metrics.record(controller, "GuideColumns", 42)
+		Metrics.record(controller, "ModelBoundsQueries", 3)
 
 		local snapshot = Metrics.snapshot(controller)
 		expect(snapshot.Raycasts).to.equal(5)
 		expect(snapshot.GuideColumns).to.equal(42)
+		expect(snapshot.ModelBoundsQueries).to.equal(3)
 		snapshot.Raycasts = 100
 		expect(Metrics.snapshot(controller).Raycasts).to.equal(5)
 
 		Metrics.reset(controller)
 		expect(Metrics.snapshot(controller).Raycasts).to.equal(nil)
 		expect(Metrics.snapshot(controller).GuideColumns).to.equal(nil)
+		expect(Metrics.snapshot(controller).ModelBoundsQueries).to.equal(nil)
 	end)
 	end)
 end
