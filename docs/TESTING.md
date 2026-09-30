@@ -44,9 +44,21 @@ end
 
 Keep unit tests deterministic and self-contained. Prefer testing pure functions and validation rules first. Tests that create Instances, connect signals, or mutate services should clean up what they create and avoid firing live remotes or depending on the current map.
 
-## Current starter coverage
+## Current coverage
 
-- `Vector.spec.lua`: verifies that `Vector.flatten` removes Y while preserving X/Z.
-- `WeaponCatalog.spec.lua`: verifies built-in melee definitions, unknown/invalid lookups, and melee classification.
+The suite includes:
 
-These starter tests are source setup only until TestEZ is installed in Studio and the runner is executed. Roblox Studio execution is not performed by the repository edit itself.
+- `Vector.spec.lua`: verifies horizontal vector flattening.
+- `ParkourMath.spec.lua`: checks smoothstep clamping/monotonicity, vault arc endpoints/peak/range, and crouch-weight bounds/fades.
+- `ParkourConfig.spec.lua`: checks parkour distance, height, timing, and arc invariants without pinning every tuning value.
+- `InputController.spec.lua`: exercises action begin/end de-duplication and held-action release behavior using isolated signals.
+- `MovementController.spec.lua`: creates a temporary Model/Humanoid to verify sprint transitions, independent blockers, speed overrides, validation, and change events.
+- `WeaponCatalog.spec.lua` and `WeaponDefinitions.spec.lua`: validate catalog lookups and the built-in weapon/attack/animation data shapes.
+- `Protocol.spec.lua`: checks shared action and remote identifiers for valid, unique strings.
+- `CombatValidation.spec.lua`: checks rejection of malformed target, segment, and non-finite position inputs.
+- `InventoryValidation.spec.lua`: checks rejection of invalid slot values and unknown weapon IDs.
+- `RuntimeContracts.spec.lua`: smoke-checks configured remotes, required packages, weapon models, and server-module exports in the Studio place.
+
+The behavior tests use isolated fixtures and avoid invoking live remotes or depending on map geometry. They are useful regression checks, but they do not replace Studio playtesting of real movement physics, parkour detection against authored map parts, animation asset availability, or multiplayer combat.
+
+The repository changes were statically inspected only. Run the suite in Studio and review the Output before treating these new specs as passing in your environment.
