@@ -19,8 +19,8 @@ local function is_sprint_key(key_code)
 	return key_code == Enum.KeyCode.LeftShift or key_code == Enum.KeyCode.RightShift
 end
 
--- GetKeysPressed provides a fresh list of InputObjects that Roblox currently
--- considers pressed. Keep IsKeyDown in diagnostics to compare both views.
+-- Reconcile from both Roblox key-state APIs. The union avoids treating a
+-- mismatched Shift InputEnded KeyCode as proof that neither modifier is held.
 local function get_pressed_shift_keys()
 	local pressed = {}
 	for _, input in ipairs(UserInputService:GetKeysPressed()) do
