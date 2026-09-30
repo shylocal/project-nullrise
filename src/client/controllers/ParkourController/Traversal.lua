@@ -59,6 +59,13 @@ function Traversal.traverse(self, dt)
 		return
 	end
 
+	-- Generic tall-wall catches are a one-way mantle interaction, not a
+	-- tagged ledge route. W invokes the tall-wall mantle; A/D stays disabled.
+	if not ClimbableQuery.is_climbable(climbable) then
+		self:_position_hanging()
+		return
+	end
+
 	local active_top_y = self.HangPosition.Y + Config.HangDrop
 
 	local direction = 0
