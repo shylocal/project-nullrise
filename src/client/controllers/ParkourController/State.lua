@@ -96,9 +96,19 @@ function State.restore_humanoid(controller, key, properties)
 		return false
 	end
 
+	local fields = properties
+	if fields == nil then
+		fields = {}
+		for property in pairs(snapshot) do
+			if property ~= "Humanoid" then
+				table.insert(fields, property)
+			end
+		end
+	end
+
 	local humanoid = snapshot.Humanoid
 	if humanoid and humanoid.Parent then
-		for _, property in ipairs(properties or {}) do
+		for _, property in ipairs(fields) do
 			local value = snapshot[property]
 			if value ~= nil then
 				write_humanoid_value(humanoid, property, value)
