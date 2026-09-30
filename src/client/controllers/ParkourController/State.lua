@@ -107,14 +107,12 @@ function State.restore_humanoid(controller, key, properties)
 	end
 
 	local humanoid = snapshot.Humanoid
-	if humanoid and humanoid.Parent then
-		for _, property in ipairs(fields) do
-			local value = snapshot[property]
-			if value ~= nil then
-				write_humanoid_value(humanoid, property, value)
-			end
-			snapshot[property] = nil
+	for _, property in ipairs(fields) do
+		local value = snapshot[property]
+		if humanoid and humanoid.Parent and value ~= nil then
+			write_humanoid_value(humanoid, property, value)
 		end
+		snapshot[property] = nil
 	end
 
 	if properties == nil then
