@@ -9,7 +9,7 @@ local PCInput = {}
 PCInput.__index = PCInput
 
 local SPRINT_SOURCE_ID = "KeyboardSprint"
-local SHIFT_TRACE_VERSION = "diag-v5"
+local SHIFT_TRACE_VERSION = "diag-v6"
 local SPRINT_KEYS = {
 	Enum.KeyCode.LeftShift,
 	Enum.KeyCode.RightShift,
@@ -166,8 +166,8 @@ function PCInput:_start_sprint_monitor(on_ended)
 		local pressed_keys = get_pressed_shift_keys()
 		local has_shift = next(pressed_keys) ~= nil
 		if has_shift then
+			local release_pending = self.SprintReleasePending
 			self.SprintEmptySamples = 0
-			self.SprintReleasePending = false
 			local was_active, remains_active = PCInput._reconcile_sprint_keys(
 				self.HeldSprintKeys,
 				pressed_keys
@@ -176,9 +176,14 @@ function PCInput:_start_sprint_monitor(on_ended)
 			if not was_active and remains_active then
 				PCInput._begin_sprint(on_began)
 			end
-			if self.SprintReleasePending then
-				print("[ShiftTrace][PC] pressed snapshot retained Sprint after release")
+			if release_pending then
+				print(string.format(
+					"[ShiftTrace][PC][%s] pressed snapshot retained Sprint after release %s",
+					SHIFT_TRACE_VERSION,
+					get_shift_trace(self.HeldSprintKeys)
+				))
 			end
+			self.SprintReleasePending = false
 		else
 			self.SprintEmptySamples += 1
 			if self.SprintReleasePending or self.SprintEmptySamples >= 2 then
