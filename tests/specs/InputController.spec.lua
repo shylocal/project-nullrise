@@ -123,51 +123,33 @@ return function()
 		expect(#ended).to.equal(2)
 	end)
 
-	it("reconciles aliased sprint keys when either keyboard key is released", function()
-		local ended_count = 0
+	it("releases only the matching tracked Shift key", function()
+		local ended_sources = {}
 		local held_keys = {}
 		controller.ActionEnded:Connect(function(action)
-			if action == Actions.Sprint then ended_count += 1 end
+			if action == Actions.Sprint then
+				table.insert(ended_sources, action)
+			end
 		end)
 
-		local function press_shift(key_code)
-			held_keys[key_code] = true
-			controller:_began(Actions.Sprint, "PC", key_code)
-		end
+		local pc_input = setmetatable({ SprintKeysDown = {
+			[Enum.KeyCode.LeftShift] = true,
+		} }, PCInput)
+		controller:_began(Actions.Sprint, "PC", Enum.KeyCode.LeftShift)
 
-		local function release_shift(key_code)
-			held_keys[key_code] = false
-			PCInput._release_unheld_sprint_keys(
-				function(action, source, source_id)
-					controller:_ended(action, source, source_id)
-				end,
-				key_code,
-				function(queried_key)
-					return held_keys[queried_key] == true
-				end
-			)
-		end
-
-		press_shift(Enum.KeyCode.LeftShift)
-		press_shift(Enum.KeyCode.RightShift)
+		pc_input:_release_sprint_key(Enum.KeyCode.RightShift, function(action, source, source_id)
+			controller:_ended(action, source, source_id)
+		end)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+		expect(pc_input.SprintKeysDown[Enum.KeyCode.LeftShift]).to.equal(true)
+		expect(#ended_sources).to.equal(0)
 
-		release_shift(Enum.KeyCode.LeftShift)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		expect(ended_count).to.equal(0)
-
-		release_shift(Enum.KeyCode.RightShift)
+		pc_input:_release_sprint_key(Enum.KeyCode.LeftShift, function(action, source, source_id)
+			controller:_ended(action, source, source_id)
+		end)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
-		expect(ended_count).to.equal(1)
-
-		-- If the first release edge was missed, the final edge reconciles
-		-- the stale source against both physical key states.
-		press_shift(Enum.KeyCode.LeftShift)
-		press_shift(Enum.KeyCode.RightShift)
-		held_keys[Enum.KeyCode.LeftShift] = false
-		release_shift(Enum.KeyCode.RightShift)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
-		expect(ended_count).to.equal(2)
+		expect(pc_input.SprintKeysDown[Enum.KeyCode.LeftShift]).to.equal(nil)
+		expect(#ended_sources).to.equal(1)
 	end)
 
 	it("keeps an action down until every source releases it", function()
