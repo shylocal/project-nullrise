@@ -75,44 +75,25 @@ function PCInput._begin_sprint_key(held_keys, key_code, on_began)
 	return true, not was_active, true
 end
 
-function PCInput._end_sprint_key(held_keys, key_code, on_ended, is_key_down, source_active)
+function PCInput._end_sprint_key(held_keys, key_code, on_ended, source_active)
 	if not is_sprint_key(key_code) then
 		return false, false, source_active or next(held_keys) ~= nil, nil, false
 	end
 
 	local was_active = source_active or next(held_keys) ~= nil
 	local matched = held_keys[key_code] == true
-	local removed_key = nil
-	local physical_left_down = is_key_down(Enum.KeyCode.LeftShift)
-	local physical_right_down = is_key_down(Enum.KeyCode.RightShift)
+	local removed_key = matched and key_code or nil
 
-	-- InputEnded may identify the opposite Shift key. Use current physical
-	-- state to reconcile tracked keys, and never release Sprint while either
-	-- Shift is still down.
-	local remains_active = was_active and (physical_left_down or physical_right_down)
-	for _, sprint_key in ipairs(SPRINT_KEYS) do
-		local physical_down
-		if sprint_key == Enum.KeyCode.LeftShift then
-			physical_down = physical_left_down
-		else
-			physical_down = physical_right_down
-		end
-
-		if remains_active and physical_down then
-			held_keys[sprint_key] = true
-		elseif held_keys[sprint_key] then
-			held_keys[sprint_key] = nil
-			removed_key = sprint_key
-		end
-	end
-
-	local ended = was_active and not remains_active
+	-- In the simultaneous-Shift failure, Roblox emits one effective end edge
+	-- but reports the opposite KeyCode and leaves IsKeyDown/GetKeysPressed stale.
+	-- Those per-key state queries therefore cannot safely gate this release.
+	table.clear(held_keys)
+	local ended = was_active
 	if ended then
-		table.clear(held_keys)
 		on_ended(Actions.Sprint, "PC", SPRINT_SOURCE_ID)
 	end
 
-	return true, matched, remains_active, removed_key, ended
+	return true, matched, false, removed_key, ended
 end
 
 function PCInput.new(on_began, on_ended)
@@ -152,9 +133,6 @@ function PCInput:_reconcile_sprint(on_ended, reason, event_key)
 		self.HeldSprintKeys,
 		event_key or Enum.KeyCode.LeftShift,
 		on_ended,
-		function(key_code)
-			return UserInputService:IsKeyDown(key_code)
-		end,
 		self.SprintSourceActive
 	)
 
