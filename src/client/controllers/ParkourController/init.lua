@@ -298,12 +298,18 @@ function ParkourController:_step(dt)
 		local horizontal = self._vaultStart.Position:Lerp(self._vaultTarget.Position, linear)
 		local arc = VaultMath.arc_weight(linear, self._vaultArcPeakProgress) * self._vaultArcHeight
 		local position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
-		local physical_exit_progress = math.clamp(Config.VaultPhysicalExitProgress or 0.88, 0.7, 0.98)
+		local physical_exit_progress = math.clamp(Config.VaultPhysicalExitProgress or 0.35, 0.05, 0.95)
 		if linear < physical_exit_progress then
 			root.CFrame = CFrame.new(position + Vector3.new(0, arc, 0)) * base.Rotation
 			root.AssemblyLinearVelocity = Vector3.zero
 			root.AssemblyAngularVelocity = Vector3.zero
 		else
+			-- Re-enable normal Humanoid control for the physical exit phase. The
+			-- Vault snapshot retains the original value for cleanup/finish.
+			local vault_humanoid = self.Humanoid
+			if vault_humanoid and vault_humanoid.Parent then
+				vault_humanoid.PlatformStand = false
+			end
 			-- Hand the final approach back to Roblox physics before reaching the
 			-- authored endpoint. This preserves the forward impulse through the
 			-- landing instead of pinning the root to the last curve samples.
