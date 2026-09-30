@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
 
 local Trove = require(ReplicatedStorage.packages.Trove)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
@@ -7,38 +8,13 @@ local Actions = require(ReplicatedStorage.shared.input.Actions)
 local PCInput = {}
 PCInput.__index = PCInput
 
-local SPRINT_KEYS = {
-	Enum.KeyCode.LeftShift,
-	Enum.KeyCode.RightShift,
-}
-
 local function is_sprint_key(key_code)
 	return key_code == Enum.KeyCode.LeftShift or key_code == Enum.KeyCode.RightShift
 end
 
-local function get_pressed_sprint_keys()
-	local pressed = {}
-	for _, input in ipairs(UserInputService:GetKeysPressed()) do
-		if is_sprint_key(input.KeyCode) then
-			table.insert(pressed, tostring(input.KeyCode))
-		end
-	end
-	table.sort(pressed)
-	return #pressed > 0 and table.concat(pressed, ",") or "none"
-end
-
-local function log_pressed_sprint_keys(event_name, event_key)
-	warn(("[InputDebug][PC] %s key=%s GetKeysPressed={%s}"):format(
-		event_name,
-		tostring(event_key),
-		get_pressed_sprint_keys()
-	))
-end
 
 local Bindings = {
 	[Enum.UserInputType.MouseButton1] = Actions.Primary,
-	[Enum.KeyCode.LeftShift] = Actions.Sprint,
-	[Enum.KeyCode.RightShift] = Actions.Sprint,
 	[Enum.KeyCode.Space] = Actions.Jump,
 	[Enum.KeyCode.W] = Actions.Forward,
 	[Enum.KeyCode.S] = Actions.Backward,
@@ -58,23 +34,45 @@ function PCInput.new(on_began, on_ended)
 	return self
 end
 
--- Release only the Shift key whose matching press edge was observed. An
--- unmatched alias release must not clear a different key that is still held.
-function PCInput:_release_sprint_key(released_key, on_ended)
-	local held = self.SprintKeysDown
-	local key_to_release = held[released_key] and released_key or nil
-	warn(("[InputDebug][PC] tracked release key=%s matched=%s"):format(tostring(released_key), tostring(key_to_release)))
-	if key_to_release then
-		held[key_to_release] = nil
-		on_ended(Actions.Sprint, "PC", key_to_release)
+-- ContextActionService owns both Shift aliases as one sprint action. Keep
+-- concrete key sources so releasing one alias cannot end the other.
+function PCInput:_on_sprint_input(action_name, input_state, input)
+	local key_code = input.KeyCode
+	if not is_sprint_key(key_code) then
+		return Enum.ContextActionResult.Pass
 	end
+
+	if input_state == Enum.UserInputState.Begin then
+		self.SprintKeysDown[key_code] = true
+		warn(("[InputDebug][PC] CAS sprint begin key=%s"):format(tostring(key_code)))
+		self.OnBegan(Actions.Sprint, "PC", key_code)
+	elseif input_state == Enum.UserInputState.End or input_state == Enum.UserInputState.Cancel then
+		if self.SprintKeysDown[key_code] then
+			self.SprintKeysDown[key_code] = nil
+			warn(("[InputDebug][PC] CAS sprint end key=%s state=%s"):format(tostring(key_code), tostring(input_state)))
+			self.OnEnded(Actions.Sprint, "PC", key_code)
+		else
+			warn(("[InputDebug][PC] CAS unmatched sprint end key=%s state=%s"):format(tostring(key_code), tostring(input_state)))
+		end
+	end
+
+	return Enum.ContextActionResult.Pass
 end
 
 function PCInput:_start(on_began, on_ended)
 	self.Destroyed = false
+	self.OnBegan = on_began
+	self.OnEnded = on_ended
+	local sprint_action_name = "ProjectNullriseSprint"
+	ContextActionService:BindAction(sprint_action_name, function(...)
+		return self:_on_sprint_input(...)
+	end, false, Enum.KeyCode.LeftShift, Enum.KeyCode.RightShift)
+	self.Trove:Add(function()
+		ContextActionService:UnbindAction(sprint_action_name)
+	end)
 	self.Trove:Connect(UserInputService.InputBegan, function(input, game_processed)
+		if is_sprint_key(input.KeyCode) then return end
 		warn(("[InputDebug][PC] raw InputBegan key=%s type=%s processed=%s"):format(tostring(input.KeyCode), tostring(input.UserInputType), tostring(game_processed)))
-		log_pressed_sprint_keys("keys at InputBegan", input.KeyCode)
 		if game_processed then
 			warn(("[InputDebug][PC] processed begin ignored key=%s"):format(tostring(input.KeyCode)))
 			return
@@ -82,19 +80,15 @@ function PCInput:_start(on_began, on_ended)
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
 		if action then
-			if action == Actions.Sprint and is_sprint_key(input.KeyCode) then self.SprintKeysDown[input.KeyCode] = true end
 			warn(("[InputDebug][PC] InputBegan key=%s type=%s action=%s sourceId=%s processed=%s"):format(tostring(input.KeyCode), tostring(input.UserInputType), tostring(action), tostring(source_id), tostring(game_processed)))
 			on_began(action, "PC", source_id)
 		end
 	end)
 	self.Trove:Connect(UserInputService.InputEnded, function(input)
+		if is_sprint_key(input.KeyCode) then return end
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
-		log_pressed_sprint_keys("keys at InputEnded", input.KeyCode)
-		if action == Actions.Sprint or is_sprint_key(input.KeyCode) then
-			warn(("[InputDebug][PC] InputEnded key=%s type=%s action=%s sourceId=%s"):format(tostring(input.KeyCode), tostring(input.UserInputType), tostring(action), tostring(source_id)))
-			self:_release_sprint_key(input.KeyCode, on_ended)
-		elseif action then
+		if action then
 			on_ended(action, "PC", source_id)
 		end
 	end)
@@ -102,6 +96,8 @@ end
 
 function PCInput:Destroy()
 	self.Destroyed = true
+	self.OnBegan = nil
+	self.OnEnded = nil
 	table.clear(self.SprintKeysDown)
 	self.Trove:Destroy()
 end
