@@ -139,11 +139,16 @@ end
 function WeaponService:_attach_weapon(player, character, weapon, character_trove)
 	local model = WeaponModels:FindFirstChild(weapon.Model)
 	if not model then
+		warn(("[WeaponService] Missing model %q for player %s"):format(
+			tostring(weapon.Model),
+			player.Name
+		))
 		return
 	end
 
 	local clone = WeaponAttachment.Attach(model, weapon.Wield, character)
 	if not clone then
+		-- WeaponAttachment reports the model or binding failure with its source path.
 		return
 	end
 
