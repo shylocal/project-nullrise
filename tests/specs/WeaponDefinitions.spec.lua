@@ -1,0 +1,67 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
+
+local function is_finite_number(value)
+	return typeof(value) == "number" and math.isfinite(value)
+end
+
+local function expect_animation(animation)
+	expect(typeof(animation)).to.equal("table")
+	expect(typeof(animation.Id)).to.equal("string")
+	expect(string.match(animation.Id, "^rbxassetid://%d+$") ~= nil).to.equal(true)
+	expect(animation.Priority ~= nil).to.equal(true)
+	expect(typeof(animation.Looped)).to.equal("boolean")
+end
+
+local function expect_attack(attack)
+	expect(typeof(attack)).to.equal("table")
+	expect(typeof(attack.Hitbox)).to.equal("string")
+	expect(attack.Hitbox ~= "").to.equal(true)
+	expect(is_finite_number(attack.Damage) and attack.Damage > 0).to.equal(true)
+	expect(is_finite_number(attack.Cooldown) and attack.Cooldown >= 0).to.equal(true)
+	expect(is_finite_number(attack.Range) and attack.Range > 0).to.equal(true)
+	expect(is_finite_number(attack.NetworkTolerance) and attack.NetworkTolerance >= 0).to.equal(true)
+	expect_animation(attack.Animation)
+end
+
+return function()
+	describe("Built-in weapon definitions", function()
+		for _, weapon_id in ipairs({ "Fists", "Katana" }) do
+			it("keeps " .. weapon_id .. " structurally valid", function()
+				local weapon = Catalog.Get(weapon_id)
+
+				expect(typeof(weapon)).to.equal("table")
+				expect(weapon.Type).to.equal("Melee")
+				expect(typeof(weapon.Model)).to.equal("string")
+				expect(weapon.Model ~= "").to.equal(true)
+				expect(typeof(weapon.CanSprintWhileAttacking)).to.equal("boolean")
+				expect(typeof(weapon.Wield)).to.equal("table")
+				expect(next(weapon.Wield) ~= nil).to.equal(true)
+				for wield_name, body_part in pairs(weapon.Wield) do
+					expect(typeof(wield_name)).to.equal("string")
+					expect(wield_name ~= "").to.equal(true)
+					expect(typeof(body_part)).to.equal("string")
+					expect(body_part ~= "").to.equal(true)
+				end
+
+				for _, animation_name in ipairs({ "Equip", "Idle", "Sprint", "Charge" }) do
+					expect_animation(weapon.Animations[animation_name])
+				end
+
+				expect(typeof(weapon.Attacks)).to.equal("table")
+				expect_attack(weapon.Attacks[1])
+				expect_attack(weapon.Attacks[2])
+
+				expect(typeof(weapon.Charge)).to.equal("table")
+				expect(typeof(weapon.Charge.Hitbox)).to.equal("string")
+				expect(weapon.Charge.Hitbox ~= "").to.equal(true)
+				expect(is_finite_number(weapon.Charge.Damage) and weapon.Charge.Damage > 0).to.equal(true)
+				expect(is_finite_number(weapon.Charge.Cooldown) and weapon.Charge.Cooldown >= 0).to.equal(true)
+				expect(is_finite_number(weapon.Charge.Range) and weapon.Charge.Range > 0).to.equal(true)
+				expect(is_finite_number(weapon.Charge.NetworkTolerance) and weapon.Charge.NetworkTolerance >= 0).to.equal(true)
+				expect(is_finite_number(weapon.Charge.HoldTime) and weapon.Charge.HoldTime > 0).to.equal(true)
+				expect_animation(weapon.Charge.Animation)
+			end)
+		end
+	end)
+end
