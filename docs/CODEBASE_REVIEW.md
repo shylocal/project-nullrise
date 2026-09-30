@@ -18,14 +18,20 @@ Since the initial static review, the following behavior-preserving module bounda
 
 The main ParkourController module is now 466 lines (from roughly 2,200 before decomposition); CombatController/init.lua is 203 lines (from 456 before decomposition). The remaining PlayerController, CharacterController, MovementController, UIController, and AnimationController already have narrow orchestration or domain roles, so they were not split merely to reduce line count.
 
-Static consistency checks confirmed that extracted Parkour modules' controller-method calls resolve to methods retained by ParkourController, the extracted Combat modules' controller-method calls resolve, and sibling module references are present. These checks do not replace Luau analysis or gameplay tests. The additional module moves have not been run in Roblox Studio during this pass; the earlier gameplay confirmation predates these latest structural changes.
+Static consistency checks confirmed the extracted module references and controller-method calls. The user has since confirmed the recent parkour grab/traversal and vault behavior in Roblox Studio. The source review itself did not run Luau analysis or automated gameplay tests.
+
+## TestEZ setup (2026-09-30)
+
+A starter TestEZ suite is now present. The Rojo project maps the root `tests/` directory into Roblox `TestService`; the manual runner is guarded to Studio and does not execute automatically. Initial specs cover the shared Vector helper and weapon catalog. The runner expects TestEZ at `ReplicatedStorage.packages.TestEZ`, following the project's Roblox-managed package convention; installation and usage instructions are in `docs/TESTING.md`.
+
+The test harness and specs are committed, but TestEZ installation and execution in Studio remain to be completed by the developer. No test pass is claimed by this source-only setup.
 
 ## Findings
 
 ### P0 — Lifecycle and state restoration
 - Parkour traversal modes modify Humanoid state, movement locks, and root motion. Cleanup is distributed across release, vault completion, mantle completion, and Destroy; new exit paths can omit restoration.
 - Parkour stores related snapshots in separate fields for hang, mantle, and vault. This obscures ownership and restoration order.
-- InputController tracks action-down state but does not visibly reconcile it on window focus loss or device changes. A missed end event can leave actions stuck.
+- InputController now releases held actions on window focus loss. Device-change reconciliation and lifecycle behavior still merit focused verification.
 - CharacterController attaches its Trove to the character and exposes Destroy. Idempotence exists, but dependent-controller teardown ordering should be tested.
 
 ### P1 — Excessive responsibility and complexity
@@ -35,7 +41,7 @@ Static consistency checks confirmed that extracted Parkour modules' controller-m
 - InventoryService combines inventory mutation, selection, replication, and starter-slot policy. These may separate as rules expand.
 
 ### P1 — Correctness and security risks to verify
-- Inventory SetSlot and SelectSlot validate positive integer slots but do not impose an upper bound. Decide whether sparse unbounded slots are intentional; otherwise define and enforce a limit server-side.
+- Inventory SetSlot and SelectSlot validate positive integer slots but do not impose an upper bound. This is a design decision to resolve if the game uses a fixed hotbar; otherwise sparse/unbounded slots may be intentional.
 - Inventory replication sends the live Slots table. Remote serialization copies values, but explicit payload copying clarifies ownership and avoids future mutation coupling.
 - WeaponService attachment silently returns when an asset or attachment is missing. Add diagnostics or explicit failure results so content errors are visible.
 - CombatController schedules delayed work and waits for animation completion. Identity checks protect some callbacks; test stale callbacks during teardown, weapon swaps, and death.
