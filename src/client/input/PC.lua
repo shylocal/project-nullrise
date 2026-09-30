@@ -103,6 +103,27 @@ function PCInput._end_sprint_key(held_keys, key_code, on_ended, is_key_down)
 		return false, nil, next(held_keys) ~= nil
 	end
 
+	-- Modifier-key events can identify the opposite Shift key, while Roblox's
+	-- queried state may keep the released side stuck as down. If the event has
+	-- no matching tracked key and exactly one Shift source remains, treat this
+	-- unmatched end as the release of that remaining aggregate Sprint hold.
+	if held_keys[key_code] ~= true then
+		local tracked_count = 0
+		local only_tracked_key = nil
+		for _, sprint_key in ipairs(SPRINT_KEYS) do
+			if held_keys[sprint_key] then
+				tracked_count += 1
+				only_tracked_key = sprint_key
+			end
+		end
+
+		if tracked_count == 1 then
+			held_keys[only_tracked_key] = nil
+			on_ended(Actions.Sprint, "PC", SPRINT_SOURCE_ID)
+			return true, only_tracked_key, false
+		end
+	end
+
 	local remains_active = PCInput._reconcile_sprint_keys(held_keys, is_key_down, on_ended)
 	return true, key_code, remains_active
 end
