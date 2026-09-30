@@ -123,7 +123,7 @@ return function()
 		expect(#ended).to.equal(2)
 	end)
 
-	it("reconciles aliased Shift keys from observed and mismatched event edges", function()
+	it("reconciles Shift transitions from aggregate physical state", function()
 		local began_count = 0
 		local ended_count = 0
 		local held_keys = {}
@@ -134,45 +134,59 @@ return function()
 			if action == Actions.Sprint then ended_count += 1 end
 		end)
 
+		local function is_key_down(key_code)
+			return held_keys[key_code] == true
+		end
+
 		local function press_shift(key_code)
 			PCInput._begin_sprint_key(held_keys, key_code, function(action, source, source_id)
 				controller:_began(action, source, source_id)
 			end)
 		end
 
-		local function release_shift(key_code)
-			PCInput._end_sprint_key(held_keys, key_code, function(action, source, source_id)
-				controller:_ended(action, source, source_id)
-			end)
+		local function poll_shift_state()
+			PCInput._reconcile_sprint_keys(
+				held_keys,
+				is_key_down,
+				function(action, source, source_id)
+					controller:_ended(action, source, source_id)
+				end
+			)
 		end
 
-		-- Normal events for both sides retain one aggregate Sprint source
-		-- until both observed Shift keys have released.
+		-- Exact sequential handoff: Left Shift is released before Right Shift
+		-- is pressed. Each independent physical hold starts and ends Sprint.
 		press_shift(Enum.KeyCode.LeftShift)
-		press_shift(Enum.KeyCode.RightShift)
-		expect(began_count).to.equal(1)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		expect(controller.SourcesDown[Actions.Sprint].KeyboardSprint).to.equal("PC")
-
-		release_shift(Enum.KeyCode.LeftShift)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		expect(ended_count).to.equal(0)
-
-		release_shift(Enum.KeyCode.RightShift)
+		held_keys[Enum.KeyCode.LeftShift] = false
+		poll_shift_state()
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(ended_count).to.equal(1)
 
-		-- Match the Studio trace: only LeftShift began, but Roblox reported
-		-- the final release as RightShift. Consume that unmatched edge.
-		press_shift(Enum.KeyCode.LeftShift)
+		press_shift(Enum.KeyCode.RightShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		release_shift(Enum.KeyCode.RightShift)
+		-- Simulate a missing InputEnded event: the Heartbeat physical-state
+		-- reconciliation observes the key up and ends the action.
+		held_keys[Enum.KeyCode.RightShift] = false
+		poll_shift_state()
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(ended_count).to.equal(2)
 
-		-- The same reconciliation applies when the other Shift side began.
+		-- Overlapping holds remain active until the final modifier is up.
+		held_keys[Enum.KeyCode.LeftShift] = true
+		press_shift(Enum.KeyCode.LeftShift)
+		held_keys[Enum.KeyCode.RightShift] = true
 		press_shift(Enum.KeyCode.RightShift)
-		release_shift(Enum.KeyCode.LeftShift)
+		expect(began_count).to.equal(3)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+
+		held_keys[Enum.KeyCode.LeftShift] = false
+		poll_shift_state()
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+		expect(ended_count).to.equal(2)
+
+		held_keys[Enum.KeyCode.RightShift] = false
+		poll_shift_state()
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(ended_count).to.equal(3)
 	end)
