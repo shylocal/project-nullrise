@@ -123,84 +123,50 @@ return function()
 		expect(#ended).to.equal(2)
 	end)
 
-	it("keeps Sprint active when a Shift end is misidentified, then ends when all keys are up", function()
-		local began_count = 0
+	it("reconciles aliased sprint keys when either keyboard key is released", function()
 		local ended_count = 0
 		local held_keys = {}
-		controller.ActionBegan:Connect(function(action)
-			if action == Actions.Sprint then began_count += 1 end
-		end)
 		controller.ActionEnded:Connect(function(action)
 			if action == Actions.Sprint then ended_count += 1 end
 		end)
 
-		local function on_began(action, source, source_id)
-			controller:_began(action, source, source_id)
-		end
-		local function on_ended(action, source, source_id)
-			controller:_ended(action, source, source_id)
-		end
-		local function reconcile(pressed_keys)
-			local active, began, ended = PCInput._reconcile_sprint_state(
-				held_keys,
-				controller:IsDown(Actions.Sprint),
-				pressed_keys,
-				on_began,
-				on_ended
-			)
-			return active, began, ended
+		local function press_shift(key_code)
+			held_keys[key_code] = true
+			controller:_began(Actions.Sprint, "PC", key_code)
 		end
 
-		-- Match the supplied Studio trace: LeftShift is the held key, while
-		-- Roblox reports an InputEnded event whose KeyCode is RightShift.
-		local active, began, ended = reconcile({
-			[Enum.KeyCode.LeftShift] = true,
-		})
-		expect(active).to.equal(true)
-		expect(began).to.equal(true)
-		expect(ended).to.equal(false)
+		local function release_shift(key_code)
+			held_keys[key_code] = false
+			PCInput._release_unheld_sprint_keys(
+				function(action, source, source_id)
+					controller:_ended(action, source, source_id)
+				end,
+				key_code,
+				function(queried_key)
+					return held_keys[queried_key] == true
+				end
+			)
+		end
+
+		press_shift(Enum.KeyCode.LeftShift)
+		press_shift(Enum.KeyCode.RightShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
 
-		-- The mismatched event itself must not end Sprint while LeftShift
-		-- remains in GetKeysPressed.
-		active, began, ended = reconcile({
-			[Enum.KeyCode.LeftShift] = true,
-		})
-		expect(active).to.equal(true)
-		expect(began).to.equal(false)
-		expect(ended).to.equal(false)
+		release_shift(Enum.KeyCode.LeftShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
 		expect(ended_count).to.equal(0)
 
-		-- Once the final physical Shift key is released, reconciliation ends it.
-		active, began, ended = reconcile({})
-		expect(active).to.equal(false)
-		expect(began).to.equal(false)
-		expect(ended).to.equal(true)
+		release_shift(Enum.KeyCode.RightShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
-		expect(began_count).to.equal(1)
 		expect(ended_count).to.equal(1)
 
-		-- Also recover when RightShift's begin event is suppressed: the pressed
-		-- key snapshot remains authoritative until that physical key is released.
-		active, began, ended = reconcile({
-			[Enum.KeyCode.LeftShift] = true,
-			[Enum.KeyCode.RightShift] = true,
-		})
-		expect(active).to.equal(true)
-		expect(began).to.equal(true)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		active, began, ended = reconcile({
-			[Enum.KeyCode.RightShift] = true,
-		})
-		expect(active).to.equal(true)
-		expect(ended).to.equal(false)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		active, began, ended = reconcile({})
-		expect(active).to.equal(false)
-		expect(ended).to.equal(true)
+		-- If the first release edge was missed, the final edge reconciles
+		-- the stale source against both physical key states.
+		press_shift(Enum.KeyCode.LeftShift)
+		press_shift(Enum.KeyCode.RightShift)
+		held_keys[Enum.KeyCode.LeftShift] = false
+		release_shift(Enum.KeyCode.RightShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
-		expect(began_count).to.equal(2)
 		expect(ended_count).to.equal(2)
 	end)
 

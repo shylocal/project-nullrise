@@ -76,8 +76,7 @@ function InputController:_start()
 		self:_ended(action, source, source_id)
 	end
 
-	self.PCInput = PCInput.new(began, ended)
-	self.Trove:Add(self.PCInput)
+	self.Trove:Add(PCInput.new(began, ended))
 
 	if UserInputService.TouchEnabled then
 		self.Trove:Add(MobileInput.new(began, ended))
@@ -88,16 +87,6 @@ function InputController:_began(action, source, source_id)
 	source = source or DEFAULT_INPUT_SOURCE
 	source_id = source_id or source
 
-	local is_pc_sprint = action == "Sprint" and source == "PC"
-	if is_pc_sprint then
-		print(string.format(
-			"[ShiftTrace][InputController] begin received sourceId=%s activeFamily=%s downBefore=%s",
-			tostring(source_id),
-			tostring(self.ActiveInputSource),
-			tostring(self.Down[action])
-		))
-	end
-
 	local sources = self.SourcesDown[action]
 	if not sources then
 		sources = {}
@@ -105,28 +94,16 @@ function InputController:_began(action, source, source_id)
 	end
 
 	if sources[source_id] then
-		if is_pc_sprint then
-			print("[ShiftTrace][InputController] begin ignored: source already held")
-		end
 		return
 	end
 
 	sources[source_id] = source
 	if self.Down[action] then
-		if is_pc_sprint then
-			print("[ShiftTrace][InputController] source recorded; aggregate action was already down, no new ActionBegan")
-		end
 		return
 	end
 
 	self.Down[action] = true
-	if is_pc_sprint then
-		print("[ShiftTrace][InputController] firing ActionBegan; Down[Sprint]=true")
-	end
 	self.ActionBegan:Fire(action)
-	if is_pc_sprint then
-		print("[ShiftTrace][InputController] ActionBegan:Fire returned")
-	end
 end
 
 function InputController:_ended(action, source, source_id)
@@ -134,50 +111,18 @@ function InputController:_ended(action, source, source_id)
 	source_id = source_id or source
 
 	local sources = self.SourcesDown[action]
-	if action == "Sprint" and source == "PC" then
-		local held = {}
-		for held_id, held_source in pairs(sources or {}) do
-			table.insert(held, tostring(held_id) .. ":" .. tostring(held_source))
-		end
-		table.sort(held)
-		print(string.format(
-			"[ShiftTrace][InputController] end received sourceId=%s matched=%s downBefore=%s heldBefore={%s}",
-			tostring(source_id),
-			tostring(sources ~= nil and sources[source_id] == source),
-			tostring(self.Down[action]),
-			table.concat(held, ",")
-		))
-	end
-
 	if not sources or sources[source_id] ~= source then
-		if action == "Sprint" and source == "PC" then
-			print("[ShiftTrace][InputController] end ignored: source identity did not match")
-		end
 		return
 	end
 
 	sources[source_id] = nil
 	if next(sources) ~= nil then
-		if action == "Sprint" and source == "PC" then
-			local held = {}
-			for held_id, held_source in pairs(sources) do
-				table.insert(held, tostring(held_id) .. ":" .. tostring(held_source))
-			end
-			table.sort(held)
-			print(string.format("[ShiftTrace][InputController] source removed; Sprint remains down; heldAfter={%s}", table.concat(held, ",")))
-		end
 		return
 	end
 
 	self.SourcesDown[action] = nil
 	self.Down[action] = nil
-	if action == "Sprint" and source == "PC" then
-		print("[ShiftTrace][InputController] last Sprint source removed; firing ActionEnded with Down[Sprint]=nil")
-	end
 	self.ActionEnded:Fire(action)
-	if action == "Sprint" and source == "PC" then
-		print("[ShiftTrace][InputController] ActionEnded:Fire returned")
-	end
 end
 
 function InputController:_release_source(source)
@@ -209,9 +154,6 @@ function InputController:_set_active_source(source)
 
 	local previous_source = self.ActiveInputSource
 	self.ActiveInputSource = source
-	if previous_source == "PC" and self.PCInput then
-		self.PCInput:ResetHeldKeys("InputFamilyChanged:" .. tostring(source))
-	end
 	self:_release_source(previous_source)
 end
 

@@ -38,11 +38,6 @@ function MovementController.new(character, input_controller)
 end
 
 function MovementController:_start()
-	print(string.format(
-		"[ShiftTrace][MovementController] starting character=%s inputController=%s",
-		tostring(self.Character),
-		tostring(self.InputController)
-	))
 	local humanoid = self.Character:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		self:_set_humanoid(humanoid)
@@ -61,8 +56,7 @@ function MovementController:_start()
 		self.InputController.ActionBegan,
 		function(action)
 			if action == Actions.Sprint then
-				print("[ShiftTrace][MovementController] received ActionBegan(Sprint)")
-				self:_update_sprinting("ActionBegan")
+				self:_update_sprinting()
 			end
 		end
 	)
@@ -71,12 +65,10 @@ function MovementController:_start()
 		self.InputController.ActionEnded,
 		function(action)
 			if action == Actions.Sprint then
-				print("[ShiftTrace][MovementController] received ActionEnded(Sprint)")
-				self:_update_sprinting("ActionEnded")
+				self:_update_sprinting()
 			end
 		end
 	)
-	print("[ShiftTrace][MovementController] subscribed to Sprint begin/end signals")
 end
 
 function MovementController:_set_humanoid(humanoid)
@@ -87,9 +79,8 @@ function MovementController:_set_humanoid(humanoid)
 	self:_update_sprinting()
 end
 
-function MovementController:_update_sprinting(trigger)
-	local action_down = self.InputController:IsDown(Actions.Sprint)
-	local sprinting = not self.SprintBlocked and action_down
+function MovementController:_update_sprinting()
+	local sprinting = not self.SprintBlocked and self.InputController:IsDown(Actions.Sprint)
 	local changed = self.Sprinting ~= sprinting
 
 	self.Sprinting = sprinting
@@ -98,26 +89,6 @@ function MovementController:_update_sprinting(trigger)
 	if humanoid and humanoid.Parent ~= nil then
 		humanoid.WalkSpeed = sprinting and self.SprintSpeed or self.DefaultWalkSpeed
 	end
-
-	local blockerNames = {}
-	for reason in pairs(self.SprintBlockers) do
-		table.insert(blockerNames, tostring(reason))
-	end
-	table.sort(blockerNames)
-
-	print(string.format(
-		"[ShiftTrace][MovementController] update trigger=%s actionDown=%s blocked=%s blockers={%s} previous=%s next=%s changed=%s WalkSpeed=%s walkSpeed=%s sprintSpeed=%s",
-		tostring(trigger or "unspecified"),
-		tostring(action_down),
-		tostring(self.SprintBlocked),
-		table.concat(blockerNames, ","),
-		tostring(not changed and sprinting or not sprinting),
-		tostring(sprinting),
-		tostring(changed),
-		tostring(humanoid and humanoid.WalkSpeed or "no-humanoid"),
-		tostring(self.DefaultWalkSpeed),
-		tostring(self.SprintSpeed)
-	))
 
 	if changed then
 		self.SprintingChanged:Fire(sprinting)
@@ -147,13 +118,6 @@ function MovementController:SetSprintBlocked(blocked, reason)
 	else
 		self.SprintBlockers[reason] = nil
 	end
-
-	print(string.format(
-		"[ShiftTrace][MovementController] SetSprintBlocked blocked=%s reason=%s actionDown=%s",
-		tostring(blocked),
-		tostring(reason),
-		tostring(self.InputController:IsDown(Actions.Sprint))
-	))
 
 	local sprint_blocked = next(self.SprintBlockers) ~= nil
 	if self.SprintBlocked == sprint_blocked then
