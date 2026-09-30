@@ -58,10 +58,10 @@ The suite includes:
 - `CombatValidation.spec.lua`: checks rejection of malformed target, segment, and non-finite position inputs.
 - `InventoryValidation.spec.lua`: checks rejection of invalid slot values and unknown weapon IDs.
 - `RuntimeContracts.spec.lua`: smoke-checks configured remotes, required packages, weapon models, client controller constructors, and server-module exports in the Studio place.
+- `ParkourLifecycle.spec.lua`: verifies hanging and mantle restoration, preserves the vault Jumping snapshot until vault cleanup after Jump release, and checks idempotent controller teardown.
 
+The suite currently defines **44 TestEZ cases** across these specs. This is a starting regression net, not exhaustive gameplay coverage; in particular, it does not simulate real parkour raycasts against the map, animation playback, or multiplayer combat timing.
 
-The suite currently defines **40 TestEZ cases** across these specs. This is a starting regression net, not exhaustive gameplay coverage; in particular, it does not simulate real parkour raycasts against the map, animation playback, or multiplayer combat timing.
+The 40-case suite was previously confirmed by the user in Roblox Studio with **40 passed, 0 failed, 0 skipped**. The four lifecycle cases were added afterward and have only received static source checks so far; rerun the full suite and review the Output before treating the expanded 44-case suite as passing.
 
 The behavior tests use isolated fixtures and avoid invoking live remotes or depending on map geometry. They are useful regression checks, but they do not replace Studio playtesting of real movement physics, parkour detection against authored map parts, animation asset availability, or multiplayer combat.
-
-The repository changes were statically inspected only. Run the suite in Studio and review the Output before treating these new specs as passing in your environment.
