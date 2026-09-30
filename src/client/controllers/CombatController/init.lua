@@ -27,6 +27,7 @@ function CombatController.new(
 		MovementController = movement_controller,
 
 		AttackTrove = nil,
+		AttackLifecycleId = 0,
 		Hitbox = nil,
 
 		NextAttack = 1,
@@ -176,6 +177,7 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 end
 
 function CombatController:Reset()
+	self.AttackLifecycleId += 1
 	self.PrimaryHeld = false
 	self.PrimaryPressId += 1
 	self.PrimaryPressAttackPending = false
