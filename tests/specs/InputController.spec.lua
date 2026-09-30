@@ -123,7 +123,7 @@ return function()
 		expect(#ended).to.equal(2)
 	end)
 
-	it("reconciles aliased sprint keys when either keyboard key is released", function()
+	it("reconciles aliased sprint keys, including a suppressed Shift event", function()
 		local ended_count = 0
 		local held_keys = {}
 		controller.ActionEnded:Connect(function(action)
@@ -132,22 +132,27 @@ return function()
 
 		local function press_shift(key_code)
 			held_keys[key_code] = true
-			controller:_began(Actions.Sprint, "PC", key_code)
+			PCInput._begin_sprint_key(held_keys, key_code, function(action, source, source_id)
+				controller:_began(action, source, source_id)
+			end)
 		end
 
 		local function release_shift(key_code)
 			held_keys[key_code] = false
-			PCInput._release_unheld_sprint_keys(
+			PCInput._end_sprint_key(
+				held_keys,
+				key_code,
 				function(action, source, source_id)
 					controller:_ended(action, source, source_id)
 				end,
-				key_code,
 				function(queried_key)
 					return held_keys[queried_key] == true
 				end
 			)
 		end
 
+		-- When both edges are observed, releasing one key keeps Sprint active
+		-- while the other key remains held.
 		press_shift(Enum.KeyCode.LeftShift)
 		press_shift(Enum.KeyCode.RightShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
@@ -160,10 +165,10 @@ return function()
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(ended_count).to.equal(1)
 
-		-- If the first release edge was missed, the final edge reconciles
-		-- the stale source against both physical key states.
+		-- Simulate Roblox suppressing RightShift's begin and LeftShift's end:
+		-- the unmatched final RightShift end must clear the stale LeftShift hold.
 		press_shift(Enum.KeyCode.LeftShift)
-		press_shift(Enum.KeyCode.RightShift)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
 		held_keys[Enum.KeyCode.LeftShift] = false
 		release_shift(Enum.KeyCode.RightShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
