@@ -5,6 +5,7 @@ local Trove = require(ReplicatedStorage.packages.Trove)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Client = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("client")
 local ParkourController = require(Client.controllers.ParkourController)
+local ParkourState = require(Client.controllers.ParkourController.State)
 
 local function make_fixture()
 	local character = Instance.new("Model")
@@ -43,6 +44,7 @@ local function make_fixture()
 		MovementController = movement,
 		Trove = Trove.new(),
 		State = "Grounded",
+		_humanoidSnapshots = {},
 		GrabBlockedUntilJumpReleased = false,
 		_destroyed = false,
 	}, ParkourController)
@@ -70,19 +72,28 @@ return function()
 		end
 	end)
 
+	it("allows only valid traversal state transitions", function()
+		expect(ParkourState.transition(controller, "Hanging")).to.equal(true)
+		expect(ParkourState.transition(controller, "Mantling")).to.equal(true)
+		expect(ParkourState.transition(controller, "Vaulting")).to.equal(false)
+		expect(controller.State).to.equal("Mantling")
+		expect(ParkourState.transition(controller, "Grounded")).to.equal(true)
+		expect(ParkourState.transition(controller, "Unknown")).to.equal(false)
+		expect(controller.State).to.equal("Grounded")
+	end)
+
 	it("restores the hanging pose and releases its sprint blocker exactly once", function()
 		local humanoid = controller.Humanoid
 		local movement = controller.MovementController
 
-		controller.State = "Hanging"
+		expect(ParkourState.transition(controller, "Hanging")).to.equal(true)
 		controller.CurrentClimbable = Instance.new("Part")
 		controller.Normal = Vector3.xAxis
 		controller.HangDepthOffset = Vector3.xAxis
 		controller.HangPosition = Vector3.new(1, 2, 3)
 		controller.CornerLockPosition = Vector3.new(4, 5, 6)
 		controller.CornerLockInputDirection = 1
-		controller.AutoRotateBeforeHang = true
-		controller.PlatformStandBeforeHang = false
+		ParkourState.capture_humanoid(controller, "Hang", { "AutoRotate", "PlatformStand" })
 		humanoid.AutoRotate = false
 		humanoid.PlatformStand = true
 
@@ -98,6 +109,7 @@ return function()
 		expect(controller.CornerLockInputDirection).to.equal(nil)
 		expect(humanoid.AutoRotate).to.equal(true)
 		expect(humanoid.PlatformStand).to.equal(false)
+		expect(ParkourState.get_humanoid_snapshot(controller, "Hang")).to.equal(nil)
 		expect(#movement.SprintBlockCalls).to.equal(1)
 		expect(movement.SprintBlockCalls[1].Blocked).to.equal(false)
 	end)
@@ -107,14 +119,14 @@ return function()
 		local movement = controller.MovementController
 		local jumping = Enum.HumanoidStateType.Jumping
 
-		controller.State = "Mantling"
-		controller.GrabBlockedUntilJumpReleased = true
-		controller.JumpingEnabledBeforeMantle = true
-		humanoid:SetStateEnabled(jumping, false)
-		controller.AutoRotateBeforeHang = true
-		controller.PlatformStandBeforeHang = false
+		expect(ParkourState.transition(controller, "Hanging")).to.equal(true)
+		ParkourState.capture_humanoid(controller, "Hang", { "AutoRotate", "PlatformStand" })
 		humanoid.AutoRotate = false
 		humanoid.PlatformStand = true
+		expect(ParkourState.transition(controller, "Mantling")).to.equal(true)
+		controller.GrabBlockedUntilJumpReleased = true
+		ParkourState.capture_humanoid(controller, "Mantle", { "JumpingEnabled" })
+		humanoid:SetStateEnabled(jumping, false)
 		controller._mantleStart = CFrame.new(0, 0, 0)
 		controller._mantleTarget = CFrame.new(0, 4, 0)
 		controller._mantleElapsed = 0.2
@@ -131,7 +143,8 @@ return function()
 		expect(humanoid.AutoRotate).to.equal(true)
 		expect(humanoid.PlatformStand).to.equal(false)
 		expect(controller.GrabBlockedUntilJumpReleased).to.equal(false)
-		expect(controller.JumpingEnabledBeforeMantle).to.equal(nil)
+		expect(ParkourState.get_humanoid_snapshot(controller, "Mantle")).to.equal(nil)
+		expect(ParkourState.get_humanoid_snapshot(controller, "Hang")).to.equal(nil)
 		expect(#movement.SprintBlockCalls).to.equal(1)
 		expect(movement.SprintBlockCalls[1].Blocked).to.equal(false)
 	end)
@@ -140,12 +153,15 @@ return function()
 		local humanoid = controller.Humanoid
 		local jumping = Enum.HumanoidStateType.Jumping
 
-		controller.State = "Vaulting"
+		expect(ParkourState.transition(controller, "Vaulting")).to.equal(true)
 		controller.GrabBlockedUntilJumpReleased = true
-		controller.VaultJumpingEnabledBefore = true
+		ParkourState.capture_humanoid(controller, "Vault", {
+			"AutoRotate",
+			"PlatformStand",
+			"HipHeight",
+			"JumpingEnabled",
+		})
 		humanoid:SetStateEnabled(jumping, false)
-		controller.VaultAutoRotateBefore = true
-		controller.VaultPlatformStandBefore = false
 		humanoid.AutoRotate = false
 		humanoid.PlatformStand = true
 		controller._vaultStart = controller.Root.CFrame
@@ -159,13 +175,13 @@ return function()
 		controller:_step(0.1)
 
 		expect(controller.GrabBlockedUntilJumpReleased).to.equal(false)
-		expect(controller.VaultJumpingEnabledBefore).to.equal(true)
+		expect(ParkourState.get_humanoid_value(controller, "Vault", "JumpingEnabled")).to.equal(true)
 		expect(humanoid:GetStateEnabled(jumping)).to.equal(false)
 
 		controller:_release()
 
 		expect(controller.State).to.equal("Grounded")
-		expect(controller.VaultJumpingEnabledBefore).to.equal(nil)
+		expect(ParkourState.get_humanoid_snapshot(controller, "Vault")).to.equal(nil)
 		expect(humanoid:GetStateEnabled(jumping)).to.equal(true)
 		expect(humanoid.AutoRotate).to.equal(true)
 		expect(humanoid.PlatformStand).to.equal(false)
@@ -176,7 +192,7 @@ return function()
 		local jumping = Enum.HumanoidStateType.Jumping
 
 		controller.GrabBlockedUntilJumpReleased = true
-		controller.JumpingEnabledBeforeMantle = true
+		ParkourState.capture_humanoid(controller, "Mantle", { "JumpingEnabled" })
 		humanoid:SetStateEnabled(jumping, false)
 
 		controller:Destroy()
@@ -185,7 +201,7 @@ return function()
 
 		expect(controller._destroyed).to.equal(true)
 		expect(controller.GrabBlockedUntilJumpReleased).to.equal(false)
-		expect(controller.JumpingEnabledBeforeMantle).to.equal(nil)
+		expect(ParkourState.get_humanoid_snapshot(controller, "Mantle")).to.equal(nil)
 		expect(humanoid:GetStateEnabled(jumping)).to.equal(true)
 		expect(#controller.MovementController.SprintBlockCalls).to.equal(call_count_after_destroy)
 	end)
