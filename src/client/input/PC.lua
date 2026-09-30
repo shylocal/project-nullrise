@@ -7,6 +7,15 @@ local Actions = require(ReplicatedStorage.shared.input.Actions)
 local PCInput = {}
 PCInput.__index = PCInput
 
+local SPRINT_KEYS = {
+	Enum.KeyCode.LeftShift,
+	Enum.KeyCode.RightShift,
+}
+
+local function is_sprint_key(key_code)
+	return key_code == Enum.KeyCode.LeftShift or key_code == Enum.KeyCode.RightShift
+end
+
 local Bindings = {
 	[Enum.UserInputType.MouseButton1] = Actions.Primary,
 	[Enum.KeyCode.LeftShift] = Actions.Sprint,
@@ -30,6 +39,17 @@ function PCInput.new(on_began, on_ended)
 	return self
 end
 
+-- Shift is an aliased action with two physical keys. On release, reconcile
+-- both keys against UserInputService so a missed/stale end edge cannot leave
+-- Sprint held until that same key is pressed and released again.
+function PCInput._release_unheld_sprint_keys(on_ended, released_key, is_key_down)
+	for _, key_code in ipairs(SPRINT_KEYS) do
+		if key_code == released_key or not is_key_down(key_code) then
+			on_ended(Actions.Sprint, "PC", key_code)
+		end
+	end
+end
+
 function PCInput:_start(on_began, on_ended)
 	self.Trove:Connect(UserInputService.InputBegan, function(input, game_processed)
 		if game_processed then return end
@@ -40,7 +60,13 @@ function PCInput:_start(on_began, on_ended)
 	self.Trove:Connect(UserInputService.InputEnded, function(input)
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
-		if action then on_ended(action, "PC", source_id) end
+		if action == Actions.Sprint or is_sprint_key(input.KeyCode) then
+			PCInput._release_unheld_sprint_keys(on_ended, input.KeyCode, function(key_code)
+				return UserInputService:IsKeyDown(key_code)
+			end)
+		elseif action then
+			on_ended(action, "PC", source_id)
+		end
 	end)
 end
 
