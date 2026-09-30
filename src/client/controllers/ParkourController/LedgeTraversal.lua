@@ -418,26 +418,6 @@ function LedgeTraversal.get_guide_tops(self, guide, sample_position)
 		ray_origin = Vector3.new(sample_x, hit.Position.Y - 0.05, sample_z)
 	end
 
-	-- Focused diagnostic for corner-coverage samples that resolve to a
-	-- surface far from the requested horizontal position.
-	if sample_position then
-		for index, candidate_top in ipairs(tops) do
-			local horizontal_distance = Vector.flatten(candidate_top.Position - sample_position).Magnitude
-			if horizontal_distance > 1.25 then
-				print(string.format(
-					"[LedgeCoverageQuery] guide=%s sample=%s result[%d]=%s pos=%s normal=%s horizontalDistance=%.3f",
-					guide:GetFullName(),
-					tostring(sample_position),
-					index,
-					candidate_top.Instance and candidate_top.Instance:GetFullName() or "nil",
-					tostring(candidate_top.Position),
-					tostring(candidate_top.Normal),
-					horizontal_distance
-				))
-			end
-		end
-	end
-
 	return tops
 end
 local function cast_mantle_ground(self, origin, direction)
