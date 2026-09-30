@@ -123,54 +123,61 @@ return function()
 		expect(#ended).to.equal(2)
 	end)
 
-	it("reconciles aliased sprint keys, including a suppressed Shift event", function()
+	it("reconciles aliased sprint keys from aggregate physical state", function()
 		local ended_count = 0
 		local held_keys = {}
 		controller.ActionEnded:Connect(function(action)
 			if action == Actions.Sprint then ended_count += 1 end
 		end)
 
-		local function press_shift(key_code)
-			held_keys[key_code] = true
-			PCInput._begin_sprint_key(held_keys, key_code, function(action, source, source_id)
+		local function is_key_down(key_code)
+			return held_keys[key_code] == true
+		end
+
+		local function press_shift()
+			PCInput._begin_sprint(function(action, source, source_id)
 				controller:_began(action, source, source_id)
 			end)
 		end
 
-		local function release_shift(key_code)
-			held_keys[key_code] = false
-			PCInput._end_sprint_key(
-				held_keys,
-				key_code,
-				function(action, source, source_id)
+		local function reconcile_shift_release()
+			if not PCInput._any_shift_down(is_key_down) then
+				PCInput._end_sprint(function(action, source, source_id)
 					controller:_ended(action, source, source_id)
-				end,
-				function(queried_key)
-					return held_keys[queried_key] == true
-				end
-			)
+				end)
+			end
 		end
 
-		-- When both edges are observed, releasing one key keeps Sprint active
-		-- while the other key remains held.
-		press_shift(Enum.KeyCode.LeftShift)
-		press_shift(Enum.KeyCode.RightShift)
+		-- Pressing both keys shares one aggregate Sprint source. Releasing
+		-- either key must preserve Sprint while the other remains physically down.
+		held_keys[Enum.KeyCode.LeftShift] = true
+		press_shift()
+		held_keys[Enum.KeyCode.RightShift] = true
+		press_shift()
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
 
-		release_shift(Enum.KeyCode.LeftShift)
+		held_keys[Enum.KeyCode.LeftShift] = false
+		-- The input event may identify the opposite Shift key; physical state
+		-- remains authoritative and prevents an early release.
+		reconcile_shift_release()
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
 		expect(ended_count).to.equal(0)
 
-		release_shift(Enum.KeyCode.RightShift)
+		held_keys[Enum.KeyCode.RightShift] = false
+		reconcile_shift_release()
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(ended_count).to.equal(1)
 
-		-- Simulate Roblox suppressing RightShift's begin and LeftShift's end:
-		-- the unmatched final RightShift end must clear the stale LeftShift hold.
-		press_shift(Enum.KeyCode.LeftShift)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+		-- Simulate a suppressed begin for RightShift and a missing InputEnded
+		-- edge: the active monitor's physical-state check still ends Sprint.
+		held_keys[Enum.KeyCode.LeftShift] = true
+		press_shift()
 		held_keys[Enum.KeyCode.LeftShift] = false
-		release_shift(Enum.KeyCode.RightShift)
+		held_keys[Enum.KeyCode.RightShift] = true
+		reconcile_shift_release()
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+		held_keys[Enum.KeyCode.RightShift] = false
+		reconcile_shift_release()
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(ended_count).to.equal(2)
 	end)
