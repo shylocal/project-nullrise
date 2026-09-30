@@ -87,6 +87,7 @@ function InputController:_began(action, source, source_id)
 	source = source or DEFAULT_INPUT_SOURCE
 	source_id = source_id or source
 
+	warn(("[InputDebug][Controller] began action=%s source=%s sourceId=%s"):format(tostring(action), tostring(source), tostring(source_id)))
 	local sources = self.SourcesDown[action]
 	if not sources then
 		sources = {}
@@ -94,11 +95,13 @@ function InputController:_began(action, source, source_id)
 	end
 
 	if sources[source_id] then
+		warn(("[InputDebug][Controller] duplicate begin ignored action=%s sourceId=%s"):format(tostring(action), tostring(source_id)))
 		return
 	end
 
 	sources[source_id] = source
 	if self.Down[action] then
+		warn(("[InputDebug][Controller] action remains down action=%s activeSources=%d"):format(tostring(action), #table.clone({})))
 		return
 	end
 
@@ -110,13 +113,18 @@ function InputController:_ended(action, source, source_id)
 	source = source or DEFAULT_INPUT_SOURCE
 	source_id = source_id or source
 
+	warn(("[InputDebug][Controller] ended action=%s source=%s sourceId=%s"):format(tostring(action), tostring(source), tostring(source_id)))
 	local sources = self.SourcesDown[action]
 	if not sources or sources[source_id] ~= source then
+		warn(("[InputDebug][Controller] end ignored; source mismatch action=%s sourceId=%s recorded=%s"):format(tostring(action), tostring(source_id), tostring(sources and sources[source_id])))
 		return
 	end
 
 	sources[source_id] = nil
 	if next(sources) ~= nil then
+		local remaining = {}
+		for id in pairs(sources) do table.insert(remaining, tostring(id)) end
+		warn(("[InputDebug][Controller] action still held action=%s remaining={%s}"):format(tostring(action), table.concat(remaining, ",")))
 		return
 	end
 
