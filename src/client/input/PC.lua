@@ -34,13 +34,13 @@ function PCInput.new(on_began, on_ended)
 	return self
 end
 
--- ContextActionService owns both Shift aliases as one sprint action. Keep
--- concrete key sources so releasing one alias cannot end the other.
-function PCInput:_set_sprint_toggle(enabled)
-	if self.SprintToggleOn == enabled then
+-- Treat either Shift key as a held sprint source. Sprint remains active
+-- until every tracked Shift key has been released.
+function PCInput:_set_sprint_active(enabled)
+	if self.SprintActive == enabled then
 		return
 	end
-	self.SprintToggleOn = enabled
+	self.SprintActive = enabled
 	if enabled then
 		self.OnBegan(Actions.Sprint, "PC", "SprintToggle")
 	else
@@ -48,9 +48,6 @@ function PCInput:_set_sprint_toggle(enabled)
 	end
 end
 
--- Sprint is a toggle rather than a held-key action. Roblox may omit a Shift
--- Begin while still delivering End; an unmatched End therefore acts as a
--- recovery toggle edge instead of leaving the input adapter latched.
 function PCInput:_on_sprint_input(action_name, input_state, input)
 	local key_code = input.KeyCode
 	warn(("[InputDebug][PC] CAS callback action=%s state=%s key=%s inputType=%s"):format(
@@ -64,24 +61,16 @@ function PCInput:_on_sprint_input(action_name, input_state, input)
 	end
 
 	if input_state == Enum.UserInputState.Begin then
-		local has_shift_down = next(self.SprintKeysDown) ~= nil
 		self.SprintKeysDown[key_code] = true
-		if not has_shift_down then
-			self:_set_sprint_toggle(not self.SprintToggleOn)
-		end
+		self:_set_sprint_active(true)
 	elseif input_state == Enum.UserInputState.End or input_state == Enum.UserInputState.Cancel then
-		if self.SprintKeysDown[key_code] then
-			self.SprintKeysDown[key_code] = nil
-		else
-			warn(("[InputDebug][PC] unmatched Shift end used as toggle recovery key=%s"):format(tostring(key_code)))
-			self:_set_sprint_toggle(not self.SprintToggleOn)
-		end
-		-- A desynchronized End can follow a lost Begin for a different Shift
-		-- key. Once an unmatched edge is used for recovery, discard all local
-		-- held-key bookkeeping so later End-only edges are also recoverable.
-		if not self.SprintKeysDown[key_code] then
+		local was_tracked = self.SprintKeysDown[key_code] == true
+		self.SprintKeysDown[key_code] = nil
+		if not was_tracked then
+			warn(("[InputDebug][PC] unmatched Shift end; clearing stale tracking key=%s"):format(tostring(key_code)))
 			table.clear(self.SprintKeysDown)
 		end
+		self:_set_sprint_active(next(self.SprintKeysDown) ~= nil)
 	end
 
 	return Enum.ContextActionResult.Pass
