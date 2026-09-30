@@ -188,25 +188,36 @@ return function()
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(ended_count).to.equal(3)
 
-		-- Match the Studio trace: only LeftShift begin is observed, then
-		-- InputEnded incorrectly identifies RightShift while IsKeyDown still
-		-- reports the stale LeftShift state.
+		-- Match the Studio trace: InputEnded identifies RightShift although
+		-- the pressed-key snapshot still contains LeftShift. That edge must not
+		-- clear Sprint; a later empty snapshot ends the aggregate source.
 		PCInput._begin_sprint_key(held_keys, Enum.KeyCode.LeftShift, function(action, source, source_id)
 			controller:_began(action, source, source_id)
 		end)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		local handled, released_key, remains_active = PCInput._end_sprint_key(
+
+		local remains_active = PCInput._reconcile_sprint_keys(
 			held_keys,
-			Enum.KeyCode.RightShift,
-			function(action, source, source_id)
-				controller:_ended(action, source, source_id)
-			end,
 			function(key_code)
 				return key_code == Enum.KeyCode.LeftShift
+			end,
+			function(action, source, source_id)
+				controller:_ended(action, source, source_id)
 			end
 		)
-		expect(handled).to.equal(true)
-		expect(released_key).to.equal(Enum.KeyCode.LeftShift)
+		expect(remains_active).to.equal(true)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+		expect(ended_count).to.equal(3)
+
+		remains_active = PCInput._reconcile_sprint_keys(
+			held_keys,
+			function()
+				return false
+			end,
+			function(action, source, source_id)
+				controller:_ended(action, source, source_id)
+			end
+		)
 		expect(remains_active).to.equal(false)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(ended_count).to.equal(4)
