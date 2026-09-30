@@ -229,16 +229,28 @@ function Traversal.traverse(self, dt)
 								local cleared_sample = corner_top.Position + normal * corner_clearance
 								local cleared_top = nil
 								local cleared_distance = math.huge
-								for _, candidate_top in ipairs(self:_get_guide_tops(corner_guide, cleared_sample)) do
-									local distance = math.abs(candidate_top.Position.Y - active_top_y)
-									if distance < cleared_distance then
-										cleared_top = candidate_top
-										cleared_distance = distance
+								-- The exact clearance column can land on a part's inclusive
+								-- edge. A tiny inward nudge avoids intermittent ray misses
+								-- without weakening the requirement that the guide cover the
+								-- intended landing column.
+								local coverage_samples = {
+									cleared_sample - normal * 0.2,
+									cleared_sample,
+									cleared_sample + normal * 0.2,
+								}
+								for _, coverage_sample in ipairs(coverage_samples) do
+									for _, candidate_top in ipairs(self:_get_guide_tops(corner_guide, coverage_sample)) do
+										local distance = math.abs(candidate_top.Position.Y - active_top_y)
+										local sample_distance = Vector.flatten(candidate_top.Position - cleared_sample).Magnitude
+										if distance <= Config.TraverseHeightTolerance
+											and sample_distance <= 1.25
+											and distance < cleared_distance then
+											cleared_top = candidate_top
+											cleared_distance = distance
+										end
 									end
 								end
-								local clearance_valid = cleared_top
-									and cleared_distance <= Config.TraverseHeightTolerance
-									and Vector.flatten(cleared_top.Position - cleared_sample).Magnitude <= 1.25
+								local clearance_valid = cleared_top ~= nil
 								print(string.format("[LedgeCorner] coverage valid=%s distance=%.3f sample=%s top=%s", tostring(clearance_valid), cleared_distance, tostring(cleared_sample), tostring(cleared_top and cleared_top.Position)))
 								if clearance_valid then
 									local candidate_hang = cleared_top.Position
