@@ -712,18 +712,20 @@ local function try_mantle_impl(self)
 		if guide:IsDescendantOf(Workspace) then
 			local in_bounds = self:_is_guide_within_mantle_search(guide, current_top, normal, tangent)
 			Metrics.record(self, in_bounds and "GuidesInSearchBounds" or "GuidesOutsideSearchBounds")
-			-- Baseline pass: count out-of-range guides but still query them.
-			-- The next optimization pass will apply this conservative filter.
-			for _, lateral_offset in ipairs(lateral_samples) do
-				for _, inward_offset in ipairs(inward_samples) do
-					Metrics.record(self, "GuideColumns")
-					local sample_position = current_top
-						+ tangent * lateral_offset
-						- normal * inward_offset
-					-- Enumerate the exposed tops in this column. A broad backing
-					-- part can be the first hit while a reachable ledge sits below it.
-					for _, top in ipairs(self:_get_guide_tops(guide, sample_position)) do
-						consider_higher_top(guide, top)
+			-- This conservative broad-phase rejects guides that cannot overlap
+			-- the mantle search volume; detailed surface queries remain unchanged.
+			if in_bounds then
+				for _, lateral_offset in ipairs(lateral_samples) do
+					for _, inward_offset in ipairs(inward_samples) do
+						Metrics.record(self, "GuideColumns")
+						local sample_position = current_top
+							+ tangent * lateral_offset
+							- normal * inward_offset
+						-- Enumerate the exposed tops in this column. A broad backing
+						-- part can be the first hit while a reachable ledge sits below it.
+						for _, top in ipairs(self:_get_guide_tops(guide, sample_position)) do
+							consider_higher_top(guide, top)
+						end
 					end
 				end
 			end
