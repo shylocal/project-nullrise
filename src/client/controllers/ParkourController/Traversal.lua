@@ -9,14 +9,6 @@ local ClimbableQuery = require(script.Parent.ClimbableQuery)
 
 local Traversal = {}
 
-local function debug_log(self, key, interval, ...)
-	local now = os.clock()
-	self._parkourDebugTimes = self._parkourDebugTimes or {}
-	if now - (self._parkourDebugTimes[key] or 0) < interval then return end
-	self._parkourDebugTimes[key] = now
-	print("[ParkourDebug][" .. key .. "]", ...)
-end
-
 function Traversal.get_traverse_speed(self)
 	local speed = Config.TraverseSpeed
 	if self.InputController:IsDown(Actions.Sprint) then
@@ -126,9 +118,6 @@ function Traversal.traverse(self, dt)
 					end
 				end
 			end
-			debug_log(self, "cylinder-traverse", 0.5, "dir", direction,
-				"surface", climbable:GetFullName(), "top", top and top.Instance:GetFullName(),
-				"nextNormal", self.Normal, "hangPosition", self.HangPosition)
 			self:_position_hanging()
 			return
 		end
@@ -334,22 +323,6 @@ function Traversal.traverse(self, dt)
 				self.CornerLockInputDirection = direction
 			end
 		end
-		debug_log(self, "traverse", 0.5, "dir", direction,
-			"source", climbable:GetFullName(),
-			"sideHit", probe and probe.Instance:GetFullName(),
-			"sideNormal", probe and probe.Normal,
-			"topHit", top and top.Instance:GetFullName(),
-			"topY", top and top.Position.Y,
-			"nextSurface", next_climbable and next_climbable:GetFullName(),
-			"sameHeight", same_height == true,
-			"normalDot", horizontal_normal:Dot(normal),
-			"corner", is_corner_transfer,
-			"poseChanged", pose_changed,
-			"bodyClear", body_clear,
-			"midpointClear", midpoint_clear,
-			"proposedPosition", proposed_hang_position,
-			"finalPosition", self.HangPosition,
-			"cornerLock", corner_locked)
 	end
 
 	self:_position_hanging()
