@@ -64,8 +64,11 @@ function PCInput:_on_sprint_input(action_name, input_state, input)
 	end
 
 	if input_state == Enum.UserInputState.Begin then
+		local has_shift_down = next(self.SprintKeysDown) ~= nil
 		self.SprintKeysDown[key_code] = true
-		self:_set_sprint_toggle(not self.SprintToggleOn)
+		if not has_shift_down then
+			self:_set_sprint_toggle(not self.SprintToggleOn)
+		end
 	elseif input_state == Enum.UserInputState.End or input_state == Enum.UserInputState.Cancel then
 		if self.SprintKeysDown[key_code] then
 			self.SprintKeysDown[key_code] = nil
