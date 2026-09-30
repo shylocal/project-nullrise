@@ -57,6 +57,17 @@ These checks complement the isolated lifecycle specs because they exercise Roblo
 
 Record any failures with the Output log and the exact traversal/interruption step. Do not interpret a passing TestEZ run as proof that these physics-dependent scenarios passed.
 
+## Input reconciliation Studio checks
+
+These checks exercise the live input adapters and complement the isolated InputController.spec.lua tests:
+
+- Hold a keyboard action such as **W** or **Left Shift**, then switch to touch input on a touchscreen device. Confirm the previous device's held action ends once and does not remain stuck.
+- Switch between keyboard and mouse while holding a PC action. Confirm the action remains active because keyboard and mouse are treated as one device family.
+- Hold **Left Shift** and **Right Shift** together, then release one key at a time. Confirm Sprint remains active until both keys are released.
+- Repeat a device switch while an action is held, then return to the original device. Confirm fresh input begins normally and focus-loss release still emits only one end transition.
+
+The current source maps gamepad input types for stale-hold reconciliation, but does not define gamepad action bindings.
+
 ## Add a test
 
 Create a ModuleScript file ending in `.spec.lua` under `tests/specs`. Rojo maps the contents of `tests/` into `TestService`, placing the specs folder at `TestService.specs`. TestEZ recursively discovers spec ModuleScripts under that folder.
