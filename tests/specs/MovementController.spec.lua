@@ -13,6 +13,8 @@ local function make_input()
 		ActionBegan = Signal.new(),
 		ActionEnded = Signal.new(),
 		Down = {},
+		SourcesDown = {},
+		ActiveInputSource = nil,
 	}, InputController)
 end
 
@@ -20,6 +22,7 @@ local function destroy_input(input)
 	input.ActionBegan:Destroy()
 	input.ActionEnded:Destroy()
 	table.clear(input.Down)
+	table.clear(input.SourcesDown)
 end
 
 return function()
