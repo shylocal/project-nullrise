@@ -157,12 +157,14 @@ function ParkourController:_grab(guide, normal, position, edge_gap)
 	-- tall wall instead uses the held Forward intent to mantle immediately.
 	self.ForwardBlockedUntilRelease = forward_held and is_tagged_guide
 	self.CurrentClimbable = guide
-	self.Normal = normal
-	self.HangDepthOffset = Vector.flatten(normal).Unit * (edge_gap or Config.WallGap)
+	local horizontal_normal = Vector.flatten(normal)
+	if horizontal_normal.Magnitude < 0.05 then return end
+	self.Normal = horizontal_normal.Unit
+	self.HangDepthOffset = self.Normal * (edge_gap or Config.WallGap)
 	self.HangPosition = position
 
-	local humanoid = self.Humanoid
-	if humanoid then
+	if self.Humanoid then
+		local humanoid = self.Humanoid
 		ParkourState.capture_humanoid(self, "Hang", { "AutoRotate", "PlatformStand" })
 		humanoid.AutoRotate = false
 		humanoid.PlatformStand = true
@@ -213,6 +215,8 @@ function ParkourController:_clear_jump_block()
 		ParkourState.restore_humanoid(self, "Vault", { "JumpingEnabled" })
 	end
 	if self.State == "Grounded" then
+		-- This helper is used only after Jump is released; while Hanging, the
+		-- caller must perform the explicit hang-release transition first.
 		ParkourState.restore_humanoid(self, "Hang", { "AutoRotate", "PlatformStand" })
 	end
 end
@@ -248,7 +252,13 @@ function ParkourController:_step(dt)
 	end
 
 	if self.State == "Grounded" then
-		if self.InputController:IsDown(Actions.Jump) and not self.GrabBlockedUntilJumpReleased then
+		local humanoid = self.Humanoid
+		local humanoid_state = humanoid and humanoid:GetState()
+		local can_probe = humanoid and humanoid.Health > 0 and not humanoid.Sit
+			and humanoid_state ~= Enum.HumanoidStateType.Dead
+			and humanoid_state ~= Enum.HumanoidStateType.Swimming
+			and humanoid_state ~= Enum.HumanoidStateType.Climbing
+		if can_probe and self.InputController:IsDown(Actions.Jump) and not self.GrabBlockedUntilJumpReleased then
 			local climbable, normal, position, edge_gap = self:_detect_surface()
 			if climbable then self:_grab(climbable, normal, position, edge_gap) end
 		end
@@ -260,8 +270,13 @@ function ParkourController:_step(dt)
 		Traversal.traverse(self, dt)
 	elseif self.State == "Mantling" then
 		local root = self.Root
-		self._mantleElapsed = math.min((self._mantleElapsed or 0) + math.max(dt, 0), self._mantleDuration)
-		local linear = self._mantleElapsed / self._mantleDuration
+		local duration = self._mantleDuration
+		if not duration or duration <= 0 or not self._mantleStart or not self._mantleTarget then
+			self:_release()
+			return
+		end
+		self._mantleElapsed = math.min((self._mantleElapsed or 0) + math.max(dt, 0), duration)
+		local linear = self._mantleElapsed / duration
 		local alpha = VaultMath.smoothstep(linear)
 		if root and self._mantleStart and self._mantleTarget then
 			root.CFrame = self._mantleStart:Lerp(self._mantleTarget, alpha)
@@ -292,10 +307,6 @@ function ParkourController:_step(dt)
 
 		self._vaultElapsed = math.min((self._vaultElapsed or 0) + math.max(dt, 0), duration)
 		local linear = self._vaultElapsed / duration
-		local debug_stage = math.min(4, math.floor(linear * 4))
-		if self._vaultDebugLastStage ~= debug_stage then
-			self._vaultDebugLastStage = debug_stage
-		end
 		local eased = VaultMath.smoothstep(linear)
 		local base = self._vaultStart:Lerp(self._vaultTarget, eased)
 		local horizontal = self._vaultStart.Position:Lerp(self._vaultTarget.Position, linear)
@@ -466,10 +477,15 @@ function ParkourController:_release()
 		self._mantleDuration = nil
 	end
 
-	ParkourState.restore_humanoid(self, "Mantle", { "JumpingEnabled" })
-	ParkourState.restore_humanoid(self, "Vault", { "JumpingEnabled" })
+	local jump_held = self.InputController:IsDown(Actions.Jump)
+	if not jump_held then
+		self:_clear_jump_block()
+		ParkourState.restore_humanoid(self, "Mantle", { "JumpingEnabled" })
+		ParkourState.restore_humanoid(self, "Vault", { "JumpingEnabled" })
+	else
+		self.GrabBlockedUntilJumpReleased = true
+	end
 	ParkourState.restore_humanoid(self, "Hang", { "AutoRotate", "PlatformStand" })
-	self.GrabBlockedUntilJumpReleased = false
 
 	if was_traversing and self.MovementController then
 		self.MovementController:SetSprintBlocked(false, self)
