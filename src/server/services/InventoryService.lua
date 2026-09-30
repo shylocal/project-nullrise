@@ -142,8 +142,10 @@ function InventoryService:_sync(player)
 	self:_replicate(player)
 end
 
+-- Return a detached view so callers cannot bypass inventory validation,
+-- replication, or Changed notifications by mutating server-owned state.
 function InventoryService:Get(player)
-	return self:_get(player)
+	return self:_get_replication_snapshot(player)
 end
 
 function InventoryService:GetSlot(player, slot)
