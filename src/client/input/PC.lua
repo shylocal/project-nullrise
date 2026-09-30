@@ -55,7 +55,13 @@ function PCInput:_set_sprint_active(enabled)
 	end
 end
 
-function PCInput:_on_sprint_input(_, input_state)
+function PCInput:_on_sprint_input(_, input_state, input_object)
+	-- ContextActionService can invoke this binding for other keys in some
+	-- test/adaptor paths; only LeftShift is the configured sprint control.
+	if input_object and input_object.KeyCode ~= Enum.KeyCode.LeftShift then
+		return Enum.ContextActionResult.Pass
+	end
+
 	if input_state == Enum.UserInputState.Begin then
 		self:_set_sprint_active(true)
 	elseif input_state == Enum.UserInputState.End or input_state == Enum.UserInputState.Cancel then
