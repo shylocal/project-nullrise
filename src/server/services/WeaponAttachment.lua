@@ -79,6 +79,16 @@ function WeaponAttachment.Attach(source, wield, character)
 	end
 
 	for wield_name, character_part_name in pairs(wield or {}) do
+		if typeof(wield_name) ~= "string" or wield_name == "" then
+			warn_attachment(clone, ("invalid wield item name %q"):format(tostring(wield_name)))
+			continue
+		end
+
+		if typeof(character_part_name) ~= "string" or character_part_name == "" then
+			warn_attachment(clone, ("invalid character part name for wield item %q"):format(wield_name))
+			continue
+		end
+
 		local wielded = clone:FindFirstChild(wield_name, true)
 		local target = character:FindFirstChild(character_part_name, true)
 
