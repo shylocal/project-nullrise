@@ -13,6 +13,13 @@ local TEMPORARY_SLOTS = {
 	[2] = "Katana",
 }
 
+local function is_valid_slot(slot)
+	return typeof(slot) == "number"
+		and math.isfinite(slot)
+		and slot >= 1
+		and slot % 1 == 0
+end
+
 local InventoryService = {}
 InventoryService.__index = InventoryService
 
@@ -93,6 +100,36 @@ function InventoryService:_get(player)
 	return self.Inventories[player]
 end
 
+function InventoryService:_get_replication_snapshot(player)
+	local inventory = self:_get(player)
+	if not inventory then
+		return nil
+	end
+
+	-- Slots contains primitive weapon IDs, so a shallow clone detaches the
+	-- network payload from server-owned inventory state.
+	return {
+		Slots = table.clone(inventory.Slots),
+		SelectedSlot = inventory.SelectedSlot,
+	}
+end
+
+function InventoryService:_replicate(player)
+	local snapshot = self:_get_replication_snapshot(player)
+	if not snapshot then
+		return false
+	end
+
+	InventoryRemote:FireClient(
+		player,
+		Protocol.Inventory.Changed,
+		snapshot.Slots,
+		snapshot.SelectedSlot
+	)
+
+	return true
+end
+
 function InventoryService:_sync(player)
 	local inventory = self:_get(player)
 	if not inventory then
@@ -102,13 +139,7 @@ function InventoryService:_sync(player)
 	local weapon_id = self:GetSelectedId(player)
 
 	self.Changed:Fire(player, weapon_id, inventory.SelectedSlot)
-
-	InventoryRemote:FireClient(
-		player,
-		Protocol.Inventory.Changed,
-		inventory.Slots,
-		inventory.SelectedSlot
-	)
+	self:_replicate(player)
 end
 
 function InventoryService:Get(player)
@@ -159,7 +190,7 @@ function InventoryService:Has(player, weapon_id)
 end
 
 function InventoryService:SetSlot(player, slot, weapon_id)
-	if typeof(slot) ~= "number" or slot < 1 or slot % 1 ~= 0 then
+	if not is_valid_slot(slot) then
 		return false
 	end
 
@@ -187,22 +218,15 @@ function InventoryService:SetSlot(player, slot, weapon_id)
 	if inventory.SelectedSlot == slot then
 		self:_sync(player)
 	else
-		InventoryRemote:FireClient(
-			player,
-			Protocol.Inventory.Changed,
-			inventory.Slots,
-			inventory.SelectedSlot
-		)
+		self:_replicate(player)
 	end
 
 	return true
 end
 
 function InventoryService:SelectSlot(player, slot)
-	if slot ~= nil then
-		if typeof(slot) ~= "number" or slot < 1 or slot % 1 ~= 0 then
-			return false
-		end
+	if slot ~= nil and not is_valid_slot(slot) then
+		return false
 	end
 
 	local inventory = self:_get(player)
@@ -279,12 +303,7 @@ function InventoryService:Remove(player, weapon_id)
 			if inventory.SelectedSlot == slot then
 				self:_sync(player)
 			else
-				InventoryRemote:FireClient(
-					player,
-					Protocol.Inventory.Changed,
-					inventory.Slots,
-					inventory.SelectedSlot
-				)
+				self:_replicate(player)
 			end
 
 			return true
