@@ -123,7 +123,7 @@ return function()
 		expect(#ended).to.equal(2)
 	end)
 
-	it("keeps aggregate Sprint active when a mismatched Shift end arrives while the other key is pressed", function()
+	it("ends aggregate Sprint on a mismatched Shift end despite stale physical key state", function()
 		local began_count = 0
 		local ended_count = 0
 		local held_keys = {}
@@ -141,50 +141,32 @@ return function()
 		local function on_ended(action, source, source_id)
 			controller:_ended(action, source, source_id)
 		end
-		local function get_pressed_keys()
-			return pressed_keys
-		end
-		local function reconcile(event_key)
-			local any_pressed = PCInput._any_shift_pressed(get_pressed_keys)
-			return PCInput._end_sprint_key(
-				held_keys,
-				event_key,
-				on_ended,
-				true,
-				any_pressed
-			)
-		end
 
-		-- Match the Studio trace: only LeftShift began, but InputEnded
-		-- reports RightShift while GetKeysPressed still contains LeftShift.
+		-- Match the Studio trace: LeftShift begins, RightShift has no begin,
+		-- and its eventual end arrives while the snapshot still lists LeftShift.
 		pressed_keys = {{ KeyCode = Enum.KeyCode.LeftShift }}
 		local handled_begin, began = PCInput._begin_sprint_key(held_keys, Enum.KeyCode.LeftShift, on_began)
 		expect(handled_begin).to.equal(true)
 		expect(began).to.equal(true)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
 
-		local handled_end, matched, remains_active, _, ended =
-			reconcile(Enum.KeyCode.RightShift)
+		local handled_end, matched, remains_active, _, ended = PCInput._end_sprint_key(
+			held_keys,
+			Enum.KeyCode.RightShift,
+			on_ended,
+			true
+		)
 		expect(handled_end).to.equal(true)
 		expect(matched).to.equal(false)
-		expect(remains_active).to.equal(true)
-		expect(ended).to.equal(false)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		expect(ended_count).to.equal(0)
-
-		-- When the final physical Shift key is released, its event may still
-		-- report either side; the empty pressed-key list ends Sprint.
-		pressed_keys = {}
-		held_keys[Enum.KeyCode.RightShift] = nil
-		local _, _, final_active, _, final_ended = reconcile(Enum.KeyCode.LeftShift)
-		expect(final_active).to.equal(false)
-		expect(final_ended).to.equal(true)
+		expect(remains_active).to.equal(false)
+		expect(ended).to.equal(true)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(began_count).to.equal(1)
 		expect(ended_count).to.equal(1)
+		expect(#pressed_keys).to.equal(1)
 	end)
 
-		it("keeps an action down until every source releases it", function()
+	it("keeps an action down until every source releases it", function()
 		local began_count = 0
 		local ended_count = 0
 		controller.ActionBegan:Connect(function(action)
