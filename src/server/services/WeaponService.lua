@@ -198,6 +198,10 @@ function WeaponService:Equip(player, weapon_id)
 	end
 
 	if not WeaponModels:FindFirstChild(weapon.Model) then
+		warn(("[WeaponService] Cannot equip %q for player %s: model template is missing"):format(
+			weapon_id,
+			player.Name
+		))
 		return false
 	end
 
