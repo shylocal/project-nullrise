@@ -112,6 +112,111 @@ return function()
 			expect(service.ActiveAttacks[player]).to.equal(nil)
 		end)
 
+
+		it("resets active attack sequencing when the equipped weapon changes", function()
+			local player = {}
+			local active = make_active(nil)
+			active.HitTargets = {
+				[{}] = true,
+			}
+
+			local remote_event = {}
+			local player_added = {}
+			local player_removing = {}
+			local equipped_changed = {}
+			local connections = {}
+			local service = setmetatable({
+				Trove = {
+					Connect = function(_, signal, callback)
+						connections[signal] = callback
+					end,
+				},
+				Remote = {
+					OnServerEvent = remote_event,
+				},
+				PlayerService = {
+					PlayerAdded = player_added,
+					PlayerRemoving = player_removing,
+					GetPlayers = function()
+						return {}
+					end,
+					Get = function()
+						return nil
+					end,
+				},
+				WeaponService = {
+					EquippedChanged = equipped_changed,
+				},
+				ActiveAttacks = {
+					[player] = active,
+				},
+				NextAttack = {
+					[player] = 2,
+				},
+				NextAttackAt = {
+					[player] = os.clock() + 5,
+				},
+				RemoteAt = {
+					[player] = {
+						Attack = os.clock(),
+					},
+				},
+				PlayerTroves = {},
+			}, CombatService)
+
+			service:_start()
+			connections[equipped_changed](player, "Katana")
+
+			expect(service.ActiveAttacks[player]).to.equal(nil)
+			expect(next(active.HitTargets)).to.equal(nil)
+			expect(service.NextAttack[player]).to.equal(1)
+			expect(service.NextAttackAt[player]).to.equal(nil)
+			expect(service.RemoteAt[player]).to.equal(nil)
+		end)
+
+		it("clears attack state and player cleanup ownership on removal", function()
+			local player = {}
+			local active = make_active(nil)
+			active.HitTargets = {
+				[{}] = true,
+			}
+			local player_trove = {
+				Destroyed = false,
+				Destroy = function(self)
+					self.Destroyed = true
+				end,
+			}
+			local service = setmetatable({
+				ActiveAttacks = {
+					[player] = active,
+				},
+				NextAttack = {
+					[player] = 2,
+				},
+				NextAttackAt = {
+					[player] = os.clock() + 5,
+				},
+				RemoteAt = {
+					[player] = {
+						Attack = os.clock(),
+					},
+				},
+				PlayerTroves = {
+					[player] = player_trove,
+				},
+			}, CombatService)
+
+			service:_player_removing(player)
+
+			expect(service.ActiveAttacks[player]).to.equal(nil)
+			expect(next(active.HitTargets)).to.equal(nil)
+			expect(service.NextAttack[player]).to.equal(1)
+			expect(service.NextAttackAt[player]).to.equal(nil)
+			expect(service.RemoteAt[player]).to.equal(nil)
+			expect(service.PlayerTroves[player]).to.equal(nil)
+			expect(player_trove.Destroyed).to.equal(true)
+		end)
+
 		it("allows hit activation for a living current character before expiry", function()
 			local player = {}
 			local character = make_character(created)
