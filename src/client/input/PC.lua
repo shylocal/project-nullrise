@@ -19,6 +19,10 @@ local function is_sprint_key(key_code)
 	return key_code == Enum.KeyCode.LeftShift or key_code == Enum.KeyCode.RightShift
 end
 
+function PCInput._any_shift_down(is_key_down)
+	return is_key_down(Enum.KeyCode.LeftShift) or is_key_down(Enum.KeyCode.RightShift)
+end
+
 local function get_shift_trace(held_keys)
 	local pressed_keys = {}
 	for _, input in ipairs(UserInputService:GetKeysPressed()) do
