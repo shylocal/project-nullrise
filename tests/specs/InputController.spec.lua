@@ -123,7 +123,7 @@ return function()
 		expect(#ended).to.equal(2)
 	end)
 
-	it("reconciles aliased sprint keys from the pressed-key snapshot", function()
+	it("releases stale Sprint ownership when the final Shift end is misidentified", function()
 		local began_count = 0
 		local ended_count = 0
 		local held_keys = {}
@@ -140,36 +140,46 @@ return function()
 		local function on_ended(action, source, source_id)
 			controller:_ended(action, source, source_id)
 		end
-		local function reconcile(pressed)
-			local was_active, remains_active = PCInput._reconcile_sprint_keys(held_keys, pressed)
-			if not was_active and remains_active then
-				on_began(Actions.Sprint, "PC", "KeyboardSprint")
-			elseif was_active and not remains_active then
-				on_ended(Actions.Sprint, "PC", "KeyboardSprint")
-			end
-			return remains_active
-		end
 
-		-- LeftShift begins. Roblox then reports an InputEnded for RightShift
-		-- while the pressed-key snapshot still says LeftShift is held.
-		PCInput._begin_sprint_key(held_keys, Enum.KeyCode.LeftShift, on_began)
+		-- Reproduce the observed Studio stream: LeftShift begins, pressing
+		-- RightShift generates no begin, releasing LeftShift generates no end,
+		-- and the final release arrives as an unmatched RightShift end.
+		local handled, began = PCInput._begin_sprint_key(held_keys, Enum.KeyCode.LeftShift, on_began)
+		expect(handled).to.equal(true)
+		expect(began).to.equal(true)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		expect(reconcile({ [Enum.KeyCode.LeftShift] = true })).to.equal(true)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		expect(ended_count).to.equal(0)
 
-		-- The final snapshot is empty after the remaining key is released.
-		expect(reconcile({})).to.equal(false)
+		handled, began = PCInput._begin_sprint_key(held_keys, Enum.KeyCode.RightShift, on_began)
+		expect(handled).to.equal(true)
+		expect(began).to.equal(false)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+
+		-- The first physical release is suppressed: no helper call occurs.
+		expect(held_keys[Enum.KeyCode.LeftShift]).to.equal(true)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+
+		local ended_handled, matched, remains_active, removed_key =
+			PCInput._end_sprint_key(held_keys, Enum.KeyCode.RightShift, on_ended)
+		expect(ended_handled).to.equal(true)
+		expect(matched).to.equal(false)
+		expect(remains_active).to.equal(false)
+		expect(removed_key).to.equal(Enum.KeyCode.LeftShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
+		expect(began_count).to.equal(1)
 		expect(ended_count).to.equal(1)
 
-		-- A later fresh press must begin Sprint normally, proving the
-		-- reconciler did not leave a stale/latching state behind.
+		-- Standard two-edge input still preserves Sprint until the second key ends.
+		PCInput._begin_sprint_key(held_keys, Enum.KeyCode.LeftShift, on_began)
 		PCInput._begin_sprint_key(held_keys, Enum.KeyCode.RightShift, on_began)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		expect(began_count).to.equal(2)
-		expect(reconcile({})).to.equal(false)
+
+		PCInput._end_sprint_key(held_keys, Enum.KeyCode.LeftShift, on_ended)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+		expect(ended_count).to.equal(1)
+
+		PCInput._end_sprint_key(held_keys, Enum.KeyCode.RightShift, on_ended)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
+		expect(began_count).to.equal(2)
 		expect(ended_count).to.equal(2)
 	end)
 
