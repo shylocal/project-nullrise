@@ -26,6 +26,18 @@ require(game:GetService("TestService").RunTests).Run()
 
 TestEZ's text reporter writes the test results to the Output window. The runner returns TestEZ's results object. It also checks `RunService:IsStudio()`, so it cannot be invoked in a published server.
 
+## Parkour lifecycle Studio checks
+
+These checks complement the isolated lifecycle specs because they exercise Roblox character physics and the actual traversal queries. Run them in a local Studio session with the Rojo-synced source:
+
+- **Release while hanging:** grab a tagged ledge, then release Jump. Confirm the character drops normally, AutoRotate and PlatformStand return to their prior values, and sprint works again.
+- **Interrupt a mantle:** start a mantle and reset the character before it completes. Confirm the old character does not remain movement-locked and the respawned character can move, sprint, and jump.
+- **Release Jump during a scripted vault:** begin a sprint vault and release Jump mid-flight. Confirm the vault completes or exits safely and jumping remains available afterward.
+- **Interrupt a vault:** reset the character during a scripted vault and during a physics top-hop. Confirm no stale traversal callback changes the replacement character and the next character can jump and sprint.
+- **Focus loss:** while Jump is held during a hang or vault, switch focus away from Studio and back. Confirm held-action reconciliation releases the appropriate lock without leaving Humanoid state disabled.
+
+Record any failures with the Output log and the exact traversal/interruption step. Do not interpret a passing TestEZ run as proof that these physics-dependent scenarios passed.
+
 ## Add a test
 
 Create a ModuleScript file ending in `.spec.lua` under `tests/specs`. Rojo maps the contents of `tests/` into `TestService`, placing the specs folder at `TestService.specs`. TestEZ recursively discovers spec ModuleScripts under that folder.
