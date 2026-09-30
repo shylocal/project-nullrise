@@ -22,9 +22,9 @@ Static consistency checks confirmed the extracted module references and controll
 
 ## TestEZ setup (2026-09-30)
 
-A starter TestEZ suite is now present. The Rojo project maps the root `tests/` directory into Roblox `TestService`; the manual runner is guarded to Studio and does not execute automatically. Initial specs cover the shared Vector helper and weapon catalog. The runner expects TestEZ at `ReplicatedStorage.packages.TestEZ`, following the project's Roblox-managed package convention; installation and usage instructions are in `docs/TESTING.md`.
+An expanded TestEZ suite is now present. The Rojo project maps the contents of `tests/` directly into Roblox `TestService`; the manual runner is Studio-guarded and does not execute automatically. The 40 cases cover pure parkour math and tuning invariants, input-state transitions, movement/sprint behavior with an isolated Humanoid fixture, weapon catalog/definition shape, shared protocol identifiers, malformed combat payload rejection, inventory slot validation, and client/server module/runtime contracts. The runner expects TestEZ at `ReplicatedStorage.packages.TestEZ`, following the project's Roblox-managed package convention; installation and usage instructions are in `docs/TESTING.md`.
 
-The test harness and specs are committed, but TestEZ installation and execution in Studio remain to be completed by the developer. No test pass is claimed by this source-only setup.
+The expanded test harness and specs are committed. TestEZ installation and the user's Studio run are in progress; no pass result for the expanded suite is claimed until its Output is reviewed.
 
 ## Findings
 
