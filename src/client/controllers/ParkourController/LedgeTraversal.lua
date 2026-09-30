@@ -8,10 +8,11 @@ local Config = require(script.Parent.Config)
 
 local ClimbableQuery = require(script.Parent.ClimbableQuery)
 local ParkourState = require(script.Parent.State)
+local Metrics = require(script.Parent.Metrics)
 
 local LedgeTraversal = {}
 
-function LedgeTraversal.try_lower_ledge(self)
+local function try_lower_ledge_impl(self)
 		if self.State ~= "Hanging" or not self.Root or not self.CurrentClimbable
 		or not self.HangPosition or not self.Normal then
 				return
@@ -70,16 +71,23 @@ function LedgeTraversal.try_lower_ledge(self)
 
 	-- S transfers only to a lower tagged guide/surface. It does not dismount to
 	-- ordinary ground; W remains the upper-ground mantle action.
-	for _, guide in ipairs(CollectionService:GetTagged(Config.ClimbableTag)) do
-		if guide:IsDescendantOf(Workspace)
-			and self:_is_guide_within_mantle_search(guide, current_top, normal, tangent) then
-			for _, lateral_offset in ipairs(lateral_samples) do
-				for _, inward_offset in ipairs(inward_samples) do
-					local sample_position = current_top
-						+ tangent * lateral_offset
-						- normal * inward_offset
-					for _, top in ipairs(self:_get_guide_tops(guide, sample_position)) do
-						consider_lower_top(guide, top)
+	local tagged_guides = CollectionService:GetTagged(Config.ClimbableTag)
+	Metrics.record(self, "TaggedGuides", #tagged_guides)
+	for _, guide in ipairs(tagged_guides) do
+		Metrics.record(self, "GuidesVisited")
+		if guide:IsDescendantOf(Workspace) then
+			local in_bounds = self:_is_guide_within_mantle_search(guide, current_top, normal, tangent)
+			Metrics.record(self, in_bounds and "GuidesInSearchBounds" or "GuidesOutsideSearchBounds")
+			if in_bounds then
+				for _, lateral_offset in ipairs(lateral_samples) do
+					for _, inward_offset in ipairs(inward_samples) do
+						Metrics.record(self, "GuideColumns")
+						local sample_position = current_top
+							+ tangent * lateral_offset
+							- normal * inward_offset
+						for _, top in ipairs(self:_get_guide_tops(guide, sample_position)) do
+							consider_lower_top(guide, top)
+						end
 					end
 				end
 			end
@@ -323,6 +331,8 @@ function LedgeTraversal.get_guide_top(self, guide, sample_position)
 		box_cframe.Position.Y + box_size.Magnitude + 4,
 		sample_position and sample_position.Z or box_cframe.Position.Z
 	)
+	Metrics.record(self, "Raycasts")
+	Metrics.record(self, "GuideTopRaycasts")
 	local sampled_top = Workspace:Raycast(
 		ray_origin,
 		Vector3.new(0, -ray_length, 0),
@@ -357,6 +367,7 @@ function LedgeTraversal.get_guide_top(self, guide, sample_position)
 	}
 end
 function LedgeTraversal.get_guide_tops(self, guide, sample_position)
+	Metrics.record(self, "GuideTopQueries")
 	local first_top = self:_get_guide_top(guide, sample_position)
 	if not first_top then return {} end
 
@@ -377,6 +388,8 @@ function LedgeTraversal.get_guide_tops(self, guide, sample_position)
 	-- Starting just below each found surface exposes the next lower part in a
 	-- stacked Model without globally ray-filtering out the whole tagged guide.
 	for _ = 2, Config.MaxTopSurfaceHits do
+		Metrics.record(self, "Raycasts")
+		Metrics.record(self, "GuideStackRaycasts")
 		local hit = Workspace:Raycast(
 			ray_origin,
 			Vector3.new(0, -ray_length, 0),
@@ -409,6 +422,8 @@ local function cast_mantle_ground(self, origin, direction)
 	local exclusions = { self.Character }
 	for _ = 1, Config.MaxTopSurfaceHits do
 		params.FilterDescendantsInstances = exclusions
+		Metrics.record(self, "Raycasts")
+		Metrics.record(self, "MantleGroundRaycasts")
 		local hit = Workspace:Raycast(origin, direction, params)
 		if not hit then
 			return nil
@@ -617,7 +632,7 @@ function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 	return true
 end
 
-function LedgeTraversal.try_mantle(self)
+local function try_mantle_impl(self)
 		if self.State ~= "Hanging" or not self.Root or not self.CurrentClimbable
 		or not self.HangPosition or not self.Normal
 		or not self.CurrentClimbable:IsDescendantOf(Workspace) then
@@ -690,10 +705,18 @@ function LedgeTraversal.try_mantle(self)
 
 	-- Sample tagged guides for multi-part ledges, while the ground fallback below
 	-- handles ordinary untagged parts.
-	for _, guide in ipairs(CollectionService:GetTagged(Config.ClimbableTag)) do
+	local tagged_guides = CollectionService:GetTagged(Config.ClimbableTag)
+	Metrics.record(self, "TaggedGuides", #tagged_guides)
+	for _, guide in ipairs(tagged_guides) do
+		Metrics.record(self, "GuidesVisited")
 		if guide:IsDescendantOf(Workspace) then
+			local in_bounds = self:_is_guide_within_mantle_search(guide, current_top, normal, tangent)
+			Metrics.record(self, in_bounds and "GuidesInSearchBounds" or "GuidesOutsideSearchBounds")
+			-- Baseline pass: count out-of-range guides but still query them.
+			-- The next optimization pass will apply this conservative filter.
 			for _, lateral_offset in ipairs(lateral_samples) do
 				for _, inward_offset in ipairs(inward_samples) do
+					Metrics.record(self, "GuideColumns")
 					local sample_position = current_top
 						+ tangent * lateral_offset
 						- normal * inward_offset
@@ -723,6 +746,15 @@ function LedgeTraversal.try_mantle(self)
 		-- walkable surface above the current wall.
 		local ground_mantled = self:_try_ground_mantle(current_top, normal, tangent)
 	end
+end
+
+
+function LedgeTraversal.try_lower_ledge(self)
+	return Metrics.measure_search(self, "LowerLedge", try_lower_ledge_impl)
+end
+
+function LedgeTraversal.try_mantle(self)
+	return Metrics.measure_search(self, "Mantle", try_mantle_impl)
 end
 
 return LedgeTraversal
