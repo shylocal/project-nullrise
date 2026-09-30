@@ -123,7 +123,7 @@ return function()
 		expect(#ended).to.equal(2)
 	end)
 
-	it("reconciles Shift transitions from aggregate physical state", function()
+	it("releases aliased sprint keys and recovers from an unmatched Shift end", function()
 		local began_count = 0
 		local ended_count = 0
 		local held_keys = {}
@@ -134,93 +134,57 @@ return function()
 			if action == Actions.Sprint then ended_count += 1 end
 		end)
 
-		local function is_key_down(key_code)
-			return held_keys[key_code] == true
-		end
-
-		local function press_shift(key_code)
-			PCInput._begin_sprint_key(held_keys, key_code, function(action, source, source_id)
+		local function begin_shift(key_code)
+			return PCInput._begin_sprint_key(held_keys, key_code, function(action, source, source_id)
 				controller:_began(action, source, source_id)
 			end)
 		end
 
-		local function poll_shift_state()
-			PCInput._reconcile_sprint_keys(
-				held_keys,
-				is_key_down,
-				function(action, source, source_id)
-					controller:_ended(action, source, source_id)
-				end
-			)
+		local function end_shift(key_code)
+			return PCInput._end_sprint_key(held_keys, key_code, function(action, source, source_id)
+				controller:_ended(action, source, source_id)
+			end)
 		end
 
-		-- Exact sequential handoff: Left Shift is released before Right Shift
-		-- is pressed. Each independent physical hold starts and ends Sprint.
-		press_shift(Enum.KeyCode.LeftShift)
+		-- With both begin edges observed, releasing one key preserves Sprint
+		-- while the other tracked Shift remains held.
+		begin_shift(Enum.KeyCode.LeftShift)
+		begin_shift(Enum.KeyCode.RightShift)
+		expect(began_count).to.equal(1)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		held_keys[Enum.KeyCode.LeftShift] = false
-		poll_shift_state()
+
+		local handled, matched, remains_active = end_shift(Enum.KeyCode.LeftShift)
+		expect(handled).to.equal(true)
+		expect(matched).to.equal(true)
+		expect(remains_active).to.equal(true)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+		expect(ended_count).to.equal(0)
+
+		handled, matched, remains_active = end_shift(Enum.KeyCode.RightShift)
+		expect(handled).to.equal(true)
+		expect(matched).to.equal(true)
+		expect(remains_active).to.equal(false)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		expect(ended_count).to.equal(1)
 
-		press_shift(Enum.KeyCode.RightShift)
+		-- Match the Studio trace: only LeftShift began, but Roblox reports
+		-- an InputEnded for RightShift. Treat this unmatched modifier end as
+		-- the terminal edge and clear the stale LeftShift source.
+		begin_shift(Enum.KeyCode.LeftShift)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		-- Simulate a missing InputEnded event: the Heartbeat physical-state
-		-- reconciliation observes the key up and ends the action.
-		held_keys[Enum.KeyCode.RightShift] = false
-		poll_shift_state()
-		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
-		expect(ended_count).to.equal(2)
-
-		-- Overlapping holds remain active until the final modifier is up.
-		press_shift(Enum.KeyCode.LeftShift)
-		press_shift(Enum.KeyCode.RightShift)
-		expect(began_count).to.equal(3)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-
-		held_keys[Enum.KeyCode.LeftShift] = false
-		poll_shift_state()
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		expect(ended_count).to.equal(2)
-
-		held_keys[Enum.KeyCode.RightShift] = false
-		poll_shift_state()
-		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
-		expect(ended_count).to.equal(3)
-
-		-- Match the Studio trace: InputEnded identifies RightShift although
-		-- the pressed-key snapshot still contains LeftShift. That edge must not
-		-- clear Sprint; a later empty snapshot ends the aggregate source.
-		PCInput._begin_sprint_key(held_keys, Enum.KeyCode.LeftShift, function(action, source, source_id)
-			controller:_began(action, source, source_id)
-		end)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-
-		local remains_active = PCInput._reconcile_sprint_keys(
-			held_keys,
-			function(key_code)
-				return key_code == Enum.KeyCode.LeftShift
-			end,
-			function(action, source, source_id)
-				controller:_ended(action, source, source_id)
-			end
-		)
-		expect(remains_active).to.equal(true)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		expect(ended_count).to.equal(3)
-
-		remains_active = PCInput._reconcile_sprint_keys(
-			held_keys,
-			function()
-				return false
-			end,
-			function(action, source, source_id)
-				controller:_ended(action, source, source_id)
-			end
-		)
+		handled, matched, remains_active = end_shift(Enum.KeyCode.RightShift)
+		expect(handled).to.equal(true)
+		expect(matched).to.equal(false)
 		expect(remains_active).to.equal(false)
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
-		expect(ended_count).to.equal(4)
+		expect(ended_count).to.equal(2)
+
+		-- A duplicate/unmatched end after cleanup does not emit another end.
+		handled, matched, remains_active = end_shift(Enum.KeyCode.RightShift)
+		expect(handled).to.equal(true)
+		expect(remains_active).to.equal(false)
+		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
+		expect(ended_count).to.equal(2)
 	end)
 
 	it("keeps an action down until every source releases it", function()
