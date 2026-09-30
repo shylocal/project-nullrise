@@ -16,6 +16,17 @@ local function is_sprint_key(key_code)
 	return key_code == Enum.KeyCode.LeftShift or key_code == Enum.KeyCode.RightShift
 end
 
+-- Temporary diagnostic logging for the reported stuck-Sprint input sequence.
+local function get_shift_trace(held_keys)
+	return string.format(
+		"tracked[L=%s,R=%s] physical[L=%s,R=%s]",
+		tostring(held_keys[Enum.KeyCode.LeftShift] == true),
+		tostring(held_keys[Enum.KeyCode.RightShift] == true),
+		tostring(UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)),
+		tostring(UserInputService:IsKeyDown(Enum.KeyCode.RightShift))
+	)
+end
+
 local Bindings = {
 	[Enum.UserInputType.MouseButton1] = Actions.Primary,
 	[Enum.KeyCode.LeftShift] = Actions.Sprint,
@@ -91,7 +102,21 @@ function PCInput:_start(on_began, on_ended)
 	end)
 
 	self.Trove:Connect(UserInputService.InputBegan, function(input, game_processed)
+		local is_shift = is_sprint_key(input.KeyCode)
+		if is_shift then
+			print(string.format(
+				"[ShiftTrace][PC] InputBegan key=%s type=%s processed=%s before{%s}",
+				tostring(input.KeyCode),
+				tostring(input.UserInputType),
+				tostring(game_processed),
+				get_shift_trace(self.HeldSprintKeys)
+			))
+		end
+
 		if game_processed then
+			if is_shift then
+				print("[ShiftTrace][PC] InputBegan ignored because gameProcessedEvent=true")
+			end
 			return
 		end
 
@@ -102,20 +127,44 @@ function PCInput:_start(on_began, on_ended)
 		end
 
 		if action == Actions.Sprint then
-			PCInput._begin_sprint_key(self.HeldSprintKeys, input.KeyCode, on_began)
+			local handled = PCInput._begin_sprint_key(self.HeldSprintKeys, input.KeyCode, on_began)
+			print(string.format(
+				"[ShiftTrace][PC] Sprint begin handled=%s action=%s sourceId=%s after{%s}",
+				tostring(handled),
+				tostring(action),
+				tostring(source_id),
+				get_shift_trace(self.HeldSprintKeys)
+			))
 		else
 			on_began(action, "PC", source_id)
 		end
 	end)
 
 	self.Trove:Connect(UserInputService.InputEnded, function(input)
+		local is_shift = is_sprint_key(input.KeyCode)
+		if is_shift then
+			print(string.format(
+				"[ShiftTrace][PC] InputEnded key=%s type=%s before{%s}",
+				tostring(input.KeyCode),
+				tostring(input.UserInputType),
+				get_shift_trace(self.HeldSprintKeys)
+			))
+		end
+
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
 
-		if is_sprint_key(input.KeyCode) then
-			PCInput._end_sprint_key(self.HeldSprintKeys, input.KeyCode, on_ended, function(key_code)
+		if is_shift then
+			local handled = PCInput._end_sprint_key(self.HeldSprintKeys, input.KeyCode, on_ended, function(key_code)
 				return UserInputService:IsKeyDown(key_code)
 			end)
+			print(string.format(
+				"[ShiftTrace][PC] Sprint end handled=%s action=%s sourceId=%s after{%s}",
+				tostring(handled),
+				tostring(action),
+				tostring(source_id),
+				get_shift_trace(self.HeldSprintKeys)
+			))
 		elseif action then
 			on_ended(action, "PC", source_id)
 		end
