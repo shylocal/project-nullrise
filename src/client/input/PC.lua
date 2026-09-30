@@ -58,7 +58,11 @@ end
 
 function PCInput:_start(on_began, on_ended)
 	self.Trove:Connect(UserInputService.InputBegan, function(input, game_processed)
-		if game_processed then return end
+		warn(("[InputDebug][PC] raw InputBegan key=%s type=%s processed=%s"):format(tostring(input.KeyCode), tostring(input.UserInputType), tostring(game_processed)))
+		if game_processed then
+			warn(("[InputDebug][PC] processed begin ignored key=%s"):format(tostring(input.KeyCode)))
+			return
+		end
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
 		local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
 		if action then
@@ -73,6 +77,13 @@ function PCInput:_start(on_began, on_ended)
 			warn(("[InputDebug][PC] InputEnded key=%s type=%s action=%s sourceId=%s"):format(tostring(input.KeyCode), tostring(input.UserInputType), tostring(action), tostring(source_id)))
 			PCInput._release_unheld_sprint_keys(on_ended, input.KeyCode, function(key_code)
 				return UserInputService:IsKeyDown(key_code)
+			end)
+			task.defer(function()
+				warn(("[InputDebug][PC] deferred key state after ended=%s leftDown=%s rightDown=%s"):format(
+					tostring(input.KeyCode),
+					tostring(UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)),
+					tostring(UserInputService:IsKeyDown(Enum.KeyCode.RightShift))
+				))
 			end)
 		elseif action then
 			on_ended(action, "PC", source_id)
