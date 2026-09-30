@@ -8,6 +8,29 @@ local Signal = require(Packages.Signal)
 local PCInput = require(script.Parent.Parent.input.PC)
 local MobileInput = require(script.Parent.Parent.input.Mobile)
 
+local DEFAULT_INPUT_SOURCE = "Default"
+local INPUT_SOURCES = {
+	[Enum.UserInputType.Keyboard] = "PC",
+	[Enum.UserInputType.MouseButton1] = "PC",
+	[Enum.UserInputType.MouseButton2] = "PC",
+	[Enum.UserInputType.MouseButton3] = "PC",
+	[Enum.UserInputType.MouseMovement] = "PC",
+	[Enum.UserInputType.MouseWheel] = "PC",
+	[Enum.UserInputType.Touch] = "Mobile",
+	[Enum.UserInputType.Gamepad1] = "Gamepad",
+	[Enum.UserInputType.Gamepad2] = "Gamepad",
+	[Enum.UserInputType.Gamepad3] = "Gamepad",
+	[Enum.UserInputType.Gamepad4] = "Gamepad",
+	[Enum.UserInputType.Gamepad5] = "Gamepad",
+	[Enum.UserInputType.Gamepad6] = "Gamepad",
+	[Enum.UserInputType.Gamepad7] = "Gamepad",
+	[Enum.UserInputType.Gamepad8] = "Gamepad",
+}
+
+local function get_input_source(input_type)
+	return INPUT_SOURCES[input_type]
+end
+
 local InputController = {}
 InputController.__index = InputController
 
@@ -17,6 +40,8 @@ function InputController.new()
 		ActionBegan = Signal.new(),
 		ActionEnded = Signal.new(),
 		Down = {},
+		SourcesDown = {},
+		ActiveInputSource = get_input_source(UserInputService:GetLastInputType()),
 	}, InputController)
 
 	self.Trove:Add(self.ActionBegan)
@@ -36,12 +61,16 @@ function InputController:_start()
 		self:_release_all()
 	end)
 
-	local began = function(action)
-		self:_began(action)
+	self.Trove:Connect(UserInputService.LastInputTypeChanged, function(input_type)
+		self:_set_active_source(get_input_source(input_type))
+	end)
+
+	local began = function(action, source)
+		self:_began(action, source)
 	end
 
-	local ended = function(action)
-		self:_ended(action)
+	local ended = function(action, source)
+		self:_ended(action, source)
 	end
 
 	self.Trove:Add(PCInput.new(began, ended))
@@ -51,7 +80,20 @@ function InputController:_start()
 	end
 end
 
-function InputController:_began(action)
+function InputController:_began(action, source)
+	source = source or DEFAULT_INPUT_SOURCE
+
+	local sources = self.SourcesDown[action]
+	if not sources then
+		sources = {}
+		self.SourcesDown[action] = sources
+	end
+
+	if sources[source] then
+		return
+	end
+
+	sources[source] = true
 	if self.Down[action] then
 		return
 	end
@@ -60,13 +102,49 @@ function InputController:_began(action)
 	self.ActionBegan:Fire(action)
 end
 
-function InputController:_ended(action)
-	if not self.Down[action] then
+function InputController:_ended(action, source)
+	source = source or DEFAULT_INPUT_SOURCE
+
+	local sources = self.SourcesDown[action]
+	if not sources or not sources[source] then
 		return
 	end
 
+	sources[source] = nil
+	if next(sources) ~= nil then
+		return
+	end
+
+	self.SourcesDown[action] = nil
 	self.Down[action] = nil
 	self.ActionEnded:Fire(action)
+end
+
+function InputController:_release_source(source)
+	if not source then
+		return
+	end
+
+	local affected_actions = {}
+	for action, sources in pairs(self.SourcesDown) do
+		if sources[source] then
+			table.insert(affected_actions, action)
+		end
+	end
+
+	for _, action in ipairs(affected_actions) do
+		self:_ended(action, source)
+	end
+end
+
+function InputController:_set_active_source(source)
+	if not source or source == self.ActiveInputSource then
+		return
+	end
+
+	local previous_source = self.ActiveInputSource
+	self.ActiveInputSource = source
+	self:_release_source(previous_source)
 end
 
 -- Release every held action when Roblox loses window focus. InputEnded is not
@@ -78,7 +156,9 @@ function InputController:_release_all()
 	end
 
 	for _, action in ipairs(held_actions) do
-		self:_ended(action)
+		self.SourcesDown[action] = nil
+		self.Down[action] = nil
+		self.ActionEnded:Fire(action)
 	end
 end
 
@@ -87,7 +167,7 @@ function InputController:IsDown(action)
 end
 
 function InputController:Destroy()
-	table.clear(self.Down)
+	self:_release_all()
 	self.Trove:Destroy()
 end
 
