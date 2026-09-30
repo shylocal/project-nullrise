@@ -90,6 +90,7 @@ return function()
 			local old_character = make_character(created)
 			local new_character = make_character(created)
 			local active = make_active(old_character)
+			active.HitActive = false
 			local service, session = make_fixture(player, old_character, active)
 			session.Character = new_character
 
