@@ -334,7 +334,7 @@ function ParkourController:_step(dt)
 			if vault_humanoid.RigType == Enum.HumanoidRigType.R6 then
 				-- R6 commonly starts at zero HipHeight, so allow a small negative
 				-- relative offset to make the temporary crouch effective.
-				minimum_hip_height = -0.35
+				minimum_hip_height = -reduction
 			end
 			vault_humanoid.HipHeight = math.max(
 				minimum_hip_height,
