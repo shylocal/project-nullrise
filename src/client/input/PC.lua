@@ -63,13 +63,18 @@ function PCInput:_start(on_began, on_ended)
 	self.Destroyed = false
 	self.OnBegan = on_began
 	self.OnEnded = on_ended
-	local sprint_action_name = "ProjectNullriseSprint"
-	ContextActionService:BindAction(sprint_action_name, function(...)
-		return self:_on_sprint_input(...)
-	end, false, Enum.KeyCode.LeftShift, Enum.KeyCode.RightShift)
-	self.Trove:Add(function()
-		ContextActionService:UnbindAction(sprint_action_name)
-	end)
+	-- Give each physical key its own CAS action. A single action bound to
+	-- both aliases can report an End for one key without a matching Begin
+	-- for the other, so aggregate the independent action states ourselves.
+	for _, key_code in ipairs({ Enum.KeyCode.LeftShift, Enum.KeyCode.RightShift }) do
+		local sprint_action_name = "ProjectNullriseSprint_" .. key_code.Name
+		ContextActionService:BindAction(sprint_action_name, function(action_name, input_state, input)
+			return self:_on_sprint_input(action_name, input_state, input)
+		end, false, key_code)
+		self.Trove:Add(function()
+			ContextActionService:UnbindAction(sprint_action_name)
+		end)
+	end
 	self.Trove:Connect(UserInputService.InputBegan, function(input, game_processed)
 		if is_sprint_key(input.KeyCode) then return end
 		warn(("[InputDebug][PC] raw InputBegan key=%s type=%s processed=%s"):format(tostring(input.KeyCode), tostring(input.UserInputType), tostring(game_processed)))
