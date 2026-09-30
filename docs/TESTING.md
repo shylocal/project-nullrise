@@ -101,7 +101,7 @@ The suite includes:
 - `CombatValidation.spec.lua`: checks rejection of malformed target, segment, and non-finite position inputs.
 - `CombatService.spec.lua`: verifies active-hit cleanup on attacker death, character replacement, and expired windows; valid hit activation; and attack-state reset on weapon change and player removal. These tests use isolated service fixtures and do not fire live remotes.
 - `AttackLifecycle.spec.lua`: verifies callback ownership accepts the current attack lifecycle and rejects replaced or stale lifecycle generations.
-- `InventoryValidation.spec.lua`: checks finite positive-integer slot validation, accepts slots beyond current keyboard bindings, rejects unknown weapon IDs, and verifies replicated slot snapshots are detached from server-owned state.
+- `InventoryValidation.spec.lua`: checks finite positive-integer slot validation, accepts slots beyond current keyboard bindings, rejects unknown weapon IDs, and verifies replicated slot snapshots are detached from server-owned state. It also verifies that the public `InventoryService:Get(player)` view is detached, so mutating a returned snapshot cannot mutate authoritative inventory.
 - `RuntimeContracts.spec.lua`: smoke-checks configured remotes, required packages, client controller constructors, and server-module exports; it also verifies built-in weapon wield parts and attack/charge hitboxes resolve to BaseParts in the Studio weapon-model templates.
 - `ParkourLifecycle.spec.lua`: verifies allowed traversal state transitions, hanging and mantle restoration, vault Jumping snapshot ownership after Jump release, and idempotent controller teardown.
 - `ParkourMetrics.spec.lua`: verifies opt-in query counters, defensive snapshots, and reset behavior.
