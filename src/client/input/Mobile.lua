@@ -42,10 +42,10 @@ function MobileInput:_start(on_began, on_ended)
 			binding_name,
 			function(_, input_state)
 				if input_state == Enum.UserInputState.Begin then
-					on_began(action)
+					on_began(action, "Mobile")
 				elseif input_state == Enum.UserInputState.End
 					or input_state == Enum.UserInputState.Cancel then
-					on_ended(action)
+					on_ended(action, "Mobile")
 				end
 
 				return Enum.ContextActionResult.Sink
