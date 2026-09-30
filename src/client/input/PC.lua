@@ -76,6 +76,12 @@ function PCInput:_on_sprint_input(action_name, input_state, input)
 			warn(("[InputDebug][PC] unmatched Shift end used as toggle recovery key=%s"):format(tostring(key_code)))
 			self:_set_sprint_toggle(not self.SprintToggleOn)
 		end
+		-- A desynchronized End can follow a lost Begin for a different Shift
+		-- key. Once an unmatched edge is used for recovery, discard all local
+		-- held-key bookkeeping so later End-only edges are also recoverable.
+		if not self.SprintKeysDown[key_code] then
+			table.clear(self.SprintKeysDown)
+		end
 	end
 
 	return Enum.ContextActionResult.Pass
