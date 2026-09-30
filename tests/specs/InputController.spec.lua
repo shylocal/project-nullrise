@@ -123,11 +123,12 @@ return function()
 		expect(#ended).to.equal(2)
 	end)
 
-	it("tracks sprint aliases from ContextActionService states", function()
+	it("tracks Left Shift as a held sprint input", function()
 		local began_count = 0
 		local ended_count = 0
 		local pc_input = setmetatable({
-			SprintKeysDown = {},
+			SprintKeyDown = false,
+			SprintActive = false,
 			OnBegan = function(action, source, source_id)
 				began_count += 1
 				controller:_began(action, source, source_id)
@@ -139,17 +140,26 @@ return function()
 		}, PCInput)
 
 		pc_input:_on_sprint_input("Sprint", Enum.UserInputState.Begin, { KeyCode = Enum.KeyCode.LeftShift })
-		pc_input:_on_sprint_input("Sprint", Enum.UserInputState.Begin, { KeyCode = Enum.KeyCode.RightShift })
 		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		expect(began_count).to.equal(2)
-
-		pc_input:_on_sprint_input("Sprint", Enum.UserInputState.End, { KeyCode = Enum.KeyCode.RightShift })
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		expect(ended_count).to.equal(1)
+		expect(began_count).to.equal(1)
 
 		pc_input:_on_sprint_input("Sprint", Enum.UserInputState.End, { KeyCode = Enum.KeyCode.LeftShift })
 		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
-		expect(ended_count).to.equal(2)
+		expect(ended_count).to.equal(1)
+	end)
+
+	it("ignores Right Shift as a sprint input", function()
+		local began_count = 0
+		local pc_input = setmetatable({
+			SprintKeyDown = false,
+			SprintActive = false,
+			OnBegan = function() began_count += 1 end,
+			OnEnded = function() end,
+		}, PCInput)
+
+		pc_input:_on_sprint_input("Sprint", Enum.UserInputState.Begin, { KeyCode = Enum.KeyCode.RightShift })
+		expect(began_count).to.equal(0)
+		expect(pc_input.SprintActive).to.equal(false)
 	end)
 
 	it("keeps an action down until every source releases it", function()
