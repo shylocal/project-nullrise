@@ -76,13 +76,15 @@ return function()
 			local character = create_instance("Model", "WeaponAttachmentCharacter", Workspace, created)
 			create_instance("Part", "Right Arm", character, created)
 			local source = create_instance("Model", "MixedWeaponTemplate", Workspace, created)
-			local good_part = create_instance("Part", "Good", source, created)
+			create_instance("Part", "Good", source, created)
 			create_instance("Folder", "Invalid", source, created)
 
 			local clone = WeaponAttachment.Attach(source, {
 				Good = "Right Arm",
 				Invalid = "Right Arm",
 				Missing = "Right Arm",
+				BadTarget = 1,
+				[1] = "Right Arm",
 			}, character)
 			expect(clone ~= nil).to.equal(true)
 
