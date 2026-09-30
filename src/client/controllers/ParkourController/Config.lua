@@ -34,6 +34,7 @@ return {
 	VaultMinTopHopDepth = 2.5,
 	VaultTopHopHeightMargin = 0.8,
 	VaultTopHopForwardBoostSpeed = 8,
+	VaultPhysicalExitProgress = 0.35,
 	VaultDuration = 0.38,
 	VaultDurationMultiplier = 0.95,
 	VaultCooldown = 0.3,
