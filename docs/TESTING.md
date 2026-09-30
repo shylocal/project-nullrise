@@ -26,6 +26,23 @@ require(game:GetService("TestService").RunTests).Run()
 
 TestEZ's text reporter writes the test results to the Output window. The runner returns TestEZ's results object. It also checks `RunService:IsStudio()`, so it cannot be invoked in a published server.
 
+## Profiling parkour queries in Studio
+
+Query profiling is opt-in and disabled by default. During a local play session, switch the Command Bar execution context to **Client** and run:
+
+```lua
+local character = game:GetService("Players").LocalPlayer.Character
+character:SetAttribute("ParkourQueryMetrics", true)
+```
+
+While hanging from tagged ledges, press **W** to attempt a mantle and **S** to search for a lower ledge. Each search prints one `[ParkourMetrics]` line to the client Output. It reports elapsed search time, raycasts, overlap queries, tagged guides enumerated/visited, guides inside/outside the conservative search bounds, sampled guide columns, and guide-top/stack raycasts. Metrics reset for each measured search. Disable profiling with:
+
+```lua
+character:SetAttribute("ParkourQueryMetrics", false)
+```
+
+For a useful baseline, test the same map location and traversal direction several times, and retain the Output lines. Timing varies with Studio load; compare query counts first and treat milliseconds as a rough indicator. These counters measure query workload, not frame time or client-wide performance.
+
 ## Parkour lifecycle Studio checks
 
 These checks complement the isolated lifecycle specs because they exercise Roblox character physics and the actual traversal queries. Run them in a local Studio session with the Rojo-synced source:
@@ -70,10 +87,11 @@ The suite includes:
 - `CombatValidation.spec.lua`: checks rejection of malformed target, segment, and non-finite position inputs.
 - `InventoryValidation.spec.lua`: checks rejection of invalid slot values and unknown weapon IDs.
 - `RuntimeContracts.spec.lua`: smoke-checks configured remotes, required packages, weapon models, client controller constructors, and server-module exports in the Studio place.
-- `ParkourLifecycle.spec.lua`: verifies hanging and mantle restoration, preserves the vault Jumping snapshot until vault cleanup after Jump release, and checks idempotent controller teardown.
+- `ParkourLifecycle.spec.lua`: verifies allowed traversal state transitions, hanging and mantle restoration, vault Jumping snapshot ownership after Jump release, and idempotent controller teardown.
+- `ParkourMetrics.spec.lua`: verifies opt-in query counters, defensive snapshots, and reset behavior.
 
-The suite currently defines **45 TestEZ cases** across these specs. This is a starting regression net, not exhaustive gameplay coverage; in particular, it does not simulate real parkour raycasts against the map, animation playback, or multiplayer combat timing.
+The suite currently defines **47 TestEZ cases** across these specs. This is a starting regression net, not exhaustive gameplay coverage; in particular, it does not simulate real parkour raycasts against the map, animation playback, or multiplayer combat timing.
 
-The 44-case suite (including four initial lifecycle regressions) was confirmed by the user in Roblox Studio with **44 passed, 0 failed, 0 skipped**. The parkour state owner and a fifth transition-validation case have since been added, with the lifecycle specs updated to use the shared snapshot API. The current 45-case revision has passed static source checks only; rerun the full suite and review the Output before treating it as runtime-verified.
+The user confirmed **45 passed, 0 failed, 0 skipped** for the state-owner revision. Opt-in query instrumentation and two metrics tests were added afterward; the current 47-case revision has only received static source checks and needs a Studio rerun. Query profiling instructions are in the section above.
 
 The behavior tests use isolated fixtures and avoid invoking live remotes or depending on map geometry. They are useful regression checks, but they do not replace Studio playtesting of real movement physics, parkour detection against authored map parts, animation asset availability, or multiplayer combat.
