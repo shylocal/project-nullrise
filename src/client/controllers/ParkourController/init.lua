@@ -294,8 +294,9 @@ function ParkourController:_step(dt)
 		local position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
 		root.CFrame = CFrame.new(position + Vector3.new(0, arc, 0)) * base.Rotation
 
-		local vault_humanoid = self.VaultHipHeightHumanoid
-		local original_hip_height = self.VaultHipHeightBefore
+		local vault_snapshot = ParkourState.get_humanoid_snapshot(self, "Vault")
+		local vault_humanoid = vault_snapshot and vault_snapshot.Humanoid
+		local original_hip_height = ParkourState.get_humanoid_value(self, "Vault", "HipHeight")
 		if vault_humanoid and vault_humanoid.Parent and original_hip_height ~= nil then
 			local reduction = math.max(0, Config.VaultHipHeightReduction or 0)
 			local weight = VaultMath.hip_height_weight(linear)
