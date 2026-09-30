@@ -61,19 +61,11 @@ function PCInput:_on_sprint_input(action_name, input_state, input)
 			-- Roblox can deliver an End for the other Shift alias without
 			-- ever delivering its Begin. Treat that unmatched End as a
 			-- fail-safe release so a lost key-up cannot leave sprint stuck.
-			warn(("[InputDebug][PC] CAS unmatched sprint end; resetting Shift bindings key=%s state=%s"):format(tostring(key_code), tostring(input_state)))
+			warn(("[InputDebug][PC] CAS unmatched sprint end; clearing tracked Shift keys key=%s state=%s"):format(tostring(key_code), tostring(input_state)))
 			for tracked_key in pairs(self.SprintKeysDown) do
 				self.SprintKeysDown[tracked_key] = nil
 				self.OnEnded(Actions.Sprint, "PC", tracked_key)
 			end
-			-- The engine's key state can remain latched after a missing edge.
-			-- Recreate the CAS bindings after this callback unwinds to recover
-			-- the action layer for subsequent physical presses.
-			task.defer(function()
-				if not self.Destroyed then
-					self:_bind_sprint_actions()
-				end
-			end)
 		end
 	end
 
