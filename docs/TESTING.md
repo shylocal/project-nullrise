@@ -85,7 +85,7 @@ The suite includes:
 - `InputController.spec.lua`: exercises action begin/end de-duplication and held-action release behavior using isolated signals.
 - `MovementController.spec.lua`: creates a temporary Model/Humanoid to verify sprint transitions, independent blockers, speed overrides, validation, and change events.
 - `WeaponCatalog.spec.lua` and `WeaponDefinitions.spec.lua`: validate catalog lookups and the built-in weapon/attack/animation data shapes.
-- `WeaponAttachment.spec.lua`: verifies clone preparation, Motor6D binding, Hitpoint tagging, invalid-model cleanup, and safe handling of malformed wield mappings.
+- `WeaponAttachment.spec.lua`: verifies clone preparation, Motor6D binding, Hitpoint tagging, invalid-model cleanup, and safe handling of malformed wield mappings. Its malformed-entry case intentionally prints attachment warnings for the invalid test fixture; those warnings are expected.
 - `Protocol.spec.lua`: checks shared action and remote identifiers for valid, unique strings.
 - `CombatValidation.spec.lua`: checks rejection of malformed target, segment, and non-finite position inputs.
 - `CombatService.spec.lua`: verifies active-hit cleanup on attacker death, character replacement, and expired windows, plus acceptance of a valid living-character hit activation. These tests call isolated service methods and do not fire remotes.
