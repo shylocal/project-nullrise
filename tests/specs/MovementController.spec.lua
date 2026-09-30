@@ -114,10 +114,11 @@ return function()
 		movement:SetSprintBlocked(false, "test")
 		input:_ended(Actions.Sprint)
 
-		expect(#changes).to.equal(3)
+		expect(#changes).to.equal(4)
 		expect(changes[1]).to.equal(true)
 		expect(changes[2]).to.equal(false)
 		expect(changes[3]).to.equal(true)
+		expect(changes[4]).to.equal(false)
 	end)
 	end)
 end
