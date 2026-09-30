@@ -76,16 +76,7 @@ function ParkourController:_start()
 			self.ForwardBlockedUntilRelease = false
 		end
 		if action == Actions.Jump then
-			if self.GrabBlockedUntilJumpReleased then
-				self.GrabBlockedUntilJumpReleased = false
-				if self.State ~= "Vaulting" then
-					ParkourState.restore_humanoid(self, "Mantle", { "JumpingEnabled" })
-					ParkourState.restore_humanoid(self, "Vault", { "JumpingEnabled" })
-				end
-				if self.State == "Grounded" then
-					ParkourState.restore_humanoid(self, "Hang", { "AutoRotate", "PlatformStand" })
-				end
-			end
+			self:_clear_jump_block()
 			if self.State == "Hanging" then
 				-- Releasing Space simply lets go; normal gravity handles the drop.
 				self:_release()
@@ -211,6 +202,21 @@ function ParkourController:_has_hang_body_clearance(position, normal)
 	return Queries.has_hang_body_clearance(self, position, normal)
 end
 
+function ParkourController:_clear_jump_block()
+	if not self.GrabBlockedUntilJumpReleased then
+		return
+	end
+
+	self.GrabBlockedUntilJumpReleased = false
+	if self.State ~= "Vaulting" then
+		ParkourState.restore_humanoid(self, "Mantle", { "JumpingEnabled" })
+		ParkourState.restore_humanoid(self, "Vault", { "JumpingEnabled" })
+	end
+	if self.State == "Grounded" then
+		ParkourState.restore_humanoid(self, "Hang", { "AutoRotate", "PlatformStand" })
+	end
+end
+
 function ParkourController:_step(dt)
 	if self._destroyed then
 		return
@@ -223,10 +229,7 @@ function ParkourController:_step(dt)
 
 	-- Recover from a lost Jump ActionEnded event (focus changes or UI capture).
 	if self.GrabBlockedUntilJumpReleased and not self.InputController:IsDown(Actions.Jump) then
-		self.GrabBlockedUntilJumpReleased = false
-		if self.State ~= "Vaulting" then
-			restore_jumping_state(self)
-		end
+		self:_clear_jump_block()
 	end
 
 	-- Track the airborne phase to release the hop guard on landing.
