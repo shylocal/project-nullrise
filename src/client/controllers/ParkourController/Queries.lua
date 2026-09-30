@@ -9,14 +9,6 @@ local ClimbableQuery = require(script.Parent.ClimbableQuery)
 
 local Queries = {}
 
-local function debug_log(self, key, interval, ...)
-	local now = os.clock()
-	self._parkourDebugTimes = self._parkourDebugTimes or {}
-	if now - (self._parkourDebugTimes[key] or 0) < interval then return end
-	self._parkourDebugTimes[key] = now
-	print("[ParkourDebug][" .. key .. "]", ...)
-end
-
 function Queries.cast(self, origin, direction, respect_can_collide)
 	local params = self._castParams or RaycastParams.new()
 	self._castParams = params
@@ -71,15 +63,8 @@ function Queries.cast_grabbable_side(self, origin, direction)
 		if hit.Instance:IsA("BasePart")
 			and (not hit.Instance.CanCollide
 				or hit.Instance.CollisionGroup == Config.ClimbableCollisionGroup) then
-			debug_log(self, "side-skip", 0.8, "part", hit.Instance:GetFullName(),
-				"group", hit.Instance.CollisionGroup, "canCollide", hit.Instance.CanCollide,
-				"tagged", ClimbableQuery.is_climbable(hit.Instance), "origin", origin, "direction", direction)
 			table.insert(exclusions, hit.Instance)
 		else
-			debug_log(self, "side-block", 0.8, "part", hit.Instance:GetFullName(),
-				"group", hit.Instance:IsA("BasePart") and hit.Instance.CollisionGroup or "nonpart",
-				"canCollide", hit.Instance:IsA("BasePart") and hit.Instance.CanCollide or "n/a",
-				"tagged", ClimbableQuery.is_climbable(hit.Instance), "origin", origin, "direction", direction)
 			return nil
 		end
 	end
@@ -304,28 +289,6 @@ function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_
 
 	if not best then
 		local diagnostic = first_walkable_surface or first_candidate
-		debug_log(self, "grab-top-failed", 0.8, "no eligible reachable top",
-			"candidateCount", candidate_count,
-			"wallPart", wall_instance and wall_instance:GetFullName(),
-			"wallPosition", wall_position,
-			"wallNormal", wall_normal,
-			"rootY", root_position.Y,
-			"referenceY", reference_height,
-			"allowedTopAbove", allowed_above_height,
-			"allowedTopBelow", Config.MaxGrabHeight,
-			"sampleCandidate", diagnostic and diagnostic.Instance:GetFullName(),
-			"candidateSource", diagnostic and diagnostic.Source,
-			"candidateGroup", diagnostic and diagnostic.Group,
-			"candidateCanCollide", diagnostic and diagnostic.CanCollide,
-			"candidateTagged", diagnostic and diagnostic.Tagged,
-			"candidateNormal", diagnostic and diagnostic.Normal,
-			"candidateRootHeightDelta", diagnostic and diagnostic.RootHeightDelta,
-			"candidateReferenceHeightDelta", diagnostic and diagnostic.ReferenceHeightDelta,
-			"candidateValidSurface", diagnostic and diagnostic.ValidSurface,
-			"candidateWalkable", diagnostic and diagnostic.Walkable,
-			"candidateAboveSideHit", diagnostic and diagnostic.AboveSideHit,
-			"candidateReachable", diagnostic and diagnostic.Reachable,
-			"sampleOffset", diagnostic and diagnostic.SampleOffset)
 	end
 	return best
 end
