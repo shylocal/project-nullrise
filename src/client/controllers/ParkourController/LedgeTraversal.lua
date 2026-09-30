@@ -130,7 +130,7 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 	local probe_origin = candidate_position
 		+ Vector3.new(0, 1.5, 0)
 		+ normal * 0.3
-	local probe = self:_cast_grabbable_side(
+	local probe = self:_cast(
 		probe_origin,
 		-normal * (Config.WallGap + Config.SurfaceProbe)
 	)
@@ -144,9 +144,7 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 		probe.Position,
 		probe.Normal,
 		candidate_position,
-		candidate_position.Y + Config.HangDrop,
-		nil,
-		probe.Instance
+		candidate_position.Y + Config.HangDrop
 	)
 	if not top then
 		debug_log(self, "refresh-contact", 0, "no reachable top", "expected", expected_guide:GetFullName(),
@@ -223,7 +221,7 @@ function LedgeTraversal.get_ledge_outward_normal(self, top, reference_position)
 	for _, outward in ipairs(axes) do
 		local origin = Vector3.new(top.Position.X, probe_y, top.Position.Z)
 			+ outward * probe_length
-		local hit = self:_cast_grabbable_side(origin, -outward * probe_length)
+		local hit = self:_cast_climbable_side(origin, -outward * probe_length)
 		if hit and (ClimbableQuery.get_guide(hit.Instance) or hit.Instance) == guide then
 			local face_normal = Vector.flatten(hit.Normal)
 			if face_normal.Magnitude >= 0.05 then
