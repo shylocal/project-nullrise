@@ -9,6 +9,7 @@ local ParkourController = {}
 ParkourController.__index = ParkourController
 
 local Config = require(script.Config)
+local ClimbableQuery = require(script.ClimbableQuery)
 local VaultMath = require(script.VaultMath)
 local Queries = require(script.Queries)
 local Traversal = require(script.Traversal)
@@ -167,9 +168,11 @@ function ParkourController:_grab(guide, normal, position, edge_gap)
 		or humanoid_state == Enum.HumanoidStateType.Swimming
 		or humanoid_state == Enum.HumanoidStateType.Climbing then return end
 		self.State = "Hanging"
-	-- If Forward helped initiate the grab, consume that held press. The player
-	-- must release and press Forward again before it can trigger a mantle.
-	self.ForwardBlockedUntilRelease = self.InputController:IsDown(Actions.Forward)
+	local forward_held = self.InputController:IsDown(Actions.Forward)
+	local is_tagged_guide = ClimbableQuery.is_climbable(guide)
+	-- Tagged ledges require a fresh Forward press after grabbing. A generic
+	-- tall wall instead uses the held Forward intent to mantle immediately.
+	self.ForwardBlockedUntilRelease = forward_held and is_tagged_guide
 	self.CurrentClimbable = guide
 	self.Normal = normal
 	self.HangDepthOffset = Vector.flatten(normal).Unit * (edge_gap or Config.WallGap)
@@ -187,6 +190,9 @@ function ParkourController:_grab(guide, normal, position, edge_gap)
 		self.MovementController:SetSprintBlocked(true, self)
 	end
 	self:_position_hanging()
+	if forward_held and not is_tagged_guide then
+		self:_try_mantle()
+	end
 end
 
 function ParkourController:_position_hanging()
