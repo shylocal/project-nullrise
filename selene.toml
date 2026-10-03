@@ -1,6 +1,0 @@
-std = "roblox"
-
-[rules]
-empty_if = "allow"
-incorrect_standard_library_use = "warn"
-multiple_statements = "warn"
