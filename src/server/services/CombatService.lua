@@ -291,7 +291,7 @@ function CombatService:_attack(player, attack_index)
 	self.NextAttackAt[player] = math.max(self.NextAttackAt[player] or 0, now + timing.Cooldown)
 
 	self:_create_active(player, attack_index, attack, timing, wielded, character)
-	CombatRemote:FireClient(player, CombatActions.AttackAccepted, attack_index)
+	CombatRemote:FireClient(player, CombatActions.AttackAccepted, attack_index, self.NextAttack[player])
 end
 
 function CombatService:_charge(player)
