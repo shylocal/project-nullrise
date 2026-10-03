@@ -246,6 +246,9 @@ function ParkourController:_step(dt)
 		if not VaultTraversal.update_vault(self, dt) then
 			return
 		end
+	end
+end
+
 function ParkourController:_standing_height()
 	local root = self.Root
 	local humanoid = self.Humanoid
