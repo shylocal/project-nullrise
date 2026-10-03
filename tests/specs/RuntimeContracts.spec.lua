@@ -99,6 +99,7 @@ return function()
 				{ "PlayerSession", "Destroy" },
 				{ "WeaponAttachment", "Attach" },
 				{ "WeaponService", "Equip" },
+				{ "MovementValidation", "ClassifyDelta" },
 			}
 
 			for _, expectation in ipairs(expectations) do
