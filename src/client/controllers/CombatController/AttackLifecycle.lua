@@ -39,7 +39,9 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 				return
 			end
 
-			if attack_key == "Charge" and self.PrimaryHeld then
+			-- While the charge is still held, pause on the marker and wait
+			-- for the release. Once released, the marker starts the hit.
+			if attack_key == "Charge" and self.Charging and self.PrimaryHeld then
 				self.ChargeReady = true
 				self.AnimationController.Combat:Pause(track)
 				return
@@ -66,16 +68,34 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 
 	self.AnimationController.Combat:Play(
 		track,
-		attack.Animation.TransitionTime or 0
+		attack.Animation.TransitionTime
 	)
 
+	-- Cooldown is validated to be no shorter than the server-enforced
+	-- MinDuration, so a legitimate client never starts an attack early.
 	local cooldown = attack.Cooldown
 	self.AttackReadyAt = os.clock() + cooldown
 
-	task.spawn(function()
-		track.Ended:Wait()
-		self:_finish_attack(attack_key, attack_trove)
-	end)
+	-- Owned by the attack trove so a track that never ends (for example one
+	-- destroyed by a weapon swap) cannot keep a waiting thread alive.
+	attack_trove:Connect(
+		track.Ended,
+		function()
+			self:_finish_attack(attack_key, attack_trove)
+		end
+	)
+
+	if attack_key == "Charge" then
+		-- The server stops accepting the charge's HitStart after MaxHoldTime,
+		-- so release it automatically instead of letting a long hold whiff.
+		task.delay(attack.MaxHoldTime, function()
+			if self.AttackLifecycleId ~= lifecycle_id or not self.Charging then
+				return
+			end
+
+			self:_release_charge()
+		end)
+	end
 
 	task.delay(cooldown, function()
 		if self.AttackLifecycleId ~= lifecycle_id then

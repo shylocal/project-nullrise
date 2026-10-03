@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
+local Validator = require(ReplicatedStorage.shared.weapons.Validator)
 
 return function()
 	describe("Weapon Catalog", function()
@@ -13,10 +14,25 @@ return function()
 			expect(Catalog.IsMelee(katana)).to.equal(true)
 		end)
 
+		it("returns validated definitions", function()
+			expect(Validator.validate(Catalog.Get("Fists"))).to.equal(true)
+			expect(Validator.validate(Catalog.Get("Katana"))).to.equal(true)
+		end)
+
+		it("returns the same cached definition on every lookup", function()
+			expect(Catalog.Get("Fists")).to.equal(Catalog.Get("Fists"))
+		end)
+
 		it("returns nil for invalid or unknown identifiers", function()
 			expect(Catalog.Get("")).to.equal(nil)
 			expect(Catalog.Get("MissingWeapon")).to.equal(nil)
 			expect(Catalog.Get(123)).to.equal(nil)
+		end)
+
+		it("never returns sibling support modules as weapons", function()
+			expect(Catalog.Get("Catalog")).to.equal(nil)
+			expect(Catalog.Get("Validator")).to.equal(nil)
+			expect(Catalog.Get("CombatConfig")).to.equal(nil)
 		end)
 
 		it("only classifies explicit melee definitions as melee", function()

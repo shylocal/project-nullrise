@@ -4,57 +4,38 @@ local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local CombatValidation = require(script.Parent.CombatValidation)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
+local CombatConfig = require(ReplicatedStorage.shared.weapons.CombatConfig)
 local CombatActions = Protocol.Combat
-
-local CombatRemote = ReplicatedStorage.remotes.Combat
 
 local CombatService = {}
 CombatService.__index = CombatService
 
-local ATTACK_TIMEOUT = 0.75
-local CHARGE_TIMEOUT = 10
-local TIMING_TOLERANCE = 0.05
-local LIGHT_HIT_START_GRACE = 0.5
-local CHARGE_HIT_START_GRACE = 1
-local DEFAULT_HIT_WINDOW = 0.25
+-- Attack timing (HitStartAt, HitWindow, MinDuration, MaxHoldTime) comes from
+-- the validated weapon definitions. The tolerance only absorbs jitter between
+-- two packets sent by the same client.
+local TIMING_TOLERANCE = CombatConfig.TimingTolerance
 local MAX_HITS_PER_ATTACK = 8
+-- Bounds the spatial validation work (raycasts) a single attack can cause,
+-- independently of how many of those hits are accepted.
+local MAX_HIT_REQUESTS_PER_ATTACK = 32
 
+-- Hit packets are deliberately not throttled here: the client sends one packet
+-- per target, so two targets struck on the same frame arrive back to back.
+-- They are bounded per attack by the active hit window, per-target dedupe,
+-- MAX_HITS_PER_ATTACK and MAX_HIT_REQUESTS_PER_ATTACK instead.
 local REMOTE_MIN_INTERVAL = {
 	[CombatActions.Attack] = 0.08,
 	[CombatActions.Charge] = 0.08,
 	[CombatActions.HitStart] = 0.02,
-	[CombatActions.Hit] = 0.005,
 	[CombatActions.HitStop] = 0.02,
 }
 
-local function is_valid_duration(value)
-	return typeof(value) == "number" and math.isfinite(value) and value >= 0
+local function is_attack_index(value)
+	return typeof(value) == "number" and math.isfinite(value) and value % 1 == 0
 end
 
 local function expected_attack_index(self, player)
 	return self.NextAttack[player] or 1
-end
-
-local function reject_attack(self, player, requested_attack_index)
-	CombatRemote:FireClient(
-		player,
-		CombatActions.AttackRejected,
-		requested_attack_index,
-		expected_attack_index(self, player)
-	)
-end
-
-local function is_valid_hit_window(attack)
-	local hit_window = attack.HitWindow
-	if hit_window == nil then
-		return DEFAULT_HIT_WINDOW
-	end
-
-	if not is_valid_duration(hit_window) or hit_window <= 0 then
-		return nil
-	end
-
-	return math.min(hit_window, DEFAULT_HIT_WINDOW)
 end
 
 function CombatService.new(player_service, weapon_service, remote)
@@ -84,6 +65,16 @@ function CombatService:_start()
 	self.Trove:Connect(
 		self.Remote.OnServerEvent,
 		function(player, action, attack_key, hit_character, segment_instance, hit_position)
+			if action == CombatActions.Attack then
+				self:_request_attack(player, attack_key)
+				return
+			end
+
+			if action == CombatActions.Hit then
+				self:_hit(player, attack_key, hit_character, segment_instance, hit_position)
+				return
+			end
+
 			if typeof(action) ~= "string" then
 				return
 			end
@@ -93,14 +84,10 @@ function CombatService:_start()
 				return
 			end
 
-			if action == CombatActions.Attack then
-				self:_attack(player, attack_key)
-			elseif action == CombatActions.Charge then
+			if action == CombatActions.Charge then
 				self:_charge(player)
 			elseif action == CombatActions.HitStart then
 				self:_hit_start(player, attack_key)
-			elseif action == CombatActions.Hit then
-				self:_hit(player, attack_key, hit_character, segment_instance, hit_position)
 			elseif action == CombatActions.HitStop then
 				self:_hit_stop(player, attack_key)
 			end
@@ -192,33 +179,6 @@ function CombatService:_get_attack_context(player)
 	return character, weapon
 end
 
-function CombatService:_get_attack_timing(attack, is_charge)
-	local cooldown = attack.Cooldown
-	if not is_valid_duration(cooldown) or cooldown <= 0 then
-		return nil
-	end
-
-	if not is_charge then
-		return {
-			Cooldown = cooldown,
-		}
-	end
-
-	local ready_time = attack.HoldTime
-	if ready_time == nil then
-		ready_time = 0.15
-	end
-
-	if not is_valid_duration(ready_time) then
-		return nil
-	end
-
-	return {
-		Cooldown = cooldown,
-		ReadyTime = ready_time,
-	}
-end
-
 function CombatService:_can_begin_attack(player)
 	local now = os.clock()
 	local next_attack_at = self.NextAttackAt[player]
@@ -232,23 +192,37 @@ function CombatService:_can_begin_attack(player)
 	return now
 end
 
-function CombatService:_create_active(player, attack_key, attack, timing, wielded, character)
-	local started_at = os.clock()
-	local lifetime = attack_key == "Charge" and CHARGE_TIMEOUT or ATTACK_TIMEOUT
-	local expires_at = started_at + lifetime
+function CombatService:_create_active(player, attack_key, attack, wielded, character, started_at)
+	local is_charge = attack_key == "Charge"
+
+	-- A light attack's hits must land within HitWindow of its HitStart marker.
+	-- A charge may be held until MaxHoldTime, and its hit window starts when it
+	-- is released (HitStart), so its lifetime extends past the longest hold.
+	local hit_start_closes_at
+	local expires_at
+	if is_charge then
+		hit_start_closes_at = started_at + attack.MaxHoldTime + TIMING_TOLERANCE
+		expires_at = hit_start_closes_at + attack.HitWindow
+	else
+		hit_start_closes_at = started_at + attack.HitStartAt + attack.HitWindow + TIMING_TOLERANCE
+		expires_at = hit_start_closes_at
+	end
 
 	local active = {
 		AttackIndex = attack_key,
+		IsCharge = is_charge,
 		Character = character,
 		Attack = attack,
-		Timing = timing,
 		Wielded = wielded,
 		HitActive = false,
 		HitExpiresAt = nil,
 		HitTargets = {},
 		HitCount = 0,
+		HitRequests = 0,
 		ValidationRaycastParams = RaycastParams.new(),
 		StartedAt = started_at,
+		HitStartOpensAt = started_at + attack.HitStartAt - TIMING_TOLERANCE,
+		HitStartClosesAt = hit_start_closes_at,
 		ExpiresAt = expires_at,
 	}
 
@@ -263,51 +237,66 @@ function CombatService:_create_active(player, attack_key, attack, timing, wielde
 	return active
 end
 
-function CombatService:_attack(player, attack_index)
-	if typeof(attack_index) ~= "number" or not math.isfinite(attack_index) or attack_index % 1 ~= 0 then
+function CombatService:_reject_attack(player, requested_attack_index)
+	self.Remote:FireClient(
+		player,
+		CombatActions.AttackRejected,
+		requested_attack_index,
+		expected_attack_index(self, player)
+	)
+end
+
+-- Every Attack request is answered with exactly one AttackAccepted or
+-- AttackRejected, including rate-limited and malformed requests, so the
+-- client never waits on a pending attack that the server silently dropped.
+function CombatService:_request_attack(player, attack_index)
+	if not is_attack_index(attack_index) then
+		self:_reject_attack(player, nil)
 		return
 	end
 
+	if not self:_allow_remote(player, CombatActions.Attack, REMOTE_MIN_INTERVAL[CombatActions.Attack])
+		or not self:_attack(player, attack_index) then
+		self:_reject_attack(player, attack_index)
+	end
+end
+
+-- Returns true after sending AttackAccepted; the caller rejects otherwise.
+function CombatService:_attack(player, attack_index)
 	local character, weapon = self:_get_attack_context(player)
 	if not character then
-		return
+		return false
 	end
 
-	local attack = weapon.Attacks and weapon.Attacks[attack_index]
+	local attack = weapon.Attacks[attack_index]
 	if not attack then
-		return
+		return false
 	end
 
-	local timing = self:_get_attack_timing(attack, false)
-	if not timing then
-		return
-	end
-
+	-- The previous attack's MinDuration (stored in NextAttackAt) is enforced
+	-- here, so starting a new attack cannot be used to skip ahead of it.
 	local now = self:_can_begin_attack(player)
 	if not now then
-		reject_attack(self, player, attack_index)
-		return
+		return false
 	end
 
-	local expected_attack = expected_attack_index(self, player)
-	if attack_index ~= expected_attack then
-		reject_attack(self, player, attack_index)
-		return
+	if attack_index ~= expected_attack_index(self, player) then
+		return false
 	end
 
 	local wielded = self.WeaponService:GetWielded(player, attack.Hitbox)
 	if not wielded or not wielded:IsDescendantOf(character) then
-		reject_attack(self, player, attack_index)
-		return
+		return false
 	end
 
 	self:_clear_attack(player)
 
 	self.NextAttack[player] = attack_index == #weapon.Attacks and 1 or attack_index + 1
-	self.NextAttackAt[player] = math.max(self.NextAttackAt[player] or 0, now + timing.Cooldown)
+	self.NextAttackAt[player] = math.max(self.NextAttackAt[player] or 0, now + attack.MinDuration)
 
-	self:_create_active(player, attack_index, attack, timing, wielded, character)
-	CombatRemote:FireClient(player, CombatActions.AttackAccepted, attack_index, self.NextAttack[player])
+	self:_create_active(player, attack_index, attack, wielded, character, now)
+	self.Remote:FireClient(player, CombatActions.AttackAccepted, attack_index, self.NextAttack[player])
+	return true
 end
 
 function CombatService:_charge(player)
@@ -318,11 +307,6 @@ function CombatService:_charge(player)
 
 	local charge = weapon.Charge
 	if not charge then
-		return
-	end
-
-	local timing = self:_get_attack_timing(charge, true)
-	if not timing then
 		return
 	end
 
@@ -337,9 +321,9 @@ function CombatService:_charge(player)
 	end
 
 	self:_clear_attack(player)
-	self.NextAttackAt[player] = math.max(self.NextAttackAt[player] or 0, now + timing.Cooldown)
+	self.NextAttackAt[player] = math.max(self.NextAttackAt[player] or 0, now + charge.MinDuration)
 
-	self:_create_active(player, "Charge", charge, timing, wielded, character)
+	self:_create_active(player, "Charge", charge, wielded, character, now)
 end
 
 local function is_active_attacker_valid(self, player, active)
@@ -363,8 +347,8 @@ function CombatService:_hit_start(player, attack_key)
 		return
 	end
 
-	if not is_active_attacker_valid(self, player, active)
-		or os.clock() > active.ExpiresAt then
+	local now = os.clock()
+	if not is_active_attacker_valid(self, player, active) or now > active.HitStartClosesAt then
 		self:_clear_attack(player)
 		return
 	end
@@ -375,41 +359,19 @@ function CombatService:_hit_start(player, attack_key)
 		return
 	end
 
-	local now = os.clock()
-	if attack_key == "Charge" then
-		local ready_at = active.StartedAt + active.Timing.ReadyTime
-		if now + TIMING_TOLERANCE < ready_at then
-			return
-		end
-		if now > ready_at + CHARGE_HIT_START_GRACE then
-			self:_clear_attack(player)
-			return
-		end
-	else
-		if now < active.StartedAt - TIMING_TOLERANCE then
-			return
-		end
-		if now > active.StartedAt + LIGHT_HIT_START_GRACE then
-			self:_clear_attack(player)
-			return
-		end
-	end
-
-	if now > active.ExpiresAt then
-		self:_clear_attack(player)
+	-- The client identifies the marker frame, but it cannot be earlier than the
+	-- definition's HitStartAt. Early packets are ignored.
+	if now < active.HitStartOpensAt then
 		return
 	end
 
-	local hit_window = is_valid_hit_window(active.Attack)
-	if not hit_window then
-		self:_clear_attack(player)
-		return
-	end
-
-	-- The client may identify the marker frame, but the server owns the actual
-	-- allowed hit window and its maximum duration.
 	active.HitActive = true
-	active.HitExpiresAt = math.min(active.ExpiresAt, now + hit_window)
+	if active.IsCharge then
+		-- A charge's hit window starts at its release, not at the charge start.
+		active.HitExpiresAt = math.min(active.ExpiresAt, now + active.Attack.HitWindow + TIMING_TOLERANCE)
+	else
+		active.HitExpiresAt = active.ExpiresAt
+	end
 end
 
 function CombatService:_hit(player, attack_key, hit_character, segment_instance, hit_position)
@@ -420,20 +382,19 @@ function CombatService:_hit(player, attack_key, hit_character, segment_instance,
 
 	local now = os.clock()
 	if now > active.ExpiresAt
-		or (active.HitExpiresAt and now > active.HitExpiresAt)
+		or now > active.HitExpiresAt
 		or not is_active_attacker_valid(self, player, active) then
 		self:_clear_attack(player)
 		return
 	end
 
-	if active.HitTargets[hit_character] or (active.HitCount or 0) >= MAX_HITS_PER_ATTACK then
+	if active.HitTargets[hit_character]
+		or active.HitCount >= MAX_HITS_PER_ATTACK
+		or active.HitRequests >= MAX_HIT_REQUESTS_PER_ATTACK then
 		return
 	end
 
-	local damage = active.Attack.Damage
-	if typeof(damage) ~= "number" or not math.isfinite(damage) or damage < 0 then
-		return
-	end
+	active.HitRequests += 1
 
 	local hit_humanoid = CombatValidation.ValidateHit(
 		self.WeaponService,
@@ -450,8 +411,8 @@ function CombatService:_hit(player, attack_key, hit_character, segment_instance,
 
 	active.HitTargets[hit_character] = true
 	active.HitCount += 1
-	hit_humanoid:TakeDamage(damage)
-	CombatRemote:FireClient(player, CombatActions.HitConfirmed, attack_key, hit_character)
+	hit_humanoid:TakeDamage(active.Attack.Damage)
+	self.Remote:FireClient(player, CombatActions.HitConfirmed, attack_key, hit_character)
 end
 
 function CombatService:_hit_stop(player, attack_key)

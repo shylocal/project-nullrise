@@ -5,7 +5,7 @@ return {
 	Minimum_Stationary_Length = 1,
 
 	-- Reveal if the debug lines should be visible or not.
-	Debug_Visible = true,
+	Debug_Visible = false,
 	Debug_Instance_Raycast_Destroy_Time = 1,
 	Debug_Instance_Spherecast_Destroy_Time = 0.1,
 	Debug_Instance_Blockcast_Destroy_Time = 0.1,

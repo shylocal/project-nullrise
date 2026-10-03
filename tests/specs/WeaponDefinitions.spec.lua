@@ -21,6 +21,12 @@ local function expect_attack(attack, expect_fn)
 	expect_fn(is_finite_number(attack.Cooldown) and attack.Cooldown >= 0).to.equal(true)
 	expect_fn(is_finite_number(attack.Range) and attack.Range > 0).to.equal(true)
 	expect_fn(is_finite_number(attack.HitPositionTolerance) and attack.HitPositionTolerance >= 0).to.equal(true)
+	expect_fn(is_finite_number(attack.HitStartAt) and attack.HitStartAt >= 0).to.equal(true)
+	expect_fn(is_finite_number(attack.HitWindow) and attack.HitWindow > 0).to.equal(true)
+	expect_fn(is_finite_number(attack.MinDuration) and attack.MinDuration > 0).to.equal(true)
+	-- The client cooldown must never let a legitimate client start an attack
+	-- before the server-enforced MinDuration.
+	expect_fn(attack.Cooldown >= attack.MinDuration).to.equal(true)
 	expect_animation(attack.Animation, expect_fn)
 end
 
@@ -54,14 +60,10 @@ return function()
 				expect_attack(weapon.Attacks[2], expect)
 
 				expect(typeof(weapon.Charge)).to.equal("table")
-				expect(typeof(weapon.Charge.Hitbox)).to.equal("string")
-				expect(weapon.Charge.Hitbox ~= "").to.equal(true)
-				expect(is_finite_number(weapon.Charge.Damage) and weapon.Charge.Damage > 0).to.equal(true)
-				expect(is_finite_number(weapon.Charge.Cooldown) and weapon.Charge.Cooldown >= 0).to.equal(true)
-				expect(is_finite_number(weapon.Charge.Range) and weapon.Charge.Range > 0).to.equal(true)
-				expect(is_finite_number(weapon.Charge.HitPositionTolerance) and weapon.Charge.HitPositionTolerance >= 0).to.equal(true)
+				expect_attack(weapon.Charge, expect)
 				expect(is_finite_number(weapon.Charge.HoldTime) and weapon.Charge.HoldTime > 0).to.equal(true)
-				expect_animation(weapon.Charge.Animation, expect)
+				expect(is_finite_number(weapon.Charge.MaxHoldTime)).to.equal(true)
+				expect(weapon.Charge.MaxHoldTime > weapon.Charge.HitStartAt).to.equal(true)
 			end)
 		end
 	end)

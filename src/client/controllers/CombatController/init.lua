@@ -8,6 +8,7 @@ local AttackInput = require(script.AttackInput)
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
+local CombatConfig = require(ReplicatedStorage.shared.weapons.CombatConfig)
 
 local CombatRemote = ReplicatedStorage.remotes.Combat
 
@@ -32,6 +33,7 @@ function CombatController.new(
 
 		NextAttack = 1,
 		PendingAttackIndex = nil,
+		PendingAttackId = 0,
 		CurrentAttackKey = nil,
 		CurrentTrack = nil,
 
@@ -142,8 +144,19 @@ function CombatController:Attack()
 	end
 
 	-- The server is authoritative over combo sequencing. Keep this request
-	-- pending until AttackAccepted arrives instead of advancing locally.
+	-- pending until AttackAccepted/AttackRejected arrives instead of advancing
+	-- locally. The server always answers, but a lost or dropped reply must not
+	-- block light attacks forever, so give up after PendingAttackTimeout. A late
+	-- reply is then ignored and the next request resyncs the combo index.
 	self.PendingAttackIndex = attack_index
+	self.PendingAttackId += 1
+	local pending_attack_id = self.PendingAttackId
+	task.delay(CombatConfig.PendingAttackTimeout, function()
+		if self.PendingAttackId == pending_attack_id then
+			self.PendingAttackIndex = nil
+		end
+	end)
+
 	AttackLifecycle.begin_attack(self, attack_index, attack, track, Protocol.Combat.Attack)
 end
 
@@ -184,6 +197,10 @@ function CombatController:_resolve_buffered_attack()
 	AttackInput.resolve_buffered_attack(self)
 end
 
+function CombatController:_release_charge()
+	AttackInput.release_charge(self)
+end
+
 function CombatController:_finish_attack(attack_key, attack_trove)
 	if self.AttackTrove ~= attack_trove then
 		return
@@ -220,8 +237,11 @@ function CombatController:Reset()
 	self.AnimationController:StopAction()
 	self.MovementController:SetSprintBlocked(false, self)
 
+	-- Character death and weapon swaps reset through here, so a pending
+	-- attack from the previous weapon or character never blocks new input.
 	self.NextAttack = 1
 	self.PendingAttackIndex = nil
+	self.PendingAttackId += 1
 	self.AttackReadyAt = 0
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil

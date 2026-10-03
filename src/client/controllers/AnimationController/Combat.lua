@@ -27,7 +27,8 @@ function Combat:_load()
 		return
 	end
 
-	for attack_index, attack in pairs(weapon.Attacks or {}) do
+	-- Catalog definitions are validated, so Attacks is always a dense array.
+	for attack_index, attack in ipairs(weapon.Attacks) do
 		if attack.Animation then
 			self.AttackTracks[attack_index] = self.Controller:Load(attack.Animation)
 		end

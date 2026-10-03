@@ -37,9 +37,7 @@ function AttackInput.primary_began(self)
 	self:Attack()
 end
 function AttackInput.buffer_charge(self, press_id, charge)
-	local hold_time = charge.HoldTime or 0.15
-
-	task.delay(hold_time, function()
+	task.delay(charge.HoldTime, function()
 		if self.PrimaryPressId ~= press_id or not self.PrimaryHeld then
 			return
 		end
@@ -68,6 +66,16 @@ function AttackInput.primary_ended(self)
 		return
 	end
 
+	AttackInput.release_charge(self)
+end
+-- Releases the active charge: when its HitStart marker was already reached the
+-- hit starts now, otherwise the resumed animation reaches the marker and the
+-- hit starts there. Called on input release and when MaxHoldTime is reached.
+function AttackInput.release_charge(self)
+	if not self.Charging then
+		return
+	end
+
 	local track = self.CurrentTrack
 	local charge_ready = self.ChargeReady
 	self.Charging = false
@@ -86,7 +94,6 @@ function AttackInput.primary_ended(self)
 	if track then
 		self.AnimationController:Resume(track)
 	end
-
 end
 function AttackInput.resolve_buffered_attack(self)
 	if self.BufferedAttack ~= "Charge" then

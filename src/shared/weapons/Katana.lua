@@ -49,7 +49,10 @@ Katana.Attacks = {
 
 		Hitbox = "Mesh",
 		Damage = 15,
-		Cooldown = 0.1,
+		Cooldown = 0.35,
+		MinDuration = 0.35,
+		HitStartAt = 0.1,
+		HitWindow = 0.55,
 		HitPositionTolerance = 3,
 		Range = 10,
 	},
@@ -63,7 +66,10 @@ Katana.Attacks = {
 
 		Hitbox = "Mesh",
 		Damage = 15,
-		Cooldown = 0.1,
+		Cooldown = 0.35,
+		MinDuration = 0.35,
+		HitStartAt = 0.1,
+		HitWindow = 0.55,
 		HitPositionTolerance = 3,
 		Range = 10,
 	},
@@ -73,9 +79,17 @@ Katana.Charge = {
 	Animation = Katana.Animations.Charge,
 	Hitbox = "Mesh",
 	Damage = 30,
-	Cooldown = 0.1,
+	Cooldown = 0.6,
+	MinDuration = 0.6,
+	-- Measured from the charge start. The charge pauses on its HitStart
+	-- marker while held and is released automatically at MaxHoldTime.
+	HitStartAt = 0.15,
+	MaxHoldTime = 10,
+	-- Charge hits stay valid for HitWindow after the release (HitStart).
+	HitWindow = 0.55,
 	HitPositionTolerance = 3,
 	Range = 10,
+	-- How long the primary input must be held before it becomes a charge.
 	HoldTime = 0.15,
 }
 

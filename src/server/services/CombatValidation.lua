@@ -4,12 +4,67 @@ local Workspace = game:GetService("Workspace")
 local CombatValidation = {}
 
 local MIN_FACING_DOT = -0.25
+-- Other characters standing between attacker and target are passed through
+-- (they are not cover). This bounds how many of them a single check skips.
+local MAX_LINE_OF_SIGHT_CASTS = 4
 
 local function is_finite_vector3(value)
 	return typeof(value) == "Vector3"
 		and math.isfinite(value.X)
 		and math.isfinite(value.Y)
 		and math.isfinite(value.Z)
+end
+
+-- Distance from a world point to the target's oriented bounding box. Zero when
+-- the point is inside the box.
+local function distance_to_bounding_box(model, point)
+	local box_cframe, box_size = model:GetBoundingBox()
+	local local_point = box_cframe:PointToObjectSpace(point)
+	local half_size = box_size / 2
+	local clamped = Vector3.new(
+		math.clamp(local_point.X, -half_size.X, half_size.X),
+		math.clamp(local_point.Y, -half_size.Y, half_size.Y),
+		math.clamp(local_point.Z, -half_size.Z, half_size.Z)
+	)
+
+	return (local_point - clamped).Magnitude
+end
+
+local function get_character_model(instance)
+	local model = instance:FindFirstAncestorOfClass("Model")
+	while model do
+		if model:FindFirstChildOfClass("Humanoid") then
+			return model
+		end
+		model = model:FindFirstAncestorOfClass("Model")
+	end
+
+	return nil
+end
+
+-- Casts from origin to target. Both combatants are excluded, parts with
+-- CanCollide or CanQuery disabled are ignored, and other characters are
+-- skipped so a bystander does not count as a wall.
+local function is_line_clear(raycast_params, exclude, origin, target)
+	local direction = target - origin
+
+	for _ = 1, MAX_LINE_OF_SIGHT_CASTS do
+		raycast_params.FilterDescendantsInstances = exclude
+
+		local result = Workspace:Raycast(origin, direction, raycast_params)
+		if not result then
+			return true
+		end
+
+		local bystander = get_character_model(result.Instance)
+		if not bystander then
+			return false
+		end
+
+		table.insert(exclude, bystander)
+	end
+
+	return false
 end
 
 function CombatValidation.ValidateHit(
@@ -82,16 +137,18 @@ function CombatValidation.ValidateHit(
 		return nil
 	end
 
-	local max_distance = range + hit_position_tolerance
-
-	if (hit_root.Position - attacker_root.Position).Magnitude > max_distance then
+	-- Reach: the target must be within weapon range of the attacker.
+	if (hit_root.Position - attacker_root.Position).Magnitude > range + hit_position_tolerance then
 		return nil
 	end
 
-	if (hit_root.Position - hit_position).Magnitude > max_distance then
+	-- The reported impact must be on (or, allowing for replication lag, close
+	-- to) the target's body, not merely somewhere within weapon range of it.
+	if distance_to_bounding_box(hit_character, hit_position) > hit_position_tolerance then
 		return nil
 	end
 
+	-- The impact must also be where the weapon's hitpoint actually is.
 	if (segment_instance.WorldPosition - hit_position).Magnitude > hit_position_tolerance then
 		return nil
 	end
@@ -120,20 +177,34 @@ function CombatValidation.ValidateHit(
 	end
 
 	raycast_params.FilterType = Enum.RaycastFilterType.Exclude
-	raycast_params.FilterDescendantsInstances = { active.Character, hit_character }
 	raycast_params.IgnoreWater = true
+	raycast_params.RespectCanCollide = true
 
-	local origin = segment_instance.WorldPosition
-	local direction = hit_position - origin
-
-	if direction.Magnitude > 0 then
-		local result = Workspace:Raycast(origin, direction, raycast_params)
-		if result then
-			return nil
-		end
+	-- Line of sight is checked from the attacker's body to the target's body,
+	-- never skipped. Root-to-root and head-to-head are tried so a waist-high
+	-- ledge or an overhang alone does not block a legitimate swing; a wall
+	-- blocks both.
+	local exclude = { active.Character, hit_character }
+	if is_line_clear(raycast_params, exclude, attacker_root.Position, hit_root.Position) then
+		return hit_humanoid
 	end
 
-	return hit_humanoid
+	local attacker_head = active.Character:FindFirstChild("Head")
+	local hit_head = hit_character:FindFirstChild("Head")
+	if attacker_head
+		and hit_head
+		and attacker_head:IsA("BasePart")
+		and hit_head:IsA("BasePart")
+		and is_line_clear(
+			raycast_params,
+			{ active.Character, hit_character },
+			attacker_head.Position,
+			hit_head.Position
+		) then
+		return hit_humanoid
+	end
+
+	return nil
 end
 
 return CombatValidation

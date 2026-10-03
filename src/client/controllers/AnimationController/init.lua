@@ -158,6 +158,8 @@ function AnimationController:ClaimAction(track)
 	track:AdjustSpeed(1)
 end
 
+-- TransitionTime is optional in weapon animation definitions (see
+-- shared/weapons/Validator); nil means the track plays with no blend.
 function AnimationController:PlayAction(track, transition_time)
 	if not track then
 		return nil

@@ -1,44 +1,43 @@
 -- Central weapon-definition lookup shared by client and server.
--- Add weapon definitions as ModuleScripts beside this file.
+-- Weapon definitions are ModuleScripts beside this file. Only IDs listed in
+-- WEAPON_IDS are weapons; other modules here (Validator, CombatConfig, this
+-- Catalog) are never returned by Get.
 local Catalog = {}
 
 local Validator = require(script.Parent.Validator)
 local WeaponsFolder = script.Parent
+
+local WEAPON_IDS = {
+	"Fists",
+	"Katana",
+}
+
 local Definitions = {}
-local FailedModules = {}
 
-function Catalog.Get(weapon_id)
-	if typeof(weapon_id) ~= "string" or weapon_id == "" then
-		return nil
-	end
-
+-- Load and validate every weapon once when the catalog is first required. An
+-- invalid or missing definition is a content bug, so fail loudly instead of
+-- letting combat run with partially-defined data.
+for _, weapon_id in ipairs(WEAPON_IDS) do
 	local module = WeaponsFolder:FindFirstChild(weapon_id)
 	if not module or not module:IsA("ModuleScript") then
-		return nil
+		error(("Weapon definition %s is missing from %s"):format(weapon_id, WeaponsFolder:GetFullName()), 0)
 	end
 
-	local cached = Definitions[module]
-	if cached then
-		return cached
-	end
-
-	if FailedModules[module] then
-		return nil
-	end
-
-	local ok, definition = pcall(require, module)
+	local definition = require(module)
+	local ok, reason = Validator.validate(definition)
 	if not ok then
-		FailedModules[module] = true
-		warn(("Failed to load weapon definition %s: %s"):format(module:GetFullName(), tostring(definition)))
+		error(("Invalid weapon definition %s: %s"):format(weapon_id, tostring(reason)), 0)
+	end
+
+	Definitions[weapon_id] = definition
+end
+
+function Catalog.Get(weapon_id)
+	if typeof(weapon_id) ~= "string" then
 		return nil
 	end
 
-	if typeof(definition) ~= "table" then
-		return nil
-	end
-
-	Definitions[module] = definition
-	return definition
+	return Definitions[weapon_id]
 end
 
 function Catalog.IsMelee(weapon)
