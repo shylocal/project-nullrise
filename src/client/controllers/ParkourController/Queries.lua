@@ -51,7 +51,6 @@ function Queries.cast_grabbable_side(self, origin, direction)
 	for _ = 1, Config.MaxTopSurfaceHits do
 		params.FilterDescendantsInstances = exclusions
 		Metrics.record(self, "Raycasts")
-		Metrics.record(self, "Raycasts")
 		local hit = Workspace:Raycast(origin, direction, params)
 		if not hit then
 			return nil
@@ -167,7 +166,18 @@ local function cast_tall_wall_top(self, wall, wall_position, root_position)
 	return top
 end
 
-function Queries.cast_reachable_grab_top(self, wall_position, wall_normal, root_position, reference_y)
+-- max_above_height and wall_instance are optional context supplied by callers
+-- that want extra local sampling around the detected wall. Existing traversal
+-- callers omit them, preserving the stable single-column behavior.
+function Queries.cast_reachable_grab_top(
+	self,
+	wall_position,
+	wall_normal,
+	root_position,
+	reference_y,
+	max_above_height,
+	wall_instance
+)
 	-- Several climb guides can overlap vertically. A single downward ray hits
 	-- the highest one first, even when that ledge is outside grab range. Walk
 	-- down through successive hits and choose the climbable, walkable top closest
