@@ -631,7 +631,6 @@ function VaultTraversal.update_vault(self, dt)
 	end
 
 	return true
-	end
 end
 function VaultTraversal.finish_top_hop(self, landed)
 	local top_hop = ParkourState.get_data(self, "TopHop")
