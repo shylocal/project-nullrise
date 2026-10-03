@@ -110,19 +110,6 @@ function ParkourController:_bind_humanoid(humanoid)
 end
 
 
-function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, root_position, reference_y, max_above_height, wall_instance)
-	return Queries.cast_reachable_grab_top(
-		self,
-		wall_position,
-		wall_normal,
-		root_position,
-		reference_y,
-		max_above_height,
-		wall_instance
-	)
-end
-
-
 function ParkourController:_grab(guide, normal, position, edge_gap)
 	local humanoid = self.Humanoid
 	if self.State ~= "Grounded" or not guide or not humanoid or humanoid.Health <= 0 or humanoid.Sit then return end
