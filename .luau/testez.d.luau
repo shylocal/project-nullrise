@@ -1,0 +1,11 @@
+declare function describe(phrase: string, callback: () -> ()): ()
+declare function it(phrase: string, callback: (context: any) -> ()): ()
+declare function itFOCUS(phrase: string, callback: (context: any) -> ()): ()
+declare function itSKIP(phrase: string, callback: (context: any) -> ()): ()
+declare function FOCUS(): ()
+declare function SKIP(): ()
+declare function beforeAll(callback: (context: any) -> ()): ()
+declare function afterAll(callback: (context: any) -> ()): ()
+declare function beforeEach(callback: (context: any) -> ()): ()
+declare function afterEach(callback: (context: any) -> ()): ()
+declare function expect(value: any): any

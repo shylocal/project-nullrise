@@ -13,3 +13,6 @@ sourcemap.json
 Thumbs.db
 .vscode/
 .idea/
+
+# Downloaded Roblox type definitions (fetched by scripts/analyze.sh)
+.luau/globalTypes.d.luau
