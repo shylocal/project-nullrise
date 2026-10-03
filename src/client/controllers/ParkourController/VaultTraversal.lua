@@ -74,7 +74,7 @@ function VaultTraversal.try_vault(self)
 		root.Position.Z
 	)
 	local half_width = math.max(0, math.min(
-		Config.VaultDetectionHalfWidth or root.Size.X * 0.5,
+		Config.VaultDetectionHalfWidth,
 		math.max(root.Size.X * 0.75, 0.75)
 	))
 	local function probe_obstacle(direction)
@@ -218,7 +218,7 @@ function VaultTraversal.try_vault(self)
 		+ math.abs(obstacle.CFrame.LookVector:Dot(obstacle_lateral)) * obstacle.Size.Z
 	) * 0.5
 	local obstacle_length = math.max(half_depth * 2, lateral_half_depth * 2)
-	local long_obstacle_threshold = Config.VaultLongObstacleHopLength or 20
+	local long_obstacle_threshold = Config.VaultLongObstacleHopLength
 
 	-- Detect a continuous walkable surface directly beneath the obstacle.
 	-- Exclude the obstacle itself so the downward probes can reach its support
@@ -229,7 +229,7 @@ function VaultTraversal.try_vault(self)
 		+ math.abs(obstacle.CFrame.LookVector.Y) * obstacle.Size.Z
 	) * 0.5
 	local obstacle_bottom_y = obstacle.Position.Y - obstacle_vertical_half
-	local support_tolerance = math.max(0, Config.VaultGroundSupportTolerance or 0.65)
+	local support_tolerance = math.max(0, Config.VaultGroundSupportTolerance)
 	local support_params = self._vaultSupportParams or RaycastParams.new()
 	self._vaultSupportParams = support_params
 	support_params.FilterType = Enum.RaycastFilterType.Exclude
@@ -272,7 +272,7 @@ function VaultTraversal.try_vault(self)
 	-- to the physics hop. Very long obstacles retain their dedicated hop route.
 	local top_landing_depth = half_depth * 2
 	local minimum_top_hop_depth = math.max(
-		Config.VaultMinTopHopDepth or 2.5,
+		Config.VaultMinTopHopDepth,
 		root.Size.Z * 1.5
 	)
 	-- The projected travel depth grows when a long, thin wall is approached
@@ -303,7 +303,7 @@ function VaultTraversal.try_vault(self)
 		-- this obstacle's top, rather than using the character's default jump
 		-- speed, which can launch much higher than shorter obstacles require.
 		local gravity = math.max(Workspace.Gravity, 1)
-		local height_margin = math.max(0, Config.VaultTopHopHeightMargin or 0.6)
+		local height_margin = math.max(0, Config.VaultTopHopHeightMargin)
 		local target_rise = math.max(0, top_target.Y - root.Position.Y)
 		local required_vertical_speed = math.sqrt(2 * gravity * (target_rise + height_margin))
 		local current_velocity = root.AssemblyLinearVelocity
@@ -313,7 +313,7 @@ function VaultTraversal.try_vault(self)
 			and has_usable_top_depth
 			and not is_long_obstacle
 		local forward_boost = is_supported_platform_hop
-			and math.max(0, Config.VaultTopHopForwardBoostSpeed or 6)
+			and math.max(0, Config.VaultTopHopForwardBoostSpeed)
 			or 0
 		local sprint_speed = math.max(0, humanoid.WalkSpeed)
 		local hop_horizontal_velocity = current_horizontal_velocity
@@ -402,7 +402,7 @@ function VaultTraversal.try_vault(self)
 	-- displacement; the broader general hop limit remains a hard upper bound.
 	local max_vault_distance = math.min(
 		Config.VaultMaxHopDistance,
-		Config.VaultMaxOverDistance or Config.VaultMaxHopDistance
+		Config.VaultMaxOverDistance
 	)
 	local max_landing_extra = math.max(0, max_vault_distance - hop_distance)
 	local next_landing_extra = 6.75
@@ -475,7 +475,7 @@ function VaultTraversal.try_vault(self)
 	-- their top. If safe far-side ground is unavailable, decline that vault
 	-- instead of silently changing its destination.
 	if not target_position
-		and obstacle_height >= (Config.VaultFarSideOnlyHeight or math.huge) then
+		and obstacle_height >= (Config.VaultFarSideOnlyHeight) then
 		return false
 	end
 
@@ -507,7 +507,7 @@ function VaultTraversal.try_vault(self)
 	-- Taller walls get an earlier lift and extra apex clearance so the root
 	-- collider clears the face before the forward trajectory reaches it.
 	local tall_obstacle_clearance = tall_height_factor
-		* math.max(0, Config.VaultTallObstacleClearancePerStud or 0)
+		* math.max(0, Config.VaultTallObstacleClearancePerStud)
 	local required_apex_y = top.Position.Y + root.Size.Y * 0.5
 		+ Config.VaultObstacleClearance + tall_obstacle_clearance
 	local arc_height = math.max(Config.VaultMinArcHeight, required_apex_y - midpoint_y)
@@ -545,7 +545,7 @@ function VaultTraversal.try_vault(self)
 	if forward_speed < sprint_speed then
 		horizontal_velocity += forward * (sprint_speed - forward_speed)
 	end
-	local forward_boost = math.max(0, Config.VaultForwardBoostSpeed or 0)
+	local forward_boost = math.max(0, Config.VaultForwardBoostSpeed)
 	horizontal_velocity += forward * forward_boost
 	-- Scale the scripted traversal time to the active sprint speed. A small
 	-- floor keeps very short vaults from snapping, while longer hops retain
@@ -558,8 +558,8 @@ function VaultTraversal.try_vault(self)
 	end
 	-- Add airtime only for taller walls; low vaults retain their existing pace.
 	vault_duration += tall_height_factor
-		* math.max(0, Config.VaultTallDurationPerStud or 0)
-	vault_duration *= math.clamp(Config.VaultDurationMultiplier or 1, 0.5, 1.5)
+		* math.max(0, Config.VaultTallDurationPerStud)
+	vault_duration *= math.clamp(Config.VaultDurationMultiplier, 0.5, 1.5)
 
 	if not ParkourState.transition(self, "Vaulting") then
 		return false
@@ -611,7 +611,6 @@ function VaultTraversal.finish_vault(self, completed)
 		return
 	end
 
-	self._vaultDebugLastStage = nil
 	ParkourState.transition(self, "Grounded")
 	local exit_velocity = self._vaultExitVelocity
 	self._vaultExitVelocity = nil
