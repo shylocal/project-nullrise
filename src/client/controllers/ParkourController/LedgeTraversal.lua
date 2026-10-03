@@ -104,14 +104,14 @@ local function try_lower_ledge_impl(self)
 	-- best_top is already the actual exposed lower surface hit at the
 	-- selected column. Do not replace it with _get_guide_top here: that returns
 	-- the highest surface in a stacked Model and can undo the lower selection.
-	local target_normal = self:_get_ledge_outward_normal(best_top, root.Position)
+	local target_normal = LedgeTraversal.get_ledge_outward_normal(self, best_top, root.Position)
 	if target_normal then
 			else
 		-- Preserve the existing face if the destination has no detectable
 		-- climbable side surface at the character's hang height.
 		target_normal = normal
 			end
-	local transferred = self:_transfer_hang_to_ledge(best_top, target_normal)
+	local transferred = LedgeTraversal.transfer_hang_to_ledge(self, best_top, target_normal)
 end
 function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_y)
 	local hang = ParkourState.get_data(self, "Hanging")
@@ -749,20 +749,54 @@ local function try_mantle_impl(self)
 				-- Resolve the destination ledge's exposed vertical face as well as
 		-- its top. A higher ledge can face a different direction from the wall
 		-- we're leaving, so keep its own outward normal and depth offset.
-		local target_normal = self:_get_ledge_outward_normal(best_top, root.Position)
+		local target_normal = LedgeTraversal.get_ledge_outward_normal(self, best_top, root.Position)
 		local transferred
 		if target_normal then
-			transferred = self:_transfer_hang_to_ledge(best_top, target_normal)
+			transferred = LedgeTraversal.transfer_hang_to_ledge(self, best_top, target_normal)
 		else
-			transferred = self:_transfer_hang_to_ledge(best_top)
+			transferred = LedgeTraversal.transfer_hang_to_ledge(self, best_top)
 		end
 	else
 		-- No higher tagged guide was found. W may still mantle onto any visible,
 		-- walkable surface above the current wall.
-		local ground_mantled = self:_try_ground_mantle(current_top, normal, tangent)
+		local ground_mantled = LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 	end
 end
 
+
+function LedgeTraversal.update_mantle(self, dt)
+	if self.State ~= "Mantling" then
+		return false
+	end
+
+	local root = self.Root
+	local mantle = ParkourState.get_data(self, "Mantling")
+	local duration = mantle and mantle.Duration
+	if not duration or duration <= 0 or not mantle.Start or not mantle.Target then
+		return false
+	end
+
+	mantle.Elapsed = math.min((mantle.Elapsed or 0) + math.max(dt, 0), duration)
+	local linear = mantle.Elapsed / duration
+	local alpha = require(script.Parent.VaultMath).smoothstep(linear)
+	if root then
+		root.CFrame = mantle.Start:Lerp(mantle.Target, alpha)
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+	end
+	if linear >= 1 then
+		ParkourState.transition(self, "Grounded")
+		ParkourState.clear_data(self, "Mantling")
+		ParkourState.restore_humanoid(self, "Hang", { "AutoRotate", "PlatformStand" })
+		if self.Humanoid then
+			self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+		end
+		if self.MovementController then
+			self.MovementController:SetSprintBlocked(false, self)
+		end
+	end
+	return true
+end
 
 function LedgeTraversal.try_lower_ledge(self)
 	return Metrics.measure_search(self, "LowerLedge", try_lower_ledge_impl)
