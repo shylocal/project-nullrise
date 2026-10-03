@@ -31,6 +31,14 @@ local function is_valid_duration(value)
 	return typeof(value) == "number" and math.isfinite(value) and value >= 0
 end
 
+local function expected_attack_index(self, player)
+	return self.NextAttack[player] or 1
+end
+
+local function reject_attack(self, player)
+	CombatRemote:FireClient(player, CombatActions.AttackRejected, expected_attack_index(self, player))
+end
+
 local function is_valid_hit_window(attack)
 	local hit_window = attack.HitWindow
 	if hit_window == nil then
@@ -272,16 +280,19 @@ function CombatService:_attack(player, attack_index)
 
 	local now = self:_can_begin_attack(player)
 	if not now then
+		reject_attack(self, player)
 		return
 	end
 
-	local expected_attack = self.NextAttack[player] or 1
+	local expected_attack = expected_attack_index(self, player)
 	if attack_index ~= expected_attack then
+		reject_attack(self, player)
 		return
 	end
 
 	local wielded = self.WeaponService:GetWielded(player, attack.Hitbox)
 	if not wielded or not wielded:IsDescendantOf(character) then
+		reject_attack(self, player)
 		return
 	end
 
