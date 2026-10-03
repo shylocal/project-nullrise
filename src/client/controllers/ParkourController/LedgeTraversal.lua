@@ -9,17 +9,21 @@ local Config = require(script.Parent.Config)
 local ClimbableQuery = require(script.Parent.ClimbableQuery)
 local ParkourState = require(script.Parent.State)
 local Metrics = require(script.Parent.Metrics)
+local Queries = require(script.Parent.Queries)
+local Traversal = require(script.Parent.Traversal)
+local VaultMath = require(script.Parent.VaultMath)
 
 local LedgeTraversal = {}
 
 local function try_lower_ledge_impl(self)
-		if self.State ~= "Hanging" or not self.Root or not self.CurrentClimbable
-		or not self.HangPosition or not self.Normal then
+	local hang = ParkourState.get_data(self, "Hanging")
+		if self.State ~= "Hanging" or not self.Root or not hang.CurrentClimbable
+		or not hang.HangPosition or not hang.Normal then
 				return
 	end
 
 	local root = self.Root
-	local normal = Vector.flatten(self.Normal)
+	local normal = Vector.flatten(hang.Normal)
 	if normal.Magnitude < 0.05 then
 				return
 	end
@@ -34,7 +38,7 @@ local function try_lower_ledge_impl(self)
 	end
 	tangent = tangent.Unit
 
-	local current_top = self.HangPosition - normal * Config.WallGap + Vector3.new(0, Config.HangDrop, 0)
+	local current_top = hang.HangPosition - normal * Config.WallGap + Vector3.new(0, Config.HangDrop, 0)
 	local best_top = nil
 	local best_drop = math.huge
 	local best_distance = math.huge
@@ -76,7 +80,7 @@ local function try_lower_ledge_impl(self)
 	for _, guide in ipairs(tagged_guides) do
 		Metrics.record(self, "GuidesVisited")
 		if guide:IsDescendantOf(Workspace) then
-			local in_bounds = self:_is_guide_within_mantle_search(guide, current_top, normal, tangent)
+			local in_bounds = LedgeTraversal.is_guide_within_mantle_search(self, guide, current_top, normal, tangent)
 			Metrics.record(self, in_bounds and "GuidesInSearchBounds" or "GuidesOutsideSearchBounds")
 			if in_bounds then
 				for _, lateral_offset in ipairs(lateral_samples) do
@@ -85,7 +89,7 @@ local function try_lower_ledge_impl(self)
 						local sample_position = current_top
 							+ tangent * lateral_offset
 							- normal * inward_offset
-						for _, top in ipairs(self:_get_guide_tops(guide, sample_position)) do
+						for _, top in ipairs(Queries.get_guide_tops(self, guide, sample_position)) do
 							consider_lower_top(guide, top)
 						end
 					end
@@ -101,19 +105,20 @@ local function try_lower_ledge_impl(self)
 	-- best_top is already the actual exposed lower surface hit at the
 	-- selected column. Do not replace it with _get_guide_top here: that returns
 	-- the highest surface in a stacked Model and can undo the lower selection.
-	local target_normal = self:_get_ledge_outward_normal(best_top, root.Position)
+	local target_normal = LedgeTraversal.get_ledge_outward_normal(self, best_top, root.Position)
 	if target_normal then
 			else
 		-- Preserve the existing face if the destination has no detectable
 		-- climbable side surface at the character's hang height.
 		target_normal = normal
 			end
-	local transferred = self:_transfer_hang_to_ledge(best_top, target_normal)
+	local transferred = LedgeTraversal.transfer_hang_to_ledge(self, best_top, target_normal)
 end
 function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_y)
+	local hang = ParkourState.get_data(self, "Hanging")
 	local root = self.Root
-	local normal = self.Normal
-	local candidate_position = root and self.HangPosition
+	local normal = hang and hang.Normal
+	local candidate_position = root and hang.HangPosition
 	if not root or not normal or not candidate_position or not expected_guide then
 		return false
 	end
@@ -125,7 +130,7 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 	local probe_origin = candidate_position
 		+ Vector3.new(0, 1.5, 0)
 		+ normal * 0.3
-	local probe = self:_cast(
+	local probe = Queries.cast(self, 
 		probe_origin,
 		-normal * (Config.WallGap + Config.SurfaceProbe)
 	)
@@ -133,7 +138,7 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 		return false
 	end
 
-	local top = self:_cast_reachable_grab_top(
+	local top = Queries.cast_reachable_grab_top(self, 
 		probe.Position,
 		probe.Normal,
 		candidate_position,
@@ -160,13 +165,13 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 	-- locally sampled top/wall, retain the selected hang height, and face the
 	-- actual wall normal. This runs synchronously within W/S, so no sideways
 	-- input is needed to settle the character.
-	self.Normal = horizontal_normal
-	self.HangDepthOffset = horizontal_normal * Config.WallGap
-	self.HangPosition = Vector3.new(
+	hang.Normal = horizontal_normal
+	hang.HangDepthOffset = horizontal_normal * Config.WallGap
+	hang.HangPosition = Vector3.new(
 		top.Position.X,
 		candidate_position.Y,
 		top.Position.Z
-	) + self.HangDepthOffset
+	) + hang.HangDepthOffset
 	return true
 end
 function LedgeTraversal.get_ledge_outward_normal(self, top, reference_position)
@@ -208,7 +213,7 @@ function LedgeTraversal.get_ledge_outward_normal(self, top, reference_position)
 	for _, outward in ipairs(axes) do
 		local origin = Vector3.new(top.Position.X, probe_y, top.Position.Z)
 			+ outward * probe_length
-		local hit = self:_cast_climbable_side(origin, -outward * probe_length)
+		local hit = Queries.cast_climbable_side(self, origin, -outward * probe_length)
 		if hit and (ClimbableQuery.get_guide(hit.Instance) or hit.Instance) == guide then
 			local face_normal = Vector.flatten(hit.Normal)
 			if face_normal.Magnitude >= 0.05 then
@@ -234,8 +239,9 @@ function LedgeTraversal.get_ledge_outward_normal(self, top, reference_position)
 	return best_normal
 end
 function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
+	local hang = ParkourState.get_data(self, "Hanging")
 	local root = self.Root
-	local normal = self.Normal
+	local normal = hang and hang.Normal
 	if not root or not top or not normal then return false end
 
 	local destination_normal = Vector.flatten(target_normal or normal)
@@ -245,7 +251,7 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 	-- W/S change ledge height. Begin with the cached hang transform, then
 	-- immediately resolve the destination's actual side/top contact using the
 	-- same probe that has been correcting the position during A/D traversal.
-	local depth_offset = self.HangDepthOffset
+	local depth_offset = hang.HangDepthOffset
 	if target_normal then
 		-- A vertical transfer may land on a ledge whose wall faces another
 		-- direction. Use its detected destination normal for both facing and
@@ -259,7 +265,7 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 	local planned_position = top.Position
 		+ depth_offset
 		- Vector3.new(0, Config.HangDrop, 0)
-	local planned_clear, planned_blocker = self:_has_hang_body_clearance(
+	local planned_clear, planned_blocker = Queries.has_hang_body_clearance(self, 
 		planned_position,
 		destination_normal
 	)
@@ -267,16 +273,18 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 		return false
 	end
 
-	local pose_snapshot = self:_snapshot_hang_pose()
+	local pose_snapshot = Traversal.snapshot_hang_pose(self)
 	if not ParkourState.transition(self, "Hanging") then
 		return false
 	end
-	self.CurrentClimbable = target_guide
-	self.Normal = destination_normal
-	self.HangDepthOffset = depth_offset
-	self.HangPosition = top.Position
-		+ depth_offset
-		- Vector3.new(0, Config.HangDrop, 0)
+	hang = ParkourState.set_data(self, "Hanging", {
+		CurrentClimbable = target_guide,
+		Normal = destination_normal,
+		HangDepthOffset = depth_offset,
+		HangPosition = top.Position + depth_offset - Vector3.new(0, Config.HangDrop, 0),
+		CornerLockPosition = nil,
+		CornerLockInputDirection = nil,
+	})
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 
@@ -284,17 +292,17 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 	-- sampled top can be laterally offset from the actual wall face; placing
 	-- the root at this provisional pose first causes a visible/physical nudge
 	-- into the ledge during simultaneous sideways and vertical input.
-	local refreshed = self:_refresh_hang_contact(target_guide, top.Position.Y)
+	local refreshed = LedgeTraversal.refresh_hang_contact(self, target_guide, top.Position.Y)
 	if not refreshed then
-		self:_restore_hang_pose(pose_snapshot)
+		Traversal.restore_hang_pose(self, pose_snapshot)
 		return false
 	end
-		local final_clear, final_blocker = self:_has_hang_body_clearance(
-		self.HangPosition,
-		self.Normal
+		local final_clear, final_blocker = Queries.has_hang_body_clearance(self, 
+		hang.HangPosition,
+		hang.Normal
 	)
 	if not final_clear then
-		self:_restore_hang_pose(pose_snapshot)
+		Traversal.restore_hang_pose(self, pose_snapshot)
 		return false
 	end
 	self:_position_hanging()
@@ -376,7 +384,7 @@ function LedgeTraversal.get_guide_top(self, guide, sample_position)
 end
 function LedgeTraversal.get_guide_tops(self, guide, sample_position)
 	Metrics.record(self, "GuideTopQueries")
-	local first_top = self:_get_guide_top(guide, sample_position)
+	local first_top = Queries.get_guide_top(self, guide, sample_position)
 	if not first_top then return {} end
 
 	local tops = { first_top }
@@ -452,7 +460,11 @@ local function cast_mantle_ground(self, origin, direction)
 end
 
 function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
+	local hang = ParkourState.get_data(self, "Hanging")
 	local root = self.Root
+	if not hang then
+		return false
+	end
 	if not root or not current_top or not normal or not tangent then
 		return false
 	end
@@ -489,8 +501,8 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 			)
 			if ground and ground.Normal.Y >= 0.5 then
 				local ground_guide = ClimbableQuery.get_guide(ground.Instance)
-				local is_current_surface = ground.Instance == self.CurrentClimbable
-					or (ground_guide ~= nil and ground_guide == self.CurrentClimbable)
+				local is_current_surface = ground.Instance == hang.CurrentClimbable
+					or (ground_guide ~= nil and ground_guide == hang.CurrentClimbable)
 				local rise = ground.Position.Y - current_top.Y
 				local relative = ground.Position - current_top
 				local inward_distance = relative:Dot(-outward_normal)
@@ -541,16 +553,13 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 	local target_cframe = CFrame.lookAt(grounded_position, grounded_position - outward_normal)
 	-- Keep the hang's movement lock while blending to the floor so the
 	-- Humanoid cannot fight the scripted mantle path.
-		self.CurrentClimbable = nil
-	self.Normal = nil
-	self.HangDepthOffset = nil
-	self.HangPosition = nil
-	self.CornerLockPosition = nil
-	self.CornerLockInputDirection = nil
-	self._mantleStart = start_cframe
-	self._mantleTarget = target_cframe
-	self._mantleElapsed = 0
-	self._mantleDuration = 0.35
+	ParkourState.clear_data(self, "Hanging")
+	ParkourState.set_data(self, "Mantling", {
+		Start = start_cframe,
+		Target = target_cframe,
+		Elapsed = 0,
+		Duration = 0.35,
+	})
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 	return true
@@ -582,8 +591,12 @@ function LedgeTraversal.is_guide_within_mantle_search(self, guide, current_top, 
 		and lateral - radius <= Config.MantleMaxLateral
 end
 function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
+	local hang = ParkourState.get_data(self, "Hanging")
+	if not hang then
+		return false
+	end
 	local root = self.Root
-	local wall = self.CurrentClimbable
+	local wall = hang.CurrentClimbable
 	if not root or not wall or not wall:IsA("BasePart")
 		or not wall.CanCollide or ClimbableQuery.is_climbable(wall) then
 		return false
@@ -591,11 +604,11 @@ function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 
 	-- The generic-wall grab is anchored to this exact solid part. Mantle onto
 	-- its own top, inset only by the root's depth plus a small safety margin.
-	local top = self:_get_guide_top(wall, current_top)
+	local top = Queries.get_guide_top(self, wall, current_top)
 	if not top or top.Instance ~= wall or top.Normal.Y < 0.5 then
 		return false
 	end
-	local support = self:_cast(
+	local support = Queries.cast(self, 
 		top.Position + Vector3.new(0, 1, 0),
 		Vector3.new(0, -2, 0),
 		true
@@ -610,7 +623,7 @@ function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 	local standing_position = support.Position
 		- normal * edge_inset
 		+ Vector3.new(0, self:_standing_height() - 0.05, 0)
-	local clear = self:_has_hang_body_clearance(standing_position, normal)
+	local clear = Queries.has_hang_body_clearance(self, standing_position, normal)
 	if not clear then
 		return false
 	end
@@ -626,35 +639,33 @@ function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 	end
 
 	local target_cframe = CFrame.lookAt(standing_position, standing_position - normal)
-	self.CurrentClimbable = nil
-	self.Normal = nil
-	self.HangDepthOffset = nil
-	self.HangPosition = nil
-	self.CornerLockPosition = nil
-	self.CornerLockInputDirection = nil
-	self._mantleStart = root.CFrame
-	self._mantleTarget = target_cframe
-	self._mantleElapsed = 0
-	self._mantleDuration = 0.35
+	ParkourState.clear_data(self, "Hanging")
+	local mantle = ParkourState.set_data(self, "Mantling", {
+		Start = root.CFrame,
+		Target = target_cframe,
+		Elapsed = 0,
+		Duration = 0.35,
+	})
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 	return true
 end
 
 local function try_mantle_impl(self)
-		if self.State ~= "Hanging" or not self.Root or not self.CurrentClimbable
-		or not self.HangPosition or not self.Normal
-		or not self.CurrentClimbable:IsDescendantOf(Workspace) then
+	local hang = ParkourState.get_data(self, "Hanging")
+		if self.State ~= "Hanging" or not self.Root or not hang.CurrentClimbable
+		or not hang.HangPosition or not hang.Normal
+		or not hang.CurrentClimbable:IsDescendantOf(Workspace) then
 				return
 	end
 
 	local root = self.Root
-	local normal = self.Normal
-	local is_tagged_guide = ClimbableQuery.is_climbable(self.CurrentClimbable)
+	local normal = hang.Normal
+	local is_tagged_guide = ClimbableQuery.is_climbable(hang.CurrentClimbable)
 	local depth_offset = if is_tagged_guide
 		then normal * Config.WallGap
-		else (self.HangDepthOffset or normal * Config.WallGap)
-	local current_top = self.HangPosition
+		else (hang.HangDepthOffset or normal * Config.WallGap)
+	local current_top = hang.HangPosition
 		- depth_offset
 		+ Vector3.new(0, Config.HangDrop, 0)
 	if not is_tagged_guide then
@@ -719,7 +730,7 @@ local function try_mantle_impl(self)
 	for _, guide in ipairs(tagged_guides) do
 		Metrics.record(self, "GuidesVisited")
 		if guide:IsDescendantOf(Workspace) then
-			local in_bounds = self:_is_guide_within_mantle_search(guide, current_top, normal, tangent)
+			local in_bounds = LedgeTraversal.is_guide_within_mantle_search(self, guide, current_top, normal, tangent)
 			Metrics.record(self, in_bounds and "GuidesInSearchBounds" or "GuidesOutsideSearchBounds")
 			-- This conservative broad-phase rejects guides that cannot overlap
 			-- the mantle search volume; detailed surface queries remain unchanged.
@@ -732,7 +743,7 @@ local function try_mantle_impl(self)
 							- normal * inward_offset
 						-- Enumerate the exposed tops in this column. A broad backing
 						-- part can be the first hit while a reachable ledge sits below it.
-						for _, top in ipairs(self:_get_guide_tops(guide, sample_position)) do
+						for _, top in ipairs(Queries.get_guide_tops(self, guide, sample_position)) do
 							consider_higher_top(guide, top)
 						end
 					end
@@ -745,20 +756,54 @@ local function try_mantle_impl(self)
 				-- Resolve the destination ledge's exposed vertical face as well as
 		-- its top. A higher ledge can face a different direction from the wall
 		-- we're leaving, so keep its own outward normal and depth offset.
-		local target_normal = self:_get_ledge_outward_normal(best_top, root.Position)
+		local target_normal = LedgeTraversal.get_ledge_outward_normal(self, best_top, root.Position)
 		local transferred
 		if target_normal then
-			transferred = self:_transfer_hang_to_ledge(best_top, target_normal)
+			transferred = LedgeTraversal.transfer_hang_to_ledge(self, best_top, target_normal)
 		else
-			transferred = self:_transfer_hang_to_ledge(best_top)
+			transferred = LedgeTraversal.transfer_hang_to_ledge(self, best_top)
 		end
 	else
 		-- No higher tagged guide was found. W may still mantle onto any visible,
 		-- walkable surface above the current wall.
-		local ground_mantled = self:_try_ground_mantle(current_top, normal, tangent)
+		local ground_mantled = LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 	end
 end
 
+
+function LedgeTraversal.update_mantle(self, dt)
+	if self.State ~= "Mantling" then
+		return false
+	end
+
+	local root = self.Root
+	local mantle = ParkourState.get_data(self, "Mantling")
+	local duration = mantle and mantle.Duration
+	if not duration or duration <= 0 or not mantle.Start or not mantle.Target then
+		return false
+	end
+
+	mantle.Elapsed = math.min((mantle.Elapsed or 0) + math.max(dt, 0), duration)
+	local linear = mantle.Elapsed / duration
+	local alpha = VaultMath.smoothstep(linear)
+	if root then
+		root.CFrame = mantle.Start:Lerp(mantle.Target, alpha)
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+	end
+	if linear >= 1 then
+		ParkourState.transition(self, "Grounded")
+		ParkourState.clear_data(self, "Mantling")
+		ParkourState.restore_humanoid(self, "Hang", { "AutoRotate", "PlatformStand" })
+		if self.Humanoid then
+			self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+		end
+		if self.MovementController then
+			self.MovementController:SetSprintBlocked(false, self)
+		end
+	end
+	return true
+end
 
 function LedgeTraversal.try_lower_ledge(self)
 	return Metrics.measure_search(self, "LowerLedge", try_lower_ledge_impl)

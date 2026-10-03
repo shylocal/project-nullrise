@@ -6,6 +6,8 @@ local Vector = require(ReplicatedStorage.shared.utility.Vector)
 
 local Config = require(script.Parent.Config)
 local ClimbableQuery = require(script.Parent.ClimbableQuery)
+local ParkourState = require(script.Parent.State)
+local Queries = require(script.Parent.Queries)
 
 local Traversal = {}
 
@@ -17,36 +19,49 @@ function Traversal.get_traverse_speed(self)
 	return speed
 end
 function Traversal.snapshot_hang_pose(self)
+	local hang = ParkourState.get_data(self, "Hanging") or {}
 	local root = self.Root
 	return {
-		CurrentClimbable = self.CurrentClimbable,
-		Normal = self.Normal,
-		HangDepthOffset = self.HangDepthOffset,
-		HangPosition = self.HangPosition,
-		CornerLockPosition = self.CornerLockPosition,
-		CornerLockInputDirection = self.CornerLockInputDirection,
+		CurrentClimbable = hang.CurrentClimbable,
+		Normal = hang.Normal,
+		HangDepthOffset = hang.HangDepthOffset,
+		HangPosition = hang.HangPosition,
+		CornerLockPosition = hang.CornerLockPosition,
+		CornerLockInputDirection = hang.CornerLockInputDirection,
 		CFrame = root and root.CFrame,
 	}
 end
 function Traversal.restore_hang_pose(self, snapshot)
-	self.CurrentClimbable = snapshot.CurrentClimbable
-	self.Normal = snapshot.Normal
-	self.HangDepthOffset = snapshot.HangDepthOffset
-	self.HangPosition = snapshot.HangPosition
-	self.CornerLockPosition = snapshot.CornerLockPosition
-	self.CornerLockInputDirection = snapshot.CornerLockInputDirection
+	if not snapshot or not snapshot.CurrentClimbable or not snapshot.Normal or not snapshot.HangPosition then
+		return false
+	end
+	if self.State ~= "Hanging" then
+		if not ParkourState.transition(self, "Hanging") then
+			return false
+		end
+	end
+	ParkourState.set_data(self, "Hanging", {
+		CurrentClimbable = snapshot.CurrentClimbable,
+		Normal = snapshot.Normal,
+		HangDepthOffset = snapshot.HangDepthOffset,
+		HangPosition = snapshot.HangPosition,
+		CornerLockPosition = snapshot.CornerLockPosition,
+		CornerLockInputDirection = snapshot.CornerLockInputDirection,
+	})
 	local root = self.Root
 	if root and snapshot.CFrame then
 		root.CFrame = snapshot.CFrame
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 	end
+	return true
 end
 function Traversal.traverse(self, dt)
+	local hang = ParkourState.get_data(self, "Hanging")
 	local root = self.Root
-	local climbable = self.CurrentClimbable
-	local normal = self.Normal
-	if not root or not climbable or not normal or not climbable:IsDescendantOf(Workspace) then
+	local climbable = hang and hang.CurrentClimbable
+	local normal = hang and hang.Normal
+	if not root or not hang or not climbable or not normal or not climbable:IsDescendantOf(Workspace) then
 		self:_release()
 		return
 	end
@@ -58,7 +73,7 @@ function Traversal.traverse(self, dt)
 		return
 	end
 
-	local active_top_y = self.HangPosition.Y + Config.HangDrop
+	local active_top_y = hang.HangPosition.Y + Config.HangDrop
 
 	local direction = 0
 	if self.InputController:IsDown(Actions.Right) then direction += 1 end
@@ -100,18 +115,18 @@ function Traversal.traverse(self, dt)
 				local angle = arc / math.max(radius + Config.WallGap, 0.1) * turn_sign
 				local rotated = CFrame.fromAxisAngle(Vector3.yAxis, angle):VectorToWorldSpace(radial)
 				local sample = center + rotated * radius
-				local top = self:_get_guide_top(climbable, sample)
+				local top = Queries.get_guide_top(self, climbable, sample)
 				if top and top.Normal.Y >= 0.5 then
 					local next_normal = Vector.flatten(sample - center)
 					if next_normal.Magnitude >= 0.05 then
 						next_normal = next_normal.Unit
-						local next_position = Vector3.new(top.Position.X, self.HangPosition.Y, top.Position.Z)
+						local next_position = Vector3.new(top.Position.X, hang.HangPosition.Y, top.Position.Z)
 							+ next_normal * Config.WallGap
-						local clear = self:_has_hang_body_clearance(next_position, next_normal)
+						local clear = Queries.has_hang_body_clearance(self, next_position, next_normal)
 						if clear then
-							self.Normal = next_normal
-							self.HangDepthOffset = next_normal * Config.WallGap
-							self.HangPosition = next_position
+							hang.Normal = next_normal
+							hang.HangDepthOffset = next_normal * Config.WallGap
+							hang.HangPosition = next_position
 						else
 							Traversal.restore_hang_pose(self, pose_snapshot)
 						end
@@ -125,17 +140,17 @@ function Traversal.traverse(self, dt)
 		-- During a smoothed W/S transfer, root.Position is intentionally between
 		-- the source and destination heights. Lateral contact probes must use
 		-- the logical hang target so they sample the destination ledge consistently.
-		local candidate_position = self.HangPosition
+		local candidate_position = hang.HangPosition
 			+ tangent * direction * Traversal.get_traverse_speed(self) * math.max(dt, 0)
 		local probe_origin = candidate_position
 			+ Vector3.new(0, 1.5, 0)
 			+ normal * 0.3
-		local probe = self:_cast(
+		local probe = Queries.cast(self, 
 			probe_origin,
 			-normal * (Config.WallGap + Config.SurfaceProbe)
 		)
 		local top = probe
-			and self:_cast_reachable_grab_top(probe.Position, probe.Normal, candidate_position, active_top_y)
+			and Queries.cast_reachable_grab_top(self, probe.Position, probe.Normal, candidate_position, active_top_y)
 		local next_climbable = top
 			and (ClimbableQuery.get_guide(top.Instance) or top.Instance)
 		local same_height = top
@@ -148,19 +163,19 @@ function Traversal.traverse(self, dt)
 		-- a convex outside corner or a concave inside corner.
 		local movement_tangent = tangent * direction
 		local corner_locked = false
-		if self.CornerLockPosition then
-			corner_locked = Vector.flatten(root.Position - self.CornerLockPosition).Magnitude < Config.CornerLockDistance
-			if self.CornerLockInputDirection
-				and direction ~= self.CornerLockInputDirection then
+		if hang.CornerLockPosition then
+			corner_locked = Vector.flatten(root.Position - hang.CornerLockPosition).Magnitude < Config.CornerLockDistance
+			if hang.CornerLockInputDirection
+				and direction ~= hang.CornerLockInputDirection then
 				-- An intentional left/right reversal means the player wants to
 				-- turn back now. Drop the seam lock immediately; same-direction
 				-- movement remains locked until the character clears the corner.
 				corner_locked = false
-				self.CornerLockPosition = nil
-				self.CornerLockInputDirection = nil
+				hang.CornerLockPosition = nil
+				hang.CornerLockInputDirection = nil
 			elseif not corner_locked then
-				self.CornerLockPosition = nil
-				self.CornerLockInputDirection = nil
+				hang.CornerLockPosition = nil
+				hang.CornerLockInputDirection = nil
 			end
 		end
 		local corner_turn_normals = {}
@@ -187,7 +202,7 @@ function Traversal.traverse(self, dt)
 					+ Vector3.new(0, 1.5, 0)
 					+ longitudinal_offset
 					+ turn_normal * (Config.WallGap + 0.75)
-				local corner_probe = self:_cast_climbable_side(
+				local corner_probe = Queries.cast_climbable_side(self, 
 					corner_origin,
 					-turn_normal * (Config.WallGap + Config.SurfaceProbe + 2)
 				)
@@ -205,7 +220,7 @@ function Traversal.traverse(self, dt)
 							and along_movement <= Config.WallGap + Config.SurfaceProbe + 1.5
 
 						if perpendicular and near_corner then
-							local corner_top = self:_cast_reachable_grab_top(
+							local corner_top = Queries.cast_reachable_grab_top(self, 
 								corner_probe.Position,
 								corner_probe.Normal,
 								root.Position,
@@ -236,7 +251,7 @@ function Traversal.traverse(self, dt)
 									cleared_sample + normal * 0.2,
 								}
 								for _, coverage_sample in ipairs(coverage_samples) do
-									for _, candidate_top in ipairs(self:_get_guide_tops(corner_guide, coverage_sample)) do
+									for _, candidate_top in ipairs(Queries.get_guide_tops(self, corner_guide, coverage_sample)) do
 										local distance = math.abs(candidate_top.Position.Y - active_top_y)
 										local sample_distance = Vector.flatten(candidate_top.Position - cleared_sample).Magnitude
 										if distance <= Config.TraverseHeightTolerance
@@ -252,7 +267,7 @@ function Traversal.traverse(self, dt)
 									local candidate_hang = cleared_top.Position
 										+ corner_normal * Config.WallGap
 										- Vector3.new(0, Config.HangDrop, 0)
-									local candidate_clear = self:_has_hang_body_clearance(candidate_hang, corner_normal)
+									local candidate_clear = Queries.has_hang_body_clearance(self, candidate_hang, corner_normal)
 									if candidate_clear then
 										corner_valid_count += 1
 									local turn_side_penalty = turn_normal:Dot(movement_tangent) >= 0 and 0 or 100
@@ -298,45 +313,45 @@ function Traversal.traverse(self, dt)
 
 		if top and next_climbable == climbable and same_height
 			and (is_corner_transfer or probe_normal_aligned) then
-			self.Normal = horizontal_normal
-			self.HangDepthOffset = horizontal_normal * Config.WallGap
-			self.HangPosition = Vector3.new(
+			hang.Normal = horizontal_normal
+			hang.HangDepthOffset = horizontal_normal * Config.WallGap
+			hang.HangPosition = Vector3.new(
 				top.Position.X,
-				self.HangPosition.Y,
+				hang.HangPosition.Y,
 				top.Position.Z
-			) + self.HangDepthOffset
+			) + hang.HangDepthOffset
 		elseif top and next_climbable and next_climbable ~= climbable and same_height
 			and (is_corner_transfer or probe_normal_aligned) then
-			self.CurrentClimbable = next_climbable
-			self.Normal = horizontal_normal
-			self.HangDepthOffset = horizontal_normal * Config.WallGap
-			self.HangPosition = Vector3.new(
+			hang.CurrentClimbable = next_climbable
+			hang.Normal = horizontal_normal
+			hang.HangDepthOffset = horizontal_normal * Config.WallGap
+			hang.HangPosition = Vector3.new(
 				top.Position.X,
-				self.HangPosition.Y,
+				hang.HangPosition.Y,
 				top.Position.Z
-			) + self.HangDepthOffset
+			) + hang.HangDepthOffset
 		else
 					end
 
 		-- Exempt only the exact wall part supporting the hang; the top is below the root by Config.HangDrop and must not mask a thick-wall collision.
-		local pose_changed = (self.HangPosition - pose_snapshot.HangPosition).Magnitude > 1e-3
-			or self.Normal:Dot(pose_snapshot.Normal) < 0.999
+		local pose_changed = (hang.HangPosition - pose_snapshot.HangPosition).Magnitude > 1e-3
+			or hang.Normal:Dot(pose_snapshot.Normal) < 0.999
 		local midpoint_clear = true
-		if is_corner_transfer and self.Normal:Dot(pose_snapshot.Normal) < 0.707 then
-			local midpoint = pose_snapshot.HangPosition:Lerp(self.HangPosition, 0.5)
-			local midpoint_normal = Vector.flatten(pose_snapshot.Normal + self.Normal)
-			if midpoint_normal.Magnitude < 0.05 then midpoint_normal = self.Normal end
-			midpoint_clear = self:_has_hang_body_clearance(midpoint, midpoint_normal)
+		if is_corner_transfer and hang.Normal:Dot(pose_snapshot.Normal) < 0.707 then
+			local midpoint = pose_snapshot.HangPosition:Lerp(hang.HangPosition, 0.5)
+			local midpoint_normal = Vector.flatten(pose_snapshot.Normal + hang.Normal)
+			if midpoint_normal.Magnitude < 0.05 then midpoint_normal = hang.Normal end
+			midpoint_clear = Queries.has_hang_body_clearance(self, midpoint, midpoint_normal)
 		end
-		local proposed_hang_position = self.HangPosition
-		local proposed_normal = self.Normal
-		local body_clear = not pose_changed or (midpoint_clear and self:_has_hang_body_clearance(self.HangPosition, self.Normal))
+		local proposed_hang_position = hang.HangPosition
+		local proposed_normal = hang.Normal
+		local body_clear = not pose_changed or (midpoint_clear and Queries.has_hang_body_clearance(self, hang.HangPosition, hang.Normal))
 		if not body_clear then
 			Traversal.restore_hang_pose(self, pose_snapshot)
 		else
 			if is_corner_transfer then
-				self.CornerLockPosition = self.HangPosition
-				self.CornerLockInputDirection = direction
+				hang.CornerLockPosition = hang.HangPosition
+				hang.CornerLockInputDirection = direction
 			end
 		end
 	end

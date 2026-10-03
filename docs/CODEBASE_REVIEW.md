@@ -21,7 +21,7 @@ Player removal deletes active attacks, combo state, cooldown state, and rate-lim
 
 ## Tier 2: structure
 
-Parkour is already decomposed into queries, state, ledge traversal, vault traversal, and math modules, but the extracted modules still contain large and deeply nested functions. Do not add more forwarding shells; move data ownership and pure classification into smaller, testable units.
+Parkour is decomposed into queries, state, ledge traversal, vault traversal, and math modules. Hanging and mantling execution data now lives in explicit `ParkourState` records, and the controller no longer acts as a forwarding shell for most traversal/query methods. The largest remaining work is pure geometry/classification decomposition inside the traversal modules.
 
 Combat has the useful split between input buffering, lifecycle orchestration, and hitbox sampling. Animation submodules are still thin adapters, which is acceptable until they acquire independent policy.
 
@@ -29,7 +29,7 @@ Combat has the useful split between input buffering, lifecycle orchestration, an
 
 `default.project.json` declares `ReplicatedStorage.packages`, `ReplicatedStorage.ui`, and `ServerStorage.weapon_models` so their existence is visible in the source layout. The repository still needs approved package contents and authored assets before it can be considered fully self-contained.
 
-`WeaponService` reads weapon templates from `ServerStorage`, and the server registers the `Climbable` collision group at startup.
+`WeaponService` reads weapon templates from `ServerStorage`, and the server registers the `Climbable` collision group at startup. Shared melee definitions are validated by `src/shared/weapons/Validator.lua` when loaded.
 
 ## Input
 

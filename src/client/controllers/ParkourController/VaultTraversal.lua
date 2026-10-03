@@ -8,6 +8,7 @@ local Config = require(script.Parent.Config)
 local ClimbableQuery = require(script.Parent.ClimbableQuery)
 local VaultMath = require(script.Parent.VaultMath)
 local ParkourState = require(script.Parent.State)
+local Queries = require(script.Parent.Queries)
 
 local VaultTraversal = {}
 
@@ -59,7 +60,7 @@ function VaultTraversal.try_vault(self)
 	end
 
 	local standing_height = self:_standing_height()
-	local current_ground = self:_cast(
+	local current_ground = Queries.cast(self, 
 		root.Position + Vector3.new(0, 0.5, 0),
 		Vector3.new(0, -(standing_height + 2), 0),
 		true
@@ -85,7 +86,7 @@ function VaultTraversal.try_vault(self)
 		right = right.Unit
 		-- Prefer the center ray: side probes are fallback coverage only, so a
 		-- nearby unrelated prop cannot mask the wall directly in front.
-		local center_hit = self:_cast(
+		local center_hit = Queries.cast(self, 
 			detection_origin,
 			direction * Config.VaultDetectionDistance,
 			true
@@ -101,7 +102,7 @@ function VaultTraversal.try_vault(self)
 		}
 		local best_hit = nil
 		for _, offset in ipairs(offsets) do
-			local hit = self:_cast(
+			local hit = Queries.cast(self, 
 				detection_origin + offset,
 				direction * Config.VaultDetectionDistance,
 				true
@@ -412,18 +413,6 @@ function VaultTraversal.try_vault(self)
 	end
 	local has_limit_probe = false
 	for _, extra_distance in ipairs(landing_extra_distances) do
-		if math.abs(extra_distance - max_landing_extra) < 1e-4 then
-			has_limit_probe = true
-			break
-		end
-	end
-	if max_landing_extra > 0 and not has_limit_probe then
-		table.insert(landing_extra_distances, max_landing_extra)
-	end
-
-	local landing_stats = { probes = 0, overRange = 0, noHit = 0, steep = 0, wrongHeight = 0, obstaclePart = 0 }
-	local last_landing_hit = nil
-	for _, extra_distance in ipairs(landing_extra_distances) do
 		local landing_distance = hop_distance + extra_distance
 		if landing_distance <= max_vault_distance then
 			for _, lateral_adjustment in ipairs({ 0, -0.75, 0.75 }) do
@@ -436,33 +425,18 @@ function VaultTraversal.try_vault(self)
 				-- the lateral fan otherwise adds a small amount beyond 24 studs.
 				local actual_hop_distance = Vector.flatten(landing_xz - root.Position).Magnitude
 				if actual_hop_distance <= max_vault_distance + 1e-4 then
-					landing_stats.probes += 1
-					local landing_ground = self:_cast(
-						Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
-						landing_ray,
-						true
-					)
-					if not landing_ground then
-						landing_stats.noHit += 1
-					else
-						last_landing_hit = landing_ground
-						if landing_ground.Normal.Y < 0.5 then
-							landing_stats.steep += 1
-						elseif math.abs(landing_ground.Position.Y - current_ground_y) > Config.VaultLandingHeightTolerance then
-							landing_stats.wrongHeight += 1
-						elseif is_obstacle_part(landing_ground.Instance) then
-							landing_stats.obstaclePart += 1
-						else
-							target_position = Vector3.new(
-								landing_ground.Position.X,
-								landing_ground.Position.Y + standing_height - 0.05,
-								landing_ground.Position.Z
-							)
-							break
-						end
+					local landing_ground = Queries.cast(self, Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z), landing_ray, true)
+					if landing_ground
+						and landing_ground.Normal.Y >= 0.5
+						and math.abs(landing_ground.Position.Y - current_ground_y) <= Config.VaultLandingHeightTolerance
+						and not is_obstacle_part(landing_ground.Instance) then
+						target_position = Vector3.new(
+							landing_ground.Position.X,
+							landing_ground.Position.Y + standing_height - 0.05,
+							landing_ground.Position.Z
+						)
+						break
 					end
-				else
-					landing_stats.overRange += 1
 				end
 			end
 			if target_position then
@@ -530,7 +504,7 @@ function VaultTraversal.try_vault(self)
 		local sample_cframe = CFrame.new(
 			sample_position + Vector3.new(0, arc, 0)
 		) * base.Rotation
-		local clear, blocker = self:_has_vault_clearance(sample_cframe, clearance_size, obstacle)
+		local clear, blocker = Queries.has_vault_clearance(self, sample_cframe, clearance_size, obstacle)
 		if not clear then
 			return false
 		end

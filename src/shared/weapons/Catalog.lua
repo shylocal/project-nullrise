@@ -2,6 +2,7 @@
 -- Add weapon definitions as ModuleScripts beside this file.
 local Catalog = {}
 
+local Validator = require(script.Parent.Validator)
 local WeaponsFolder = script.Parent
 local Definitions = {}
 local FailedModules = {}

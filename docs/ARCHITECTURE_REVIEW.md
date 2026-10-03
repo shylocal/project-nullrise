@@ -18,9 +18,9 @@ Remaining design debt: the shared weapon definitions still use 0.1-second cooldo
 
 `ParkourController/init.lua` is the composition root, while queries, ledge traversal, vault traversal, state snapshots, and math live in separate modules. This is an improvement over a monolithic controller, but the extracted modules remain large and some functions are deeply nested.
 
-The next decomposition should split geometry/classification from execution, not create more forwarding wrappers. In particular, `Queries` should return data, and traversal modules should consume that data without re-running detection.
+The next decomposition should split geometry/classification from execution, not create more forwarding wrappers. Queries return world data, while traversal modules consume those results and own movement side effects. The controller no longer forwards most query/traversal methods.
 
-Per-state parkour data is still stored as controller fields (`_vaultStart`, `_vaultElapsed`, `_mantleTarget`, `_topHopActive`, and related values). `State.lua` owns transition rules and Humanoid snapshots, but it does not yet own all execution-state data. A future refactor can move related fields into explicit Hang/Mantle/Vault/TopHop records.
+Parkour execution data is owned by explicit `State` records for `Hanging`, `Mantling`, `Vaulting`, and `TopHop`. The controller retains only cross-state lifecycle concerns such as input guards, timing, and world references. State-specific update work now lives with the traversal module that owns it.
 
 ## Input and UI
 
