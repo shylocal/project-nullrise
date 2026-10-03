@@ -4,6 +4,7 @@ local Workspace = game:GetService("Workspace")
 local CombatValidation = {}
 
 local HIT_DISTANCE_MARGIN = 4
+local MIN_FACING_DOT = -0.25
 
 local function is_finite_vector3(value)
 	return typeof(value) == "Vector3"
@@ -24,13 +25,14 @@ function CombatValidation.ValidateHit(
 		return nil
 	end
 
-	if segment_instance ~= nil then
-		if typeof(segment_instance) ~= "Instance" or not segment_instance:IsA("Attachment") then
-			return nil
-		end
+	-- Hit packets are only meaningful when they include both the authored
+	-- hitpoint attachment and the world-space impact position. These fields are
+	-- required so the server can perform all spatial checks below.
+	if typeof(segment_instance) ~= "Instance" or not segment_instance:IsA("Attachment") then
+		return nil
 	end
 
-	if hit_position ~= nil and not is_finite_vector3(hit_position) then
+	if not is_finite_vector3(hit_position) then
 		return nil
 	end
 
@@ -43,14 +45,12 @@ function CombatValidation.ValidateHit(
 		return nil
 	end
 
-	if segment_instance then
-		if not segment_instance:IsDescendantOf(active.Wielded) then
-			return nil
-		end
+	if not segment_instance:IsDescendantOf(active.Wielded) then
+		return nil
+	end
 
-		if not CollectionService:HasTag(segment_instance, "Hitpoint") then
-			return nil
-		end
+	if not CollectionService:HasTag(segment_instance, "Hitpoint") then
+		return nil
 	end
 
 	local hit_humanoid = hit_character:FindFirstChildOfClass("Humanoid")
@@ -79,33 +79,48 @@ function CombatValidation.ValidateHit(
 		return nil
 	end
 
-	if hit_position and (hit_root.Position - hit_position).Magnitude > max_distance then
+	if (hit_root.Position - hit_position).Magnitude > max_distance then
 		return nil
 	end
 
-	if segment_instance and hit_position
-		and (segment_instance.WorldPosition - hit_position).Magnitude > network_tolerance then
+	if (segment_instance.WorldPosition - hit_position).Magnitude > network_tolerance then
 		return nil
 	end
 
-	if hit_position then
-		local raycast_params = active.ValidationRaycastParams
-		if not raycast_params then
+	local horizontal_look = Vector3.new(
+		attacker_root.CFrame.LookVector.X,
+		0,
+		attacker_root.CFrame.LookVector.Z
+	)
+	local horizontal_target = Vector3.new(
+		hit_position.X - attacker_root.Position.X,
+		0,
+		hit_position.Z - attacker_root.Position.Z
+	)
+
+	if horizontal_look.Magnitude > 0.05 and horizontal_target.Magnitude > 0.05 then
+		local facing_dot = horizontal_look.Unit:Dot(horizontal_target.Unit)
+		if facing_dot < MIN_FACING_DOT then
 			return nil
 		end
-		raycast_params.FilterType = Enum.RaycastFilterType.Exclude
-		raycast_params.FilterDescendantsInstances = {active.Character}
-		raycast_params.IgnoreWater = true
+	end
 
-		local origin = segment_instance and segment_instance.WorldPosition or attacker_root.Position
-		local direction = hit_position - origin
+	local raycast_params = active.ValidationRaycastParams
+	if not raycast_params then
+		return nil
+	end
 
-		if direction.Magnitude > 0 then
-			local result = Workspace:Raycast(origin, direction, raycast_params)
+	raycast_params.FilterType = Enum.RaycastFilterType.Exclude
+	raycast_params.FilterDescendantsInstances = { active.Character, hit_character }
+	raycast_params.IgnoreWater = true
 
-			if result and not result.Instance:IsDescendantOf(hit_character) then
-				return nil
-			end
+	local origin = segment_instance.WorldPosition
+	local direction = hit_position - origin
+
+	if direction.Magnitude > 0 then
+		local result = Workspace:Raycast(origin, direction, raycast_params)
+		if result then
+			return nil
 		end
 	end
 
