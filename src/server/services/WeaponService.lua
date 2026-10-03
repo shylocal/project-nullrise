@@ -1,11 +1,12 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local Signal = require(Packages.Signal)
 
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
-local WeaponModels = ReplicatedStorage.weapon_models
+local WeaponModels = ServerStorage:FindFirstChild("weapon_models")
 local WeaponRemote = ReplicatedStorage.remotes.Weapon
 local Fists = Catalog.Get("Fists")
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
