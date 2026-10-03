@@ -8,6 +8,7 @@ local Config = require(script.Parent.Config)
 local ClimbableQuery = require(script.Parent.ClimbableQuery)
 local VaultMath = require(script.Parent.VaultMath)
 local ParkourState = require(script.Parent.State)
+local Queries = require(script.Parent.Queries)
 
 local VaultTraversal = {}
 
@@ -59,7 +60,7 @@ function VaultTraversal.try_vault(self)
 	end
 
 	local standing_height = self:_standing_height()
-	local current_ground = self:_cast(
+	local current_ground = Queries.cast(self, 
 		root.Position + Vector3.new(0, 0.5, 0),
 		Vector3.new(0, -(standing_height + 2), 0),
 		true
@@ -85,7 +86,7 @@ function VaultTraversal.try_vault(self)
 		right = right.Unit
 		-- Prefer the center ray: side probes are fallback coverage only, so a
 		-- nearby unrelated prop cannot mask the wall directly in front.
-		local center_hit = self:_cast(
+		local center_hit = Queries.cast(self, 
 			detection_origin,
 			direction * Config.VaultDetectionDistance,
 			true
@@ -101,7 +102,7 @@ function VaultTraversal.try_vault(self)
 		}
 		local best_hit = nil
 		for _, offset in ipairs(offsets) do
-			local hit = self:_cast(
+			local hit = Queries.cast(self, 
 				detection_origin + offset,
 				direction * Config.VaultDetectionDistance,
 				true
@@ -437,7 +438,7 @@ function VaultTraversal.try_vault(self)
 				local actual_hop_distance = Vector.flatten(landing_xz - root.Position).Magnitude
 				if actual_hop_distance <= max_vault_distance + 1e-4 then
 					landing_stats.probes += 1
-					local landing_ground = self:_cast(
+					local landing_ground = Queries.cast(self, 
 						Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
 						landing_ray,
 						true
@@ -530,7 +531,7 @@ function VaultTraversal.try_vault(self)
 		local sample_cframe = CFrame.new(
 			sample_position + Vector3.new(0, arc, 0)
 		) * base.Rotation
-		local clear, blocker = self:_has_vault_clearance(sample_cframe, clearance_size, obstacle)
+		local clear, blocker = Queries.has_vault_clearance(self, sample_cframe, clearance_size, obstacle)
 		if not clear then
 			return false
 		end
