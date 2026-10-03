@@ -9,6 +9,11 @@ MobileInput.__index = MobileInput
 local Bindings = {
 	[Actions.Primary] = "Nullrise_Primary",
 	[Actions.Sprint] = "Nullrise_Sprint",
+	[Actions.Jump] = "Nullrise_Jump",
+	[Actions.Forward] = "Nullrise_Forward",
+	[Actions.Backward] = "Nullrise_Backward",
+	[Actions.Left] = "Nullrise_Left",
+	[Actions.Right] = "Nullrise_Right",
 	[Actions.Slot1] = "Nullrise_Slot1",
 	[Actions.Slot2] = "Nullrise_Slot2",
 }
@@ -16,6 +21,11 @@ local Bindings = {
 local Titles = {
 	[Actions.Primary] = "Attack",
 	[Actions.Sprint] = "Sprint",
+	[Actions.Jump] = "Jump",
+	[Actions.Forward] = "Forward",
+	[Actions.Backward] = "Back",
+	[Actions.Left] = "Left",
+	[Actions.Right] = "Right",
 	[Actions.Slot1] = "Slot 1",
 	[Actions.Slot2] = "Slot 2",
 }
