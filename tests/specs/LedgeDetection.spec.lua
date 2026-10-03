@@ -82,7 +82,7 @@ return function()
 
 			local selected = LedgeDetection.select_higher_top(current_top, normal, tangent, 8, {
 				{
-					Position = Vector3.new(0, 13.5, -1),
+					Position = Vector3.new(0, 23, -1),
 					Normal = Vector3.yAxis,
 				},
 				{
