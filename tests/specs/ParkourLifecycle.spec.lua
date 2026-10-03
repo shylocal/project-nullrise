@@ -6,6 +6,7 @@ local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Client = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("client")
 local ParkourController = require(Client.controllers.ParkourController)
 local ParkourState = require(Client.controllers.ParkourController.State)
+local VaultTraversal = require(Client.controllers.ParkourController.VaultTraversal)
 
 local function make_fixture()
 	local character = Instance.new("Model")
@@ -110,6 +111,51 @@ return function()
 		expect(ParkourState.get_humanoid_snapshot(controller, "Hang")).to.equal(nil)
 		expect(#movement.SprintBlockCalls).to.equal(1)
 		expect(movement.SprintBlockCalls[1].Blocked).to.equal(false)
+	end)
+
+	it("updates a vault from stored traversal state and finishes on completion", function()
+		local humanoid = controller.Humanoid
+		local root = controller.Root
+		local jumping = Enum.HumanoidStateType.Jumping
+
+		expect(ParkourState.transition(controller, "Vaulting")).to.equal(true)
+		ParkourState.capture_humanoid(controller, "Vault", {
+			"AutoRotate",
+			"PlatformStand",
+			"HipHeight",
+			"JumpingEnabled",
+		})
+		humanoid.AutoRotate = false
+		humanoid.PlatformStand = true
+		humanoid:SetStateEnabled(jumping, false)
+		ParkourState.set_data(controller, "Vault", {
+			Start = CFrame.new(0, 0, 0),
+			Target = CFrame.new(0, 2, -4),
+			Elapsed = 0,
+			Duration = 1,
+			ArcHeight = 1,
+			ArcPeakProgress = 0.5,
+			ExitVelocity = Vector3.new(8, 0, 0),
+		})
+
+		expect(VaultTraversal.update_vault(controller, 0.25)).to.equal(true)
+		local vault = ParkourState.get_data(controller, "Vault")
+		expect(vault.Elapsed).to.equal(0.25)
+		expect(root.CFrame.Position.Z).to.be_near(-0.625, 1e-4)
+		expect(ParkourState.get_humanoid_value(controller, "Vault", "JumpingEnabled")).to.equal(false)
+		expect(humanoid:GetStateEnabled(jumping)).to.equal(false)
+
+		expect(VaultTraversal.update_vault(controller, 1)).to.equal(true)
+		expect(controller.State).to.equal("Grounded")
+		expect(ParkourState.get_data(controller, "Vault")).to.equal(nil)
+		expect(ParkourState.get_humanoid_snapshot(controller, "Vault")).to.equal(nil)
+		expect(humanoid:GetStateEnabled(jumping)).to.equal(true)
+		expect(humanoid.AutoRotate).to.equal(true)
+		expect(humanoid.PlatformStand).to.equal(false)
+
+		expect(function()
+			VaultTraversal.update_vault(controller, 0.1)
+		end).never.to.throw()
 	end)
 
 	it("restores Jumping and movement properties when a mantle is interrupted", function()
