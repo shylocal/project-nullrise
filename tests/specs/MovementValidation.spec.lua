@@ -27,6 +27,48 @@ return function()
 			)).to.equal(nil)
 		end)
 
+		it("ignores large movement while a character is settling", function()
+			local Workspace = game:GetService("Workspace")
+			local character = Instance.new("Model")
+			character.Parent = Workspace
+
+			local root = Instance.new("Part")
+			root.Name = "HumanoidRootPart"
+			root.Position = Vector3.zero
+			root.Parent = character
+
+			local humanoid = Instance.new("Humanoid")
+			humanoid.Parent = character
+
+			local player = {}
+			local now = os.clock()
+			local state = {
+				Character = character,
+				Position = Vector3.zero,
+				LastSampleAt = now - 0.1,
+				IgnoreUntil = now + 1,
+				ViolationCount = 0,
+				LastReason = nil,
+				LastViolationAt = 0,
+			}
+
+			local service = setmetatable({}, MovementValidation)
+			root.Position = Vector3.new(0, 100, 0)
+
+			local ok, err = pcall(function()
+				service:_observe(player, state, now)
+
+				expect(state.ViolationCount).to.equal(0)
+				expect(state.LastReason).to.equal(nil)
+				expect(state.Position).to.equal(root.Position)
+			end)
+
+			character:Destroy()
+			if not ok then
+				error(err, 0)
+			end
+		end)
+
 		it("flags implausible horizontal displacement", function()
 			expect(MovementValidation.ClassifyDelta(
 				Vector3.zero,

@@ -12,12 +12,14 @@ local MAX_VERTICAL_SPEED = 120
 local MAX_SAMPLE_GAP = 0.5
 local TELEPORT_DISTANCE = 40
 local LOG_INTERVAL = 1
+local CHARACTER_GRACE_PERIOD = 1.5
 
 MovementValidation.Limits = {
 	MaxHorizontalSpeed = MAX_HORIZONTAL_SPEED,
 	MaxVerticalSpeed = MAX_VERTICAL_SPEED,
 	MaxSampleGap = MAX_SAMPLE_GAP,
 	TeleportDistance = TELEPORT_DISTANCE,
+	CharacterGracePeriod = CHARACTER_GRACE_PERIOD,
 }
 
 local function finite_vector(value)
@@ -54,6 +56,8 @@ function MovementValidation.ClassifyDelta(previous_position, current_position, d
 
 	return nil
 end
+
+MovementValidation.CharacterGracePeriod = CHARACTER_GRACE_PERIOD
 
 local function get_live_root(character)
 	if not character or character.Parent == nil then
@@ -166,6 +170,7 @@ function MovementValidation:_reset_character(player, character)
 	state.ViolationCount = 0
 	state.LastReason = nil
 	state.LastViolationAt = 0
+	state.IgnoreUntil = os.clock() + CHARACTER_GRACE_PERIOD
 
 	local root = get_live_root(character)
 	if root then
@@ -192,6 +197,12 @@ function MovementValidation:_observe(player, state, now)
 	end
 
 	local delta_time = now - sample_at
+	if now < (state.IgnoreUntil or 0) then
+		state.LastSampleAt = now
+		state.Position = position
+		return
+	end
+
 	local reason = MovementValidation.ClassifyDelta(state.Position, position, delta_time)
 
 	state.Position = position
