@@ -10,7 +10,7 @@ ParkourController.__index = ParkourController
 
 local Config = require(script.Config)
 local ClimbableQuery = require(script.ClimbableQuery)
-local VaultMath = require(script.VaultMath)
+
 local Queries = require(script.Queries)
 local Traversal = require(script.Traversal)
 local LedgeTraversal = require(script.LedgeTraversal)
@@ -243,78 +243,9 @@ function ParkourController:_step(dt)
 			self:_release()
 		end
 	elseif self.State == "Vaulting" then
-		local root = self.Root
-		local vault = ParkourState.get_data(self, "Vault")
-		local duration = vault and vault.Duration
-		if not root or not vault or not duration or not vault.Start or not vault.Target then
-			VaultTraversal.finish_vault(self, false)
+		if not VaultTraversal.update_vault(self, dt) then
 			return
 		end
-
-		vault.Elapsed = math.min((vault.Elapsed or 0) + math.max(dt, 0), duration)
-		local linear = vault.Elapsed / duration
-		local eased = VaultMath.smoothstep(linear)
-		local base = vault.Start:Lerp(vault.Target, eased)
-		local horizontal = vault.Start.Position:Lerp(vault.Target.Position, linear)
-		local arc = VaultMath.arc_weight(linear, vault.ArcPeakProgress) * vault.ArcHeight
-		local position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
-		local physical_exit_progress = math.clamp(Config.VaultPhysicalExitProgress, 0.05, 0.95)
-		if linear < physical_exit_progress then
-			root.CFrame = CFrame.new(position + Vector3.new(0, arc, 0)) * base.Rotation
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-		else
-			-- Re-enable normal Humanoid control for the physical exit phase. The
-			-- Vault snapshot retains the original value for cleanup/finish.
-			local vault_humanoid = self.Humanoid
-			if vault_humanoid and vault_humanoid.Parent then
-				vault_humanoid.PlatformStand = false
-			end
-			-- Hand the final approach back to Roblox physics before reaching the
-			-- authored endpoint. This preserves the forward impulse through the
-			-- landing instead of pinning the root to the last curve samples.
-			local exit_velocity = vault.ExitVelocity
-			if exit_velocity then
-				local current_velocity = root.AssemblyLinearVelocity
-				root.AssemblyLinearVelocity = Vector3.new(
-					exit_velocity.X,
-					current_velocity.Y,
-					exit_velocity.Z
-				)
-			end
-		end
-
-		local vault_snapshot = ParkourState.get_humanoid_snapshot(self, "Vault")
-		local vault_humanoid = vault_snapshot and vault_snapshot.Humanoid
-		local original_hip_height = ParkourState.get_humanoid_value(self, "Vault", "HipHeight")
-		if vault_humanoid and vault_humanoid.Parent and original_hip_height ~= nil then
-			local reduction = math.max(0, Config.VaultHipHeightReduction)
-			local weight = VaultMath.hip_height_weight(linear)
-			local minimum_hip_height = 0
-			if vault_humanoid.RigType == Enum.HumanoidRigType.R6 then
-				-- R6 commonly starts at zero HipHeight, so allow a small negative
-				-- relative offset to make the temporary crouch effective.
-				minimum_hip_height = -reduction
-			end
-			vault_humanoid.HipHeight = math.max(
-				minimum_hip_height,
-				original_hip_height - reduction * weight
-			)
-		end
-
-		if linear >= 1 then
-			VaultTraversal.finish_vault(self, true)
-		end
-	end
-end
-
-
-
-
-
-
-
-
 function ParkourController:_standing_height()
 	local root = self.Root
 	local humanoid = self.Humanoid
