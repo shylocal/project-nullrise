@@ -1,10 +1,10 @@
-local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Vector = require(ReplicatedStorage.shared.utility.Vector)
 
 local Config = require(script.Parent.Config)
+local LedgeDetection = require(script.Parent.LedgeDetection)
 
 local ClimbableQuery = require(script.Parent.ClimbableQuery)
 local ParkourState = require(script.Parent.State)
@@ -17,15 +17,15 @@ local LedgeTraversal = {}
 
 local function try_lower_ledge_impl(self)
 	local hang = ParkourState.get_data(self, "Hanging")
-		if self.State ~= "Hanging" or not self.Root or not hang.CurrentClimbable
+	if self.State ~= "Hanging" or not self.Root or not hang.CurrentClimbable
 		or not hang.HangPosition or not hang.Normal then
-				return
+		return
 	end
 
 	local root = self.Root
 	local normal = Vector.flatten(hang.Normal)
 	if normal.Magnitude < 0.05 then
-				return
+		return
 	end
 	normal = normal.Unit
 
@@ -34,85 +34,18 @@ local function try_lower_ledge_impl(self)
 		tangent = Vector.flatten(Vector3.yAxis:Cross(normal))
 	end
 	if tangent.Magnitude < 0.05 then
-				return
+		return
 	end
 	tangent = tangent.Unit
 
 	local current_top = hang.HangPosition - normal * Config.WallGap + Vector3.new(0, Config.HangDrop, 0)
-	local best_top = nil
-	local best_drop = math.huge
-	local best_distance = math.huge
-
-	-- Search nearby columns and every exposed walkable surface on each tagged
-	-- guide. This also supports multi-part tagged models with several stacked
-	-- ledges, where the model's single bounding-box top hides lower surfaces.
-	local lateral_samples = { 0, -1.5, 1.5, -3, 3, -4.5, 4.5 }
-	local inward_samples = { 0, 1.5, 3, 5 }
-	local function consider_lower_top(guide, top)
-		if not top or top.Normal.Y < 0.5 then return end
-		local relative = top.Position - current_top
-		local drop = current_top.Y - top.Position.Y
-		local inward = relative:Dot(-normal)
-		-- The ray hit proves this exact column is supported. Measure its
-		-- actual offset from the player's ledge instead of subtracting a
-		-- model-wide half extent that changes when another child is resized.
-		local lateral_gap = math.abs(Vector.flatten(relative):Dot(tangent))
-		local in_vertical_range = drop >= 0.5 and drop <= Config.MantleMaxRise
-		local in_reach = inward >= -Config.MantleMaxOutward
-			and inward <= Config.MantleMaxInward
-			and lateral_gap <= Config.MantleMaxLateral
-
-		if in_vertical_range and in_reach then
-			local target_top_position = top.Position
-			local horizontal_distance = Vector.flatten(target_top_position - current_top).Magnitude
-			if drop < best_drop or (math.abs(drop - best_drop) < 1e-4 and horizontal_distance < best_distance) then
-				best_top = top
-				best_drop = drop
-				best_distance = horizontal_distance
-			end
-		end
-	end
-
-	-- S transfers only to a lower tagged guide/surface. It does not dismount to
-	-- ordinary ground; W remains the upper-ground mantle action.
-	local tagged_guides = CollectionService:GetTagged(Config.ClimbableTag)
-	Metrics.record(self, "TaggedGuides", #tagged_guides)
-	for _, guide in ipairs(tagged_guides) do
-		Metrics.record(self, "GuidesVisited")
-		if guide:IsDescendantOf(Workspace) then
-			local in_bounds = LedgeTraversal.is_guide_within_mantle_search(self, guide, current_top, normal, tangent)
-			Metrics.record(self, in_bounds and "GuidesInSearchBounds" or "GuidesOutsideSearchBounds")
-			if in_bounds then
-				for _, lateral_offset in ipairs(lateral_samples) do
-					for _, inward_offset in ipairs(inward_samples) do
-						Metrics.record(self, "GuideColumns")
-						local sample_position = current_top
-							+ tangent * lateral_offset
-							- normal * inward_offset
-						for _, top in ipairs(Queries.get_guide_tops(self, guide, sample_position)) do
-							consider_lower_top(guide, top)
-						end
-					end
-				end
-			end
-		end
-	end
-
+	local best_top = LedgeDetection.find_lower_ledge(self, current_top, normal, tangent)
 	if not best_top then
 		return
 	end
 
-	-- best_top is already the actual exposed lower surface hit at the
-	-- selected column. Do not replace it with _get_guide_top here: that returns
-	-- the highest surface in a stacked Model and can undo the lower selection.
-	local target_normal = LedgeTraversal.get_ledge_outward_normal(self, best_top, root.Position)
-	if target_normal then
-			else
-		-- Preserve the existing face if the destination has no detectable
-		-- climbable side surface at the character's hang height.
-		target_normal = normal
-			end
-	local transferred = LedgeTraversal.transfer_hang_to_ledge(self, best_top, target_normal)
+	local target_normal = LedgeDetection.get_ledge_outward_normal(self, best_top, root.Position) or normal
+	LedgeTraversal.transfer_hang_to_ledge(self, best_top, target_normal)
 end
 function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_y)
 	local hang = ParkourState.get_data(self, "Hanging")
@@ -173,70 +106,6 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 		top.Position.Z
 	) + hang.HangDepthOffset
 	return true
-end
-function LedgeTraversal.get_ledge_outward_normal(self, top, reference_position)
-	if not top or not top.Instance or not top.Instance:IsA("BasePart") then
-		return nil
-	end
-
-	local part = top.Instance
-	local guide = top.Guide or ClimbableQuery.get_guide(part) or part
-
-	-- The top surface normal is vertical and cannot tell us which vertical
-	-- face the destination ledge presents. Probe outward from the actual
-	-- sampled part along its local horizontal face axes and world axes; the
-	-- raycast's side normal identifies the face that is exposed to the player.
-	local axes = {}
-	local function add_axis(axis)
-		local horizontal = Vector.flatten(axis)
-		if horizontal.Magnitude < 0.05 then return end
-		horizontal = horizontal.Unit
-		for _, existing in ipairs(axes) do
-			if math.abs(existing:Dot(horizontal)) > 0.98 then
-				return
-			end
-		end
-		table.insert(axes, horizontal)
-		table.insert(axes, -horizontal)
-	end
-
-	add_axis(part.CFrame.RightVector)
-	add_axis(part.CFrame.UpVector)
-	add_axis(part.CFrame.LookVector)
-	add_axis(Vector3.xAxis)
-	add_axis(Vector3.zAxis)
-
-	local probe_length = Config.WallGap + Config.SurfaceProbe + 2
-	local probe_y = top.Position.Y - Config.HangDrop + 1.5
-	local best_normal = nil
-	local best_score = math.huge
-	for _, outward in ipairs(axes) do
-		local origin = Vector3.new(top.Position.X, probe_y, top.Position.Z)
-			+ outward * probe_length
-		local hit = Queries.cast_climbable_side(self, origin, -outward * probe_length)
-		if hit and (ClimbableQuery.get_guide(hit.Instance) or hit.Instance) == guide then
-			local face_normal = Vector.flatten(hit.Normal)
-			if face_normal.Magnitude >= 0.05 then
-				face_normal = face_normal.Unit
-				local face_alignment = face_normal:Dot(outward)
-				if face_alignment >= 0.5 then
-					local toward_player = Vector.flatten(reference_position - hit.Position)
-					local player_alignment = 0
-					if toward_player.Magnitude >= 0.05 then
-						player_alignment = math.max(0, face_normal:Dot(toward_player.Unit))
-					end
-					local distance = Vector.flatten(reference_position - hit.Position).Magnitude
-					local score = distance + (1 - player_alignment) * 1.5
-					if score < best_score then
-						best_score = score
-						best_normal = face_normal
-					end
-				end
-			end
-		end
-	end
-
-	return best_normal
 end
 function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 	local hang = ParkourState.get_data(self, "Hanging")
@@ -308,37 +177,52 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 	self:_position_hanging()
 	return true
 end
-local function cast_mantle_ground(self, origin, direction)
-	local params = self._mantleGroundParams or RaycastParams.new()
-	self._mantleGroundParams = params
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.IgnoreWater = true
-	params.RespectCanCollide = true
-
-	local exclusions = { self.Character }
-	for _ = 1, Config.MaxTopSurfaceHits do
-		params.FilterDescendantsInstances = exclusions
-		Metrics.record(self, "Raycasts")
-		Metrics.record(self, "MantleGroundRaycasts")
-		local hit = Workspace:Raycast(origin, direction, params)
-		if not hit then
-			return nil
-		end
-
-		local is_climbable_group = hit.Instance:IsA("BasePart")
-			and hit.Instance.CollisionGroup == Config.ClimbableCollisionGroup
-		if not is_climbable_group then
-			return hit
-		end
-
-		-- Climbable collision-group parts are query helpers/proxies, not mantle
-		-- destinations. Skip them and continue looking for the real surface.
-		table.insert(exclusions, hit.Instance)
+function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
+	local hang = ParkourState.get_data(self, "Hanging")
+	local root = self.Root
+	if not hang or not root or not current_top or not normal or not tangent then
+		return false
 	end
 
-	return nil
-end
+	local ground = LedgeDetection.find_ground_mantle(
+		self,
+		current_top,
+		normal,
+		tangent,
+		hang.CurrentClimbable
+	)
+	if not ground then
+		return false
+	end
 
+	local standing_height = self:_standing_height()
+	local grounded_position = Vector3.new(
+		ground.Position.X,
+		ground.Position.Y + standing_height - 0.05,
+		ground.Position.Z
+	)
+	if not ParkourState.transition(self, "Mantling") then
+		return false
+	end
+	self.GrabBlockedUntilJumpReleased = true
+	if self.Humanoid then
+		ParkourState.capture_humanoid(self, "Mantle", { "JumpingEnabled" })
+		self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+		self.Humanoid.Jump = false
+	end
+	local start_cframe = root.CFrame
+	local target_cframe = CFrame.lookAt(grounded_position, grounded_position - Vector.flatten(normal).Unit)
+	ParkourState.clear_data(self, "Hanging")
+	ParkourState.set_data(self, "Mantling", {
+		Start = start_cframe,
+		Target = target_cframe,
+		Elapsed = 0,
+		Duration = 0.35,
+	})
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	return true
+end
 function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 	local hang = ParkourState.get_data(self, "Hanging")
 	local root = self.Root
@@ -444,32 +328,6 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 	root.AssemblyAngularVelocity = Vector3.zero
 	return true
 end
-function LedgeTraversal.is_guide_within_mantle_search(self, guide, current_top, normal, tangent)
-	local bounds_cframe
-	local bounds_size
-
-	if guide:IsA("BasePart") then
-		bounds_cframe = guide.CFrame
-		bounds_size = guide.Size
-	elseif guide:IsA("Model") then
-		Metrics.record(self, "ModelBoundsQueries")
-		bounds_cframe, bounds_size = guide:GetBoundingBox()
-	else
-		return false
-	end
-
-	-- The bounding sphere is a conservative broad-phase: it can admit extra
-	-- guides, but cannot exclude a guide whose bounds intersect the mantle
-	-- search volume. Detailed raycasts still decide whether a top is usable.
-	local radius = bounds_size.Magnitude * 0.5
-	local relative = Vector.flatten(bounds_cframe.Position - current_top)
-	local inward = relative:Dot(-normal)
-	local lateral = math.abs(relative:Dot(tangent))
-
-	return inward + radius >= -Config.MantleMaxOutward
-		and inward - radius <= Config.MantleMaxInward
-		and lateral - radius <= Config.MantleMaxLateral
-end
 function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 	local hang = ParkourState.get_data(self, "Hanging")
 	if not hang then
@@ -533,10 +391,10 @@ end
 
 local function try_mantle_impl(self)
 	local hang = ParkourState.get_data(self, "Hanging")
-		if self.State ~= "Hanging" or not self.Root or not hang.CurrentClimbable
+	if self.State ~= "Hanging" or not self.Root or not hang.CurrentClimbable
 		or not hang.HangPosition or not hang.Normal
 		or not hang.CurrentClimbable:IsDescendantOf(Workspace) then
-				return
+		return
 	end
 
 	local root = self.Root
@@ -548,108 +406,31 @@ local function try_mantle_impl(self)
 	local current_top = hang.HangPosition
 		- depth_offset
 		+ Vector3.new(0, Config.HangDrop, 0)
+
 	if not is_tagged_guide then
 		return LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 	end
+
 	local tangent = Vector.flatten(root.CFrame.RightVector)
 	if tangent.Magnitude > 0.05 then
 		tangent = tangent.Unit
 	else
-		tangent = Vector.flatten(Vector3.yAxis:Cross(normal)).Unit
-	end
-
-	local best_top = nil
-	-- Prefer the nearest higher surface, not the center/top of the tagged
-	-- Model. The model-wide bounding box can shift when an unrelated support
-	-- part is resized, even though the authored ledge marker stays in place.
-	local best_height = math.huge
-	local best_distance = math.huge
-	local considered = 0
-	local rejected = 0
-	local lateral_samples = { 0, -1.5, 1.5, -3, 3, -4.5, 4.5 }
-	local inward_samples = { -1, 0.5, 1.5, 3, 5, 7 }
-
-	local function consider_higher_top(guide, top)
-		if not top or top.Normal.Y < 0.5 then return end
-		if top.Instance:IsA("BasePart")
-			and top.Instance.CollisionGroup == Config.ClimbableCollisionGroup
-			and not ClimbableQuery.is_climbable(top.Instance) then
+		tangent = Vector.flatten(Vector3.yAxis:Cross(normal))
+		if tangent.Magnitude < 0.05 then
 			return
 		end
-		local relative = top.Position - current_top
-		local inward = relative:Dot(-normal)
-		local lateral = math.abs(Vector.flatten(relative):Dot(tangent))
-		local rise = top.Position.Y - current_top.Y
-		local root_height_delta = root.Position.Y - top.Position.Y
-		local in_vertical_range = rise > Config.MantleMinRise
-			and rise <= Config.MantleMaxRise
-			and root_height_delta >= -(Config.MantleMaxRise + Config.HangDrop)
-			and root_height_delta <= Config.MaxGrabHeight
-		local in_reach = inward >= -Config.MantleMaxOutward
-			and inward <= Config.MantleMaxInward
-			and lateral <= Config.MantleMaxLateral
-
-		if in_vertical_range and in_reach then
-			considered += 1
-			local horizontal_distance = Vector.flatten(relative).Magnitude
-			if rise < best_height
-				or (math.abs(rise - best_height) < 1e-4 and horizontal_distance < best_distance) then
-				best_top = top
-				best_height = rise
-				best_distance = horizontal_distance
-							end
-		else
-			rejected += 1
-					end
+		tangent = tangent.Unit
 	end
 
-	-- Sample tagged guides for multi-part ledges, while the ground fallback below
-	-- handles ordinary untagged parts.
-	local tagged_guides = CollectionService:GetTagged(Config.ClimbableTag)
-	Metrics.record(self, "TaggedGuides", #tagged_guides)
-	for _, guide in ipairs(tagged_guides) do
-		Metrics.record(self, "GuidesVisited")
-		if guide:IsDescendantOf(Workspace) then
-			local in_bounds = LedgeTraversal.is_guide_within_mantle_search(self, guide, current_top, normal, tangent)
-			Metrics.record(self, in_bounds and "GuidesInSearchBounds" or "GuidesOutsideSearchBounds")
-			-- This conservative broad-phase rejects guides that cannot overlap
-			-- the mantle search volume; detailed surface queries remain unchanged.
-			if in_bounds then
-				for _, lateral_offset in ipairs(lateral_samples) do
-					for _, inward_offset in ipairs(inward_samples) do
-						Metrics.record(self, "GuideColumns")
-						local sample_position = current_top
-							+ tangent * lateral_offset
-							- normal * inward_offset
-						-- Enumerate the exposed tops in this column. A broad backing
-						-- part can be the first hit while a reachable ledge sits below it.
-						for _, top in ipairs(Queries.get_guide_tops(self, guide, sample_position)) do
-							consider_higher_top(guide, top)
-						end
-					end
-				end
-			end
-		end
-	end
-
+	local best_top = LedgeDetection.find_higher_ledge(self, current_top, normal, tangent)
 	if best_top then
-				-- Resolve the destination ledge's exposed vertical face as well as
-		-- its top. A higher ledge can face a different direction from the wall
-		-- we're leaving, so keep its own outward normal and depth offset.
-		local target_normal = LedgeTraversal.get_ledge_outward_normal(self, best_top, root.Position)
-		local transferred
-		if target_normal then
-			transferred = LedgeTraversal.transfer_hang_to_ledge(self, best_top, target_normal)
-		else
-			transferred = LedgeTraversal.transfer_hang_to_ledge(self, best_top)
-		end
-	else
-		-- No higher tagged guide was found. W may still mantle onto any visible,
-		-- walkable surface above the current wall.
-		local ground_mantled = LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
+		local target_normal = LedgeDetection.get_ledge_outward_normal(self, best_top, root.Position)
+		LedgeTraversal.transfer_hang_to_ledge(self, best_top, target_normal)
+		return
 	end
-end
 
+	LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
+end
 
 function LedgeTraversal.update_mantle(self, dt)
 	if self.State ~= "Mantling" then
