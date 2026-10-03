@@ -229,9 +229,8 @@ function LedgeDetection.select_higher_top(current_top, normal, tangent, root_y, 
 	return best_top
 end
 
-function LedgeDetection.find_higher_ledge(self, current_top, normal, tangent)
-	local root = self.Root
-	if not root then
+function LedgeDetection.find_higher_ledge(self, current_top, normal, tangent, root_y)
+	if not root_y then
 		return nil
 	end
 
@@ -296,9 +295,8 @@ local function cast_mantle_ground(self, origin, direction)
 	return nil
 end
 
-function LedgeDetection.find_ground_mantle(self, current_top, normal, tangent, current_climbable)
-	local root = self.Root
-	if not root then
+function LedgeDetection.find_ground_mantle(self, current_top, normal, tangent, current_climbable, root_y, standing_height)
+	if not root_y or not standing_height then
 		return nil
 	end
 
@@ -310,7 +308,6 @@ function LedgeDetection.find_ground_mantle(self, current_top, normal, tangent, c
 	outward_normal = outward_normal.Unit
 	sideways = sideways.Unit
 
-	local standing_height = self:_standing_height()
 	local max_rise = Config.GroundMantleMaxRise
 	local lateral_step = math.max(root.Size.X * 0.45, 0.4)
 	local ray_origin_y = current_top.Y + max_rise + standing_height + 2
@@ -336,7 +333,7 @@ function LedgeDetection.find_ground_mantle(self, current_top, normal, tangent, c
 				local relative = ground.Position - current_top
 				local inward_distance = relative:Dot(-outward_normal)
 				local lateral_distance = math.abs(Vector.flatten(relative):Dot(sideways))
-				local root_to_floor = root.Position.Y - ground.Position.Y
+				local root_to_floor = root_y - ground.Position.Y
 				local minimum_rise = if is_current_surface then -0.25 else Config.MantleMinRise
 				local reachable = rise >= minimum_rise
 					and rise <= max_rise
