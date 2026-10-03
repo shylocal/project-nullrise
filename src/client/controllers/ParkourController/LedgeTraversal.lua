@@ -11,6 +11,7 @@ local ParkourState = require(script.Parent.State)
 local Metrics = require(script.Parent.Metrics)
 local Queries = require(script.Parent.Queries)
 local Traversal = require(script.Parent.Traversal)
+local VaultMath = require(script.Parent.VaultMath)
 
 local LedgeTraversal = {}
 
@@ -550,7 +551,7 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 	-- Keep the hang's movement lock while blending to the floor so the
 	-- Humanoid cannot fight the scripted mantle path.
 	ParkourState.clear_data(self, "Hanging")
-	local mantle = ParkourState.set_data(self, "Mantling", {
+	ParkourState.set_data(self, "Mantling", {
 		Start = start_cframe,
 		Target = target_cframe,
 		Elapsed = 0,
@@ -778,7 +779,7 @@ function LedgeTraversal.update_mantle(self, dt)
 
 	mantle.Elapsed = math.min((mantle.Elapsed or 0) + math.max(dt, 0), duration)
 	local linear = mantle.Elapsed / duration
-	local alpha = require(script.Parent.VaultMath).smoothstep(linear)
+	local alpha = VaultMath.smoothstep(linear)
 	if root then
 		root.CFrame = mantle.Start:Lerp(mantle.Target, alpha)
 		root.AssemblyLinearVelocity = Vector3.zero
