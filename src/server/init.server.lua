@@ -1,4 +1,11 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PhysicsService = game:GetService("PhysicsService")
+
+local CLIMBABLE_COLLISION_GROUP = "Climbable"
+
+if not PhysicsService:IsCollisionGroupRegistered(CLIMBABLE_COLLISION_GROUP) then
+	PhysicsService:RegisterCollisionGroup(CLIMBABLE_COLLISION_GROUP)
+end
 
 local PlayerService = require(script.services.PlayerService)
 local InventoryService = require(script.services.InventoryService)
