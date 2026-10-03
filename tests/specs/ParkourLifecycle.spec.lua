@@ -141,7 +141,7 @@ return function()
 		expect(VaultTraversal.update_vault(controller, 0.25)).to.equal(true)
 		local vault = ParkourState.get_data(controller, "Vault")
 		expect(vault.Elapsed).to.equal(0.25)
-		expect(root.CFrame.Position.Z).to.be_near(-0.625, 1e-4)
+		expect(math.abs(root.CFrame.Position.Z - (-0.625)) < 1e-4).to.equal(true)
 		expect(ParkourState.get_humanoid_value(controller, "Vault", "JumpingEnabled")).to.equal(false)
 		expect(humanoid:GetStateEnabled(jumping)).to.equal(false)
 
