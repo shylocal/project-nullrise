@@ -333,10 +333,10 @@ function VaultTraversal.try_vault(self)
 
 		self.NextVaultAt = now + Config.VaultCooldown
 		self.GrabBlockedUntilJumpReleased = self.InputController:IsDown(Actions.Jump)
-												local launch_use_jump_power = humanoid.UseJumpPower
+		local launch_use_jump_power = humanoid.UseJumpPower
 		local launch_jump_power = humanoid.JumpPower
 		local launch_jump_height = humanoid.JumpHeight
-						local requested_velocity = Vector3.new(
+		local requested_velocity = Vector3.new(
 			hop_horizontal_velocity.X,
 			hop_vertical_speed,
 			hop_horizontal_velocity.Z
