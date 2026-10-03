@@ -67,7 +67,7 @@ function WeaponService:_start()
 end
 
 function WeaponService:_player_added(player)
-	if self.Equipped[player] then
+	if self.PlayerTroves[player] then
 		return
 	end
 
@@ -79,7 +79,11 @@ function WeaponService:_player_added(player)
 	local player_trove = Trove.new()
 	self.PlayerTroves[player] = player_trove
 
-	self.Equipped[player] = Fists
+	-- InventoryService.Changed and PlayerAdded are separate event streams. Do
+	-- not depend on either signal's dispatch order to initialize player state.
+	if not self.Equipped[player] then
+		self.Equipped[player] = Fists
+	end
 
 	player_trove:Connect(
 		session.CharacterAdded,
@@ -207,6 +211,9 @@ function WeaponService:Equip(player, weapon_id)
 
 	local current = self.Equipped[player]
 	if current == weapon then
+		-- _player_added can reach this path after InventoryService.Changed
+		-- already initialized Equipped. Character state has been initialized
+		-- independently above, so the early return is safe here.
 		return true
 	end
 
