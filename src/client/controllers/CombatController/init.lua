@@ -76,6 +76,13 @@ function CombatController:_start(input_controller)
 
 				self.NextAttack = value
 				self.PendingAttackIndex = nil
+			elseif action == Protocol.Combat.AttackRejected then
+				if self.PendingAttackIndex == attack_key then
+					self.PendingAttackIndex = nil
+					if typeof(value) == "number" then
+						self.NextAttack = value
+					end
+				end
 			elseif action == Protocol.Combat.HitConfirmed then
 				self.Hit:Fire(value)
 			end
