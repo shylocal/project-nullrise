@@ -35,8 +35,13 @@ local function expected_attack_index(self, player)
 	return self.NextAttack[player] or 1
 end
 
-local function reject_attack(self, player)
-	CombatRemote:FireClient(player, CombatActions.AttackRejected, expected_attack_index(self, player))
+local function reject_attack(self, player, requested_attack_index)
+	CombatRemote:FireClient(
+		player,
+		CombatActions.AttackRejected,
+		requested_attack_index,
+		expected_attack_index(self, player)
+	)
 end
 
 local function is_valid_hit_window(attack)
@@ -280,7 +285,7 @@ function CombatService:_attack(player, attack_index)
 
 	local now = self:_can_begin_attack(player)
 	if not now then
-		reject_attack(self, player)
+		reject_attack(self, player, attack_index)
 		return
 	end
 
