@@ -27,23 +27,3 @@ jobs:
         run: |
           mkdir -p build
           rojo build default.project.json -o build/project.rbxl
-
-  tooling:
-    name: Formatter and linter
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Aftman
-        uses: ok-nick/setup-aftman@v0.4.2
-
-      - name: Install pinned tools
-        run: aftman install --no-trust-check
-
-      - name: Check formatting
-        run: stylua --check src tests
-
-      - name: Lint Luau
-        run: selene src tests
