@@ -573,7 +573,7 @@ function VaultTraversal.update_vault(self, dt)
 		local duration = vault and vault.Duration
 		if not root or not vault or not duration or not vault.Start or not vault.Target then
 			VaultTraversal.finish_vault(self, false)
-			return
+			return false
 		end
 
 		vault.Elapsed = math.min((vault.Elapsed or 0) + math.max(dt, 0), duration)
@@ -630,6 +630,8 @@ function VaultTraversal.update_vault(self, dt)
 		if linear >= 1 then
 			VaultTraversal.finish_vault(self, true)
 		end
+
+		return true
 	end
 end
 
