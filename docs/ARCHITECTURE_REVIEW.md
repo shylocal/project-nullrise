@@ -36,7 +36,9 @@ Parkour execution data is owned by explicit `State` records for `Hanging`, `Mant
 
 ## Movement authority
 
-Movement and parkour remain client-authoritative by design. This keeps the prototype responsive but means server combat range validation is not an anti-cheat guarantee against a client that can manipulate the server-observed character position. See `docs/THREAT_MODEL.md`.
+Movement and parkour remain client-authoritative by design. This keeps the prototype responsive. A server-side `MovementValidation` observer now records extreme replicated displacement/velocity anomalies without correcting or rejecting movement. It provides observability while preserving the client-owned traversal model; see `docs/THREAT_MODEL.md` for the measured envelope and multiplayer validation scenarios.
+
+This remains a prototype boundary rather than server-authoritative movement, so combat range checks still depend on the server-observed character position.
 
 ## Build/runtime contract
 
