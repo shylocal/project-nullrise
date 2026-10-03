@@ -2,9 +2,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local Signal = require(ReplicatedStorage.packages.Signal)
-local Client = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("client")
+-- Direct indexing: a missing client tree should fail loudly, not yield forever.
+local Client = StarterPlayer.StarterPlayerScripts.client
 local InputController = require(Client.controllers.InputController)
 local PCInput = require(Client.input.PC)
+local GamepadInput = require(Client.input.Gamepad)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 
 local function make_controller()
@@ -15,6 +17,27 @@ local function make_controller()
 		SourcesDown = {},
 		ActiveInputSource = nil,
 	}, InputController)
+end
+
+local function make_gamepad(ui_navigating)
+	local calls = { Began = {}, Ended = {} }
+	local gamepad = setmetatable({
+		Actions = {},
+		OnBegan = function(action, source, source_id)
+			table.insert(calls.Began, { action, source, source_id })
+		end,
+		OnEnded = function(action, source, source_id)
+			table.insert(calls.Ended, { action, source, source_id })
+		end,
+		_is_ui_navigating = function()
+			return ui_navigating
+		end,
+	}, GamepadInput)
+	return gamepad, calls
+end
+
+local function gamepad_input(key_code)
+	return { UserInputType = Enum.UserInputType.Gamepad1, KeyCode = key_code }
 end
 
 local function destroy_controller(controller)
@@ -197,5 +220,91 @@ return function()
 
 		expect(ended_count).to.equal(1)
 	end)
+	end)
+
+	describe("Gamepad adapter", function()
+		local function press(gamepad, action, input_state)
+			local binding = GamepadInput.Bindings[action]
+			return gamepad:_on_input(action, binding, input_state, gamepad_input(binding.KeyCode))
+		end
+
+		it("passes ButtonA through so Roblox's default jump still runs", function()
+			local gamepad, calls = make_gamepad(false)
+
+			expect(press(gamepad, Actions.Jump, Enum.UserInputState.Begin)).to.equal(Enum.ContextActionResult.Pass)
+			expect(#calls.Began).to.equal(1)
+			expect(calls.Began[1][1]).to.equal(Actions.Jump)
+			expect(calls.Began[1][2]).to.equal("Gamepad")
+			expect(calls.Began[1][3]).to.equal(Enum.KeyCode.ButtonA)
+
+			expect(press(gamepad, Actions.Jump, Enum.UserInputState.End)).to.equal(Enum.ContextActionResult.Pass)
+			expect(#calls.Ended).to.equal(1)
+		end)
+
+		it("passes D-pad input through", function()
+			local gamepad, calls = make_gamepad(false)
+
+			for _, action in ipairs({ Actions.Forward, Actions.Backward, Actions.Left, Actions.Right }) do
+				expect(press(gamepad, action, Enum.UserInputState.Begin)).to.equal(Enum.ContextActionResult.Pass)
+			end
+			expect(#calls.Began).to.equal(4)
+		end)
+
+		it("does not report ButtonA or D-pad presses while UI navigation owns them", function()
+			local gamepad, calls = make_gamepad(true)
+
+			expect(press(gamepad, Actions.Jump, Enum.UserInputState.Begin)).to.equal(Enum.ContextActionResult.Pass)
+			expect(press(gamepad, Actions.Forward, Enum.UserInputState.Begin)).to.equal(Enum.ContextActionResult.Pass)
+			expect(#calls.Began).to.equal(0)
+
+			-- Releases are still forwarded so a hold that began before navigation ends cleanly.
+			press(gamepad, Actions.Jump, Enum.UserInputState.End)
+			expect(#calls.Ended).to.equal(1)
+		end)
+
+		it("still sinks gameplay-only buttons", function()
+			local gamepad, calls = make_gamepad(true)
+
+			expect(press(gamepad, Actions.Primary, Enum.UserInputState.Begin)).to.equal(Enum.ContextActionResult.Sink)
+			expect(press(gamepad, Actions.Slot1, Enum.UserInputState.Begin)).to.equal(Enum.ContextActionResult.Sink)
+			expect(#calls.Began).to.equal(2)
+		end)
+
+		it("ignores non-gamepad input routed to a gamepad binding", function()
+			local gamepad, calls = make_gamepad(false)
+			local binding = GamepadInput.Bindings[Actions.Jump]
+			local result = gamepad:_on_input(
+				Actions.Jump,
+				binding,
+				Enum.UserInputState.Begin,
+				{ UserInputType = Enum.UserInputType.Keyboard, KeyCode = Enum.KeyCode.Space }
+			)
+
+			expect(result).to.equal(Enum.ContextActionResult.Pass)
+			expect(#calls.Began).to.equal(0)
+		end)
+
+		it("feeds InputController without blocking jump", function()
+			local controller = make_controller()
+			local gamepad = setmetatable({
+				Actions = {},
+				OnBegan = function(...)
+					controller:_began(...)
+				end,
+				OnEnded = function(...)
+					controller:_ended(...)
+				end,
+				_is_ui_navigating = function()
+					return false
+				end,
+			}, GamepadInput)
+
+			press(gamepad, Actions.Jump, Enum.UserInputState.Begin)
+			expect(controller:IsDown(Actions.Jump)).to.equal(true)
+			press(gamepad, Actions.Jump, Enum.UserInputState.End)
+			expect(controller:IsDown(Actions.Jump)).to.equal(false)
+
+			destroy_controller(controller)
+		end)
 	end)
 end

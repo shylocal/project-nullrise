@@ -8,9 +8,17 @@ local input_controller
 local ui_controller
 local player_controller
 
+-- UI is optional: a failure there is reported but gameplay still starts.
+local ui_ok, ui_err = pcall(function()
+	ui_controller = UIController.new()
+end)
+if not ui_ok then
+	ui_controller = nil
+	warn(("UIController failed to start; continuing without UI: %s"):format(tostring(ui_err)))
+end
+
 local ok, err = pcall(function()
 	input_controller = InputController.new()
-	ui_controller = UIController.new()
 	player_controller = PlayerController.new(
 		player,
 		input_controller,
@@ -40,7 +48,9 @@ function runtime:Destroy()
 	self._destroyed = true
 
 	self.PlayerController:Destroy()
-	self.UIController:Destroy()
+	if self.UIController then
+		self.UIController:Destroy()
+	end
 	self.InputController:Destroy()
 end
 

@@ -3,8 +3,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 
-local UITemplates = ReplicatedStorage.ui
-
 local Hitmarker = {}
 Hitmarker.__index = Hitmarker
 
@@ -30,11 +28,21 @@ function Hitmarker.new(ui_controller)
 end
 
 function Hitmarker:_start()
-	local gui = UITemplates.Hitmarker:Clone()
-	gui.Parent = self.UIController.PlayerGui
+	-- A missing template leaves Visual nil, which makes every method a no-op.
+	local gui = self.UIController:CloneTemplate("Hitmarker")
+	if not gui then
+		return
+	end
 
 	self.Gui = gui
 	self.Trove:Add(gui)
+	self.Trove:Connect(gui.Destroying, function()
+		if self.Gui == gui then
+			self.Gui = nil
+			self.Visual = nil
+		end
+	end)
+
 	self.Visual = gui:FindFirstChild("Hitmarker", true)
 
 	if self.Visual then
