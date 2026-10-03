@@ -142,6 +142,11 @@ function WeaponService:_clear_character(player)
 end
 
 function WeaponService:_attach_weapon(player, character, weapon, character_trove)
+	if not WeaponModels then
+		warn("[WeaponService] ServerStorage.weapon_models is missing")
+		return
+	end
+
 	local model = WeaponModels:FindFirstChild(weapon.Model)
 	if not model then
 		warn(("[WeaponService] Missing model %q for player %s"):format(
@@ -202,7 +207,7 @@ function WeaponService:Equip(player, weapon_id)
 		return false
 	end
 
-	if not WeaponModels:FindFirstChild(weapon.Model) then
+	if not WeaponModels or not WeaponModels:FindFirstChild(weapon.Model) then
 		warn(("[WeaponService] Cannot equip %q for player %s: model template is missing"):format(
 			weapon_id,
 			player.Name
