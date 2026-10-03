@@ -5,7 +5,6 @@ return {
 	ClimbableCollisionGroup = "Climbable",
 	WallReach = 4.25,
 	MaxGrabHeight = 4.5,
-	GrabTopProximity = 2.5,
 	HangDrop = 2.35,
 	WallGap = 0.8,
 	TallWallMinHeight = 5,

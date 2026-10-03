@@ -2,23 +2,16 @@
 
 A Roblox game built with native Luau and Roblox primitives.
 
-## Philosophy
+## Development model
 
-Nullrise intentionally avoids a heavyweight game framework. The project uses ordinary ModuleScripts, Roblox services, explicit dependencies, and small utility packages where they provide real value.
+- **Rojo** is the source-to-place sync/build tool.
+- **Trove** owns disposable connections, instances, and controller/service lifetimes.
+- **Signal** is used for in-process events.
+- **Combat is server-authoritative.** Client reports are untrusted input to a server validation boundary.
+- **Parkour/movement are client-authoritative prototype systems.** See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the deliberate security boundary.
+- **R6 is the supported character rig.** Character startup rejects other rig types.
 
-### Core choices
-
-- Native Luau
-- Rojo for project syncing
-- Roblox-managed package assets
-- Trove for cleanup and lifecycles
-- Signal for Lua-side events
-- Explicit module dependencies
-- Static Roblox remotes for networking
-
-No roblox-ts, Flamework, Reflex, Wally, or generated framework layer.
-
-## Project layout
+## Layout
 
 ```
 src/
@@ -30,18 +23,29 @@ src/
 │   │   │   ├── Weapon.lua
 │   │   │   └── init.lua
 │   │   ├── CombatController/
+│   │   │   ├── AttackInput.lua
+│   │   │   ├── AttackLifecycle.lua
 │   │   │   ├── Hitbox.lua
 │   │   │   └── init.lua
-│   │   ├── UIController/
-│   │   │   ├── Hitmarker.lua
-│   │   │   ├── WeaponMenu.lua
+│   │   ├── ParkourController/
+│   │   │   ├── ClimbableQuery.lua
+│   │   │   ├── Config.lua
+│   │   │   ├── LedgeTraversal.lua
+│   │   │   ├── Metrics.lua
+│   │   │   ├── Queries.lua
+│   │   │   ├── State.lua
+│   │   │   ├── Traversal.lua
+│   │   │   ├── VaultMath.lua
+│   │   │   ├── VaultTraversal.lua
 │   │   │   └── init.lua
+│   │   ├── UIController/
 │   │   ├── CharacterController.lua
 │   │   ├── InputController.lua
 │   │   ├── MovementController.lua
 │   │   ├── PlayerController.lua
 │   │   └── WeaponController.lua
 │   ├── input/
+│   │   ├── Gamepad.lua
 │   │   ├── Mobile.lua
 │   │   └── PC.lua
 │   └── init.client.lua
@@ -56,58 +60,67 @@ src/
 │   │   └── WeaponService.lua
 │   └── init.server.lua
 └── shared/
-    ├── input/
-    │   └── Actions.lua
-    ├── movement/
-    │   └── Config.lua
-    ├── network/
-    │   └── Protocol.lua
+    ├── input/Actions.lua
+    ├── movement/Config.lua
+    ├── network/Protocol.lua
+    ├── utility/Vector.lua
     └── weapons/
         ├── Catalog.lua
         ├── Fists.lua
         └── Katana.lua
-
-default.project.json
 ```
 
-Large responsibilities are split by domain rather than by arbitrary size. For example, animation has separate movement, weapon, and combat modules; combat owns its hitbox adapter; and server services delegate focused validation, session, and attachment work.
+## Runtime dependencies
 
-## Parkour
+Rojo now declares the expected containers so the place layout is visible in source:
 
-Parkour tuning lives in `src/client/controllers/ParkourController/Config.lua`. While hanging, holding Sprint increases A/D traversal speed without changing the existing ledge-clearance and corner-lock checks.
+- `ReplicatedStorage.packages`
+- `ReplicatedStorage.ui`
+- `ServerStorage.weapon_models`
 
-On the ground, vaulting is explicitly requested with Space while sprinting and moving into a suitable collidable, non-climbable obstacle. It is not triggered automatically or restricted by the character's facing direction: detection follows movement direction and uses center-first detection with narrower side and height probes, plus a facing-direction fallback for diagonal approaches. The controller samples the obstacle top and checks available space before committing. Vaults prefer a brief hop to validated ground beyond the far edge, checking progressively farther landing points; only obstacles whose far side cannot be safely reached within the configured 24-stud hop range fall back to a short hop onto the walkable top. Landing bounds are based on the detected obstacle part, not a potentially map-wide ancestor Model. The character clearance envelope is sampled along the arc to reject blocked landing or overhead space. If checks fail, the regular jump and ledge-grab behavior remain available.
+Their required contents are documented in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). The authored UI and weapon templates remain external assets; the source tree intentionally does not invent replacement art.
 
-Vault obstacle height and arc are configured up to about four studs by default. During the middle of the vault, HipHeight is smoothly reduced by a configurable 1 stud through most of the vault and restored by the landing; R6 rigs allow a small negative offset because their default HipHeight is often zero. The far-side hop distance is sized to allow narrow obstacles to be cleared even when detected near the full trigger range. Detection distance is 8 studs by default, the far-side hop range remains capped at 24 studs, and the landing gap is 1.5 studs. Forward boost is 13 studs per second. Parts with a horizontal span of 20 studs or more, and obstacles with continuous walkable ground directly beneath their footprint, use a physics-driven hop toward the sampled top surface instead of the scripted vault path. Ground support is checked with multiple downward samples against the obstacle's bottom elevation; unsupported shorter obstacles retain the scripted vault-over behavior. The scripted vault duration is scaled to 88% of its calculated value, with a slightly smaller tall-wall airtime addition; the vertical arc still peaks over the detected obstacle and retains its clearance checks. Diagnostic `[ParkourVault]` prints are disabled by default and can be enabled with `VaultDebug = true` in the config. Walls at or above 2.5 studs require a validated far-side landing rather than switching to a top landing. Landing gap, top inset, timing, cooldown, and sprint traversal multiplier are also configurable.
+The server registers the required `Climbable` collision group during startup.
 
-## Setup
+## Combat rules
 
-Use Rojo to sync the project into Roblox Studio.
+The server validates attack sequencing, cooldowns, active hit windows, current character/weapon ownership, target Humanoids, mandatory hitpoint attachments, impact positions, facing, range, and line of sight before applying damage.
+
+Weapon changes reset combo sequencing but do **not** reset attack cooldown or per-remote rate-limit state. Player/character teardown clears all player-scoped combat state.
+
+The client does not advance its combo until the server sends `AttackAccepted`, and the hitmarker only fires after `HitConfirmed`.
+
+## Input
+
+PC, touch, and gamepad adapters all feed `InputController`. Logical actions are de-duplicated by device family and physical source. Mobile includes the actions needed by parkour; gamepad has an explicit adapter.
+
+## Tests
+
+TestEZ specs live under `tests/` and are mapped into `TestService`. The suite is intentionally run from Studio because several tests instantiate Roblox objects and the repository does not bundle Roblox Studio.
+
+See [docs/TESTING.md](docs/TESTING.md) for setup and the current coverage boundary.
+
+## Tooling
+
+Aftman pins Rojo, StyLua, and Selene. `.stylua.toml` and `selene.toml` are checked into the repository. GitHub Actions builds the Rojo project and runs the static toolchain checks.
+
+```sh
+aftman install
+rojo build default.project.json -o build/project.rbxl
+stylua --check src tests
+selene src tests
+```
+
+Run the live game with:
 
 ```sh
 rojo serve
 ```
 
-Third-party packages are managed through the Roblox package workflow rather than a repository-side package manager.
+## Configuration
 
-## Tests
+Parkour tuning belongs in `src/client/controllers/ParkourController/Config.lua`. Avoid inline fallback defaults in traversal code; configuration values should have one source of truth.
 
-TestEZ specs live under `tests/` and are mapped to Roblox `TestService`; they do not run automatically. See [docs/TESTING.md](docs/TESTING.md) for installing TestEZ and running the suite in Studio.
+Current vault values include a 26-stud maximum hop distance, 2-stud landing gap, 12 studs/sec forward boost, 45% physical-exit progress, 8 studs/sec top-hop boost, and a 0.95 duration multiplier.
 
-## Conventions
-
-Prefer plain modules over abstractions.
-
-Use a class-style module when an object has meaningful state and lifecycle. Give objects an explicit `Destroy` method and use Trove when they own connections, instances, threads, or other disposable resources.
-
-Weapon definitions are data modules under `src/shared/weapons`. Resolve them through `Catalog.Get(weapon_id)` so client and server use the same discovery and type checks. A new melee weapon is added as a definition module plus its authored model/assets; avoid duplicating module lookup logic in controllers or services.
-
-Remote action strings belong in `src/shared/network/Protocol.lua`. Treat those names and argument order as a client/server contract: update both ends together when changing a message.
-
-Project-wide defaults belong in focused configuration modules. Per-character movement modifiers should use `MovementController:SetSpeeds(walk_speed, sprint_speed)` rather than writing directly to the Humanoid, so sprint blocking and the controller's state remain consistent.
-
-Use Signal for internal Lua events. Use Roblox remotes for client/server communication. Keep server validation authoritative and do not trust client-reported combat state without validating it against the current session, equipped weapon, hitbox, and target.
-
-Controllers and services own their connections and disposable instances through Trove and expose `Destroy()`. The client and server entrypoints define deterministic teardown order and invoke it when the entrypoint script is destroyed; dependents are cleaned up before the services they reference.
-
-Keep game-specific concepts close to the gameplay they belong to. Extract a module when it represents a real responsibility or isolates a meaningful implementation detail, not simply to make a file shorter.
+Use comments for invariants and constraints, not patch history or session notes.

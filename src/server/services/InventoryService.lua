@@ -9,6 +9,7 @@ local InventoryRemote = ReplicatedStorage.remotes.Inventory
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
 local FISTS_ID = "Fists"
+local REMOTE_MIN_INTERVAL = 0.08
 local TEMPORARY_SLOTS = {
 	[2] = "Katana",
 }
@@ -28,6 +29,7 @@ function InventoryService.new(player_service)
 		Trove = Trove.new(),
 		PlayerService = player_service,
 		Inventories = {},
+		RemoteAt = {},
 
 		Changed = Signal.new(),
 	}, InventoryService)
@@ -46,9 +48,18 @@ function InventoryService:_start()
 	self.Trove:Connect(
 		InventoryRemote.OnServerEvent,
 		function(player, action, value)
+			if action ~= Protocol.Inventory.SelectSlot
+				and action ~= Protocol.Inventory.SelectItem then
+				return
+			end
+
+			if not self:_allow_remote(player) then
+				return
+			end
+
 			if action == Protocol.Inventory.SelectSlot then
 				self:SelectSlot(player, value)
-			elseif action == Protocol.Inventory.SelectItem then
+			else
 				self:SelectItem(player, value)
 			end
 		end
@@ -73,6 +84,18 @@ function InventoryService:_start()
 	end
 end
 
+function InventoryService:_allow_remote(player)
+	local now = os.clock()
+	local last_at = self.RemoteAt[player]
+
+	if last_at and now - last_at < REMOTE_MIN_INTERVAL then
+		return false
+	end
+
+	self.RemoteAt[player] = now
+	return true
+end
+
 function InventoryService:_player_added(player)
 	if self.Inventories[player] then
 		return
@@ -94,6 +117,7 @@ end
 
 function InventoryService:_player_removing(player)
 	self.Inventories[player] = nil
+	self.RemoteAt[player] = nil
 end
 
 function InventoryService:_get(player)
@@ -317,6 +341,7 @@ end
 
 function InventoryService:Destroy()
 	table.clear(self.Inventories)
+	table.clear(self.RemoteAt)
 	self.Trove:Destroy()
 end
 

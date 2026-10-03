@@ -32,11 +32,17 @@ function CharacterController.new(character, input_controller, weapon_id)
 
 	local ok, err = pcall(function()
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid and humanoid.RigType ~= Enum.HumanoidRigType.R6 then
+			error("project-nullrise requires R6 character rigs")
+		end
 		if humanoid then
 			self:_watch_humanoid(humanoid)
 		end
 		trove:Connect(character.ChildAdded, function(child)
 			if child:IsA("Humanoid") then
+				if child.RigType ~= Enum.HumanoidRigType.R6 then
+					error("project-nullrise requires R6 character rigs")
+				end
 				self:_watch_humanoid(child)
 			end
 		end)

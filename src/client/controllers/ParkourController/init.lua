@@ -34,8 +34,8 @@ function ParkourController.new(character, input_controller, movement_controller)
 		HangPosition = nil,
 		GrabBlockedUntilJumpReleased = false,
 		_humanoidSnapshots = {},
+		_stateData = {},
 		_destroyed = false,
-		_vaultExitVelocity = nil,
 		NextVaultAt = 0,
 		CornerLockPosition = nil,
 		CornerLockInputDirection = nil,
@@ -237,7 +237,7 @@ function ParkourController:_step(dt)
 	end
 
 	-- Track the airborne phase to release the hop guard on landing.
-	local top_hop = self._topHopActive
+	local top_hop = ParkourState.get_data(self, "TopHop")
 	if top_hop then
 		local humanoid = self.Humanoid
 		if humanoid and humanoid.FloorMaterial == Enum.Material.Air then
@@ -299,20 +299,21 @@ function ParkourController:_step(dt)
 		end
 	elseif self.State == "Vaulting" then
 		local root = self.Root
-		local duration = self._vaultDuration
-		if not root or not duration or not self._vaultStart or not self._vaultTarget then
+		local vault = ParkourState.get_data(self, "Vault")
+		local duration = vault and vault.Duration
+		if not root or not vault or not duration or not vault.Start or not vault.Target then
 			self:_finish_vault(false)
 			return
 		end
 
-		self._vaultElapsed = math.min((self._vaultElapsed or 0) + math.max(dt, 0), duration)
-		local linear = self._vaultElapsed / duration
+		vault.Elapsed = math.min((vault.Elapsed or 0) + math.max(dt, 0), duration)
+		local linear = vault.Elapsed / duration
 		local eased = VaultMath.smoothstep(linear)
-		local base = self._vaultStart:Lerp(self._vaultTarget, eased)
-		local horizontal = self._vaultStart.Position:Lerp(self._vaultTarget.Position, linear)
-		local arc = VaultMath.arc_weight(linear, self._vaultArcPeakProgress) * self._vaultArcHeight
+		local base = vault.Start:Lerp(vault.Target, eased)
+		local horizontal = vault.Start.Position:Lerp(vault.Target.Position, linear)
+		local arc = VaultMath.arc_weight(linear, vault.ArcPeakProgress) * vault.ArcHeight
 		local position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
-		local physical_exit_progress = math.clamp(Config.VaultPhysicalExitProgress or 0.35, 0.05, 0.95)
+		local physical_exit_progress = math.clamp(Config.VaultPhysicalExitProgress, 0.05, 0.95)
 		if linear < physical_exit_progress then
 			root.CFrame = CFrame.new(position + Vector3.new(0, arc, 0)) * base.Rotation
 			root.AssemblyLinearVelocity = Vector3.zero
@@ -327,7 +328,7 @@ function ParkourController:_step(dt)
 			-- Hand the final approach back to Roblox physics before reaching the
 			-- authored endpoint. This preserves the forward impulse through the
 			-- landing instead of pinning the root to the last curve samples.
-			local exit_velocity = self._vaultExitVelocity
+			local exit_velocity = vault.ExitVelocity
 			if exit_velocity then
 				local current_velocity = root.AssemblyLinearVelocity
 				root.AssemblyLinearVelocity = Vector3.new(
@@ -342,7 +343,7 @@ function ParkourController:_step(dt)
 		local vault_humanoid = vault_snapshot and vault_snapshot.Humanoid
 		local original_hip_height = ParkourState.get_humanoid_value(self, "Vault", "HipHeight")
 		if vault_humanoid and vault_humanoid.Parent and original_hip_height ~= nil then
-			local reduction = math.max(0, Config.VaultHipHeightReduction or 0)
+			local reduction = math.max(0, Config.VaultHipHeightReduction)
 			local weight = VaultMath.hip_height_weight(linear)
 			local minimum_hip_height = 0
 			if vault_humanoid.RigType == Enum.HumanoidRigType.R6 then
@@ -446,7 +447,7 @@ function ParkourController:ResetQueryMetrics()
 end
 
 function ParkourController:_release()
-	if self._topHopActive then
+	if ParkourState.get_data(self, "TopHop") then
 		self:_finish_top_hop(false)
 	end
 
@@ -499,6 +500,7 @@ function ParkourController:Destroy()
 	self._destroyed = true
 
 	self:_release()
+	ParkourState.clear_all_data(self)
 	ParkourState.restore_humanoid(self, "Hang")
 	ParkourState.restore_humanoid(self, "Mantle")
 	ParkourState.restore_humanoid(self, "Vault")

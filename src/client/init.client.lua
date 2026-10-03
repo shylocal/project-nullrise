@@ -47,5 +47,3 @@ end
 script.Destroying:Connect(function()
 	runtime:Destroy()
 end)
-
-return runtime

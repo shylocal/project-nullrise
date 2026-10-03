@@ -50,7 +50,7 @@ Katana.Attacks = {
 		Hitbox = "Mesh",
 		Damage = 15,
 		Cooldown = 0.1,
-		NetworkTolerance = 3,
+		HitPositionTolerance = 3,
 		Range = 10,
 	},
 
@@ -64,7 +64,7 @@ Katana.Attacks = {
 		Hitbox = "Mesh",
 		Damage = 15,
 		Cooldown = 0.1,
-		NetworkTolerance = 3,
+		HitPositionTolerance = 3,
 		Range = 10,
 	},
 }
@@ -74,7 +74,7 @@ Katana.Charge = {
 	Hitbox = "Mesh",
 	Damage = 30,
 	Cooldown = 0.1,
-	NetworkTolerance = 3,
+	HitPositionTolerance = 3,
 	Range = 10,
 	HoldTime = 0.15,
 }

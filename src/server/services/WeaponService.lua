@@ -1,11 +1,12 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local Signal = require(Packages.Signal)
 
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
-local WeaponModels = ReplicatedStorage.weapon_models
+local WeaponModels = ServerStorage:FindFirstChild("weapon_models")
 local WeaponRemote = ReplicatedStorage.remotes.Weapon
 local Fists = Catalog.Get("Fists")
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
@@ -67,7 +68,7 @@ function WeaponService:_start()
 end
 
 function WeaponService:_player_added(player)
-	if self.Equipped[player] then
+	if self.PlayerTroves[player] then
 		return
 	end
 
@@ -79,7 +80,11 @@ function WeaponService:_player_added(player)
 	local player_trove = Trove.new()
 	self.PlayerTroves[player] = player_trove
 
-	self.Equipped[player] = Fists
+	-- InventoryService.Changed and PlayerAdded are separate event streams. Do
+	-- not depend on either signal's dispatch order to initialize player state.
+	if not self.Equipped[player] then
+		self.Equipped[player] = Fists
+	end
 
 	player_trove:Connect(
 		session.CharacterAdded,
@@ -137,6 +142,11 @@ function WeaponService:_clear_character(player)
 end
 
 function WeaponService:_attach_weapon(player, character, weapon, character_trove)
+	if not WeaponModels then
+		warn("[WeaponService] ServerStorage.weapon_models is missing")
+		return
+	end
+
 	local model = WeaponModels:FindFirstChild(weapon.Model)
 	if not model then
 		warn(("[WeaponService] Missing model %q for player %s"):format(
@@ -197,7 +207,7 @@ function WeaponService:Equip(player, weapon_id)
 		return false
 	end
 
-	if not WeaponModels:FindFirstChild(weapon.Model) then
+	if not WeaponModels or not WeaponModels:FindFirstChild(weapon.Model) then
 		warn(("[WeaponService] Cannot equip %q for player %s: model template is missing"):format(
 			weapon_id,
 			player.Name
@@ -207,6 +217,9 @@ function WeaponService:Equip(player, weapon_id)
 
 	local current = self.Equipped[player]
 	if current == weapon then
+		-- _player_added can reach this path after InventoryService.Changed
+		-- already initialized Equipped. Character state has been initialized
+		-- independently above, so the early return is safe here.
 		return true
 	end
 

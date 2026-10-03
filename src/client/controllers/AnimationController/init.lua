@@ -1,5 +1,4 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ContentProvider = game:GetService("ContentProvider")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
@@ -19,7 +18,6 @@ function AnimationController.new(character)
 		Humanoid = nil,
 		Animator = nil,
 		ActionTrack = nil,
-
 
 		Movement = nil,
 		Weapon = nil,
@@ -104,26 +102,21 @@ function AnimationController:Load(definition)
 
 	local animation = Instance.new("Animation")
 	animation.AnimationId = definition.Id
+	self.AnimationTrove:Add(animation)
 
-	-- Capture the owning trove before PreloadAsync, which may yield. A weapon
-	-- swap or character teardown can replace that trove while assets load.
-	local animation_trove = self.AnimationTrove
-	animation_trove:Add(animation)
+	-- Do not yield inside the state-change path. Tracks can be loaded
+	-- immediately; optional preloading happens in the background so weapon
+	-- changes and character setup cannot lose an Equipped event.
+	local owning_trove = self.AnimationTrove
+	task.defer(function()
+		if self.AnimationTrove ~= owning_trove then
+			return
+		end
 
-	local preload_ok, preload_err = pcall(function()
-		ContentProvider:PreloadAsync({animation})
+		pcall(function()
+			game:GetService("ContentProvider"):PreloadAsync({ animation })
+		end)
 	end)
-	if not preload_ok then
-		animation_trove:Remove(animation)
-		error(preload_err, 0)
-	end
-
-	if self.Animator ~= animator
-		or self.AnimationTrove ~= animation_trove
-		or animator.Parent == nil then
-		animation_trove:Remove(animation)
-		return nil
-	end
 
 	local track = animator:LoadAnimation(animation)
 
@@ -135,8 +128,8 @@ function AnimationController:Load(definition)
 		track.Looped = definition.Looped
 	end
 
-	animation_trove:Add(track)
-	animation_trove:Connect(
+	self.AnimationTrove:Add(track)
+	self.AnimationTrove:Connect(
 		track.Ended,
 		function()
 			if self.ActionTrack == track then

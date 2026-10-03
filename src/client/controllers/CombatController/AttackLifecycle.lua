@@ -87,6 +87,7 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 		end
 	end)
 end
+
 function AttackLifecycle.clear_attack_lifecycle(self)
 	local attack_key = self.CurrentAttackKey
 	if attack_key then
@@ -107,6 +108,7 @@ function AttackLifecycle.clear_attack_lifecycle(self)
 	self.Charging = false
 	self.ChargeReady = false
 end
+
 function AttackLifecycle.can_sprint_while_attacking(self, attack)
 	local weapon = self.WeaponController.Equipped
 
@@ -116,6 +118,7 @@ function AttackLifecycle.can_sprint_while_attacking(self, attack)
 
 	return weapon and weapon.CanSprintWhileAttacking == true
 end
+
 function AttackLifecycle.start_hitbox(self, attack_key, attack, expected_trove, expected_lifecycle_id)
 	if self.Hitbox then
 		return
@@ -143,8 +146,6 @@ function AttackLifecycle.start_hitbox(self, attack_key, attack, expected_trove, 
 				return
 			end
 
-			self.Hit:Fire(hit_character, raycast_result)
-
 			CombatRemote:FireServer(
 				Protocol.Combat.Hit,
 				attack_key,
@@ -159,6 +160,7 @@ function AttackLifecycle.start_hitbox(self, attack_key, attack, expected_trove, 
 	attack_trove:Add(hitbox)
 	hitbox:Start()
 end
+
 function AttackLifecycle.stop_hitbox(self)
 	local hitbox = self.Hitbox
 	self.Hitbox = nil

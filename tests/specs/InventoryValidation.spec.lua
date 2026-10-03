@@ -79,6 +79,29 @@ return function()
 			expect(service:_get_replication_snapshot({})).to.equal(nil)
 		end)
 
+
+		it("throttles rapid selection requests across action types", function()
+			local player = {}
+			local now = os.clock()
+			local service = setmetatable({
+				Inventories = {
+					[player] = {
+						Slots = {
+							[2] = "Katana",
+						},
+						SelectedSlot = nil,
+					},
+				},
+				RemoteAt = {
+					[player] = now,
+				},
+			}, InventoryService)
+
+			expect(service:_allow_remote(player)).to.equal(false)
+			service.RemoteAt[player] = now - 1
+			expect(service:_allow_remote(player)).to.equal(true)
+		end)
+
 		it("rejects unknown weapon identifiers before accessing inventory state", function()
 			local result = InventoryService.SetSlot({}, nil, 1, "MissingWeapon")
 			expect(result).to.equal(false)

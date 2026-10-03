@@ -9,6 +9,9 @@ local CharacterControllerModule = require(script.Parent.CharacterController)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 local InventoryRemote = ReplicatedStorage.remotes.Inventory
+local WeaponRemote = ReplicatedStorage.remotes.Weapon
+
+local FISTS_ID = "Fists"
 
 local PlayerController = {}
 PlayerController.__index = PlayerController
@@ -20,7 +23,7 @@ function PlayerController.new(player, input_controller, ui_controller)
 		CharacterController = nil,
 		InputController = input_controller,
 		UIController = ui_controller,
-		WeaponMenu = ui_controller:Get("WeaponMenu"),
+		CurrentWeaponId = FISTS_ID,
 		_destroyed = false,
 	}, PlayerController)
 
@@ -50,12 +53,17 @@ function PlayerController:_start()
 		end
 	)
 
+	-- Gameplay state is driven by the server's equipped-weapon event. The UI
+	-- mirrors that state but never acts as the source of truth.
 	self.Trove:Connect(
-		ReplicatedStorage.remotes.Weapon.OnClientEvent,
+		WeaponRemote.OnClientEvent,
 		function(action, weapon_id)
-			if action == Protocol.Weapon.Equipped then
-				self:_set_weapon(weapon_id)
+			if action ~= Protocol.Weapon.Equipped or typeof(weapon_id) ~= "string" then
+				return
 			end
+
+			self.CurrentWeaponId = weapon_id
+			self:_set_weapon(weapon_id)
 		end
 	)
 
@@ -101,7 +109,7 @@ function PlayerController:_set_character(character)
 	local controller = CharacterControllerModule.new(
 		character,
 		self.InputController,
-		self.WeaponMenu.SelectedWeapon or "Fists"
+		self.CurrentWeaponId
 	)
 
 	self.CharacterController = controller
