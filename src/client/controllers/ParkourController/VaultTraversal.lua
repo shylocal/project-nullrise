@@ -422,8 +422,6 @@ function VaultTraversal.try_vault(self)
 		table.insert(landing_extra_distances, max_landing_extra)
 	end
 
-	local landing_stats = { probes = 0, overRange = 0, noHit = 0, steep = 0, wrongHeight = 0, obstaclePart = 0 }
-	local last_landing_hit = nil
 	for _, extra_distance in ipairs(landing_extra_distances) do
 		local landing_distance = hop_distance + extra_distance
 		if landing_distance <= max_vault_distance then
@@ -437,22 +435,16 @@ function VaultTraversal.try_vault(self)
 				-- the lateral fan otherwise adds a small amount beyond 24 studs.
 				local actual_hop_distance = Vector.flatten(landing_xz - root.Position).Magnitude
 				if actual_hop_distance <= max_vault_distance + 1e-4 then
-					landing_stats.probes += 1
 					local landing_ground = Queries.cast(self, 
 						Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
 						landing_ray,
 						true
 					)
 					if not landing_ground then
-						landing_stats.noHit += 1
 					else
-						last_landing_hit = landing_ground
 						if landing_ground.Normal.Y < 0.5 then
-							landing_stats.steep += 1
 						elseif math.abs(landing_ground.Position.Y - current_ground_y) > Config.VaultLandingHeightTolerance then
-							landing_stats.wrongHeight += 1
 						elseif is_obstacle_part(landing_ground.Instance) then
-							landing_stats.obstaclePart += 1
 						else
 							target_position = Vector3.new(
 								landing_ground.Position.X,
@@ -463,7 +455,6 @@ function VaultTraversal.try_vault(self)
 						end
 					end
 				else
-					landing_stats.overRange += 1
 				end
 			end
 			if target_position then
