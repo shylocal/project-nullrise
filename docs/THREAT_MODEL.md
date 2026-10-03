@@ -18,7 +18,7 @@ A server-side `MovementValidation` observer now watches the replicated character
 - `HorizontalSpeed`: more than 96 studs/s horizontally.
 - `VerticalSpeed`: more than 120 studs/s vertically.
 
-The observer resets its baseline when a character spawns/removes and ignores samples separated by more than 0.5 seconds so normal lifecycle transitions and server stalls do not become false positives.
+The observer resets its baseline when a character spawns/removes and ignores the first 1.5 seconds of each character's life while Roblox settles spawn physics. It also ignores samples separated by more than 0.5 seconds so server stalls do not become false positives.
 
 This validator is **observe-only**. It records a per-player violation count and rate-limited server warning; it does not kick, reposition, or otherwise mutate the character. The thresholds are intentionally loose enough to encompass the authored vault/top-hop movement envelopes while still providing server-side evidence when a client makes implausible jumps.
 
