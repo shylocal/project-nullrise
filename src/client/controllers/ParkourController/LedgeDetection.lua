@@ -111,12 +111,16 @@ function LedgeDetection.find_lower_ledge(self, current_top, normal, tangent)
 					tops
 				)
 				if selected then
-					best_top = LedgeDetection.select_lower_top(
-						current_top,
-						normal,
-						tangent,
-						{ best_top, selected }
-					)
+					if best_top then
+						best_top = LedgeDetection.select_lower_top(
+							current_top,
+							normal,
+							tangent,
+							{ best_top, selected }
+						)
+					else
+						best_top = selected
+					end
 				end
 			end
 		end
@@ -251,13 +255,17 @@ function LedgeDetection.find_higher_ledge(self, current_top, normal, tangent, ro
 					tops
 				)
 				if selected then
-					best_top = LedgeDetection.select_higher_top(
-						current_top,
-						normal,
-						tangent,
-						root_y,
-						{ best_top, selected }
-					)
+					if best_top then
+						best_top = LedgeDetection.select_higher_top(
+							current_top,
+							normal,
+							tangent,
+							root_y,
+							{ best_top, selected }
+						)
+					else
+						best_top = selected
+					end
 				end
 			end
 		end
