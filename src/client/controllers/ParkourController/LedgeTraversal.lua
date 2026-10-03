@@ -191,7 +191,8 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 		tangent,
 		hang.CurrentClimbable,
 		root.Position.Y,
-		self:_standing_height()
+		self:_standing_height(),
+		root.Size.X
 	)
 	if not ground then
 		return false
