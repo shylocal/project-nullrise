@@ -113,7 +113,7 @@ return function()
 		end)
 
 
-		it("resets active attack sequencing when the equipped weapon changes", function()
+		it("resets active attack sequencing without resetting timing when the equipped weapon changes", function()
 			local player = {}
 			local active = make_active(nil)
 			active.HitTargets = {
@@ -170,8 +170,8 @@ return function()
 			expect(service.ActiveAttacks[player]).to.equal(nil)
 			expect(next(active.HitTargets)).to.equal(nil)
 			expect(service.NextAttack[player]).to.equal(1)
-			expect(service.NextAttackAt[player]).to.equal(nil)
-			expect(service.RemoteAt[player]).to.equal(nil)
+			expect(service.NextAttackAt[player] ~= nil).to.equal(true)
+			expect(service.RemoteAt[player] ~= nil).to.equal(true)
 		end)
 
 		it("clears attack state and player cleanup ownership on removal", function()
@@ -210,7 +210,7 @@ return function()
 
 			expect(service.ActiveAttacks[player]).to.equal(nil)
 			expect(next(active.HitTargets)).to.equal(nil)
-			expect(service.NextAttack[player]).to.equal(1)
+			expect(service.NextAttack[player]).to.equal(nil)
 			expect(service.NextAttackAt[player]).to.equal(nil)
 			expect(service.RemoteAt[player]).to.equal(nil)
 			expect(service.PlayerTroves[player]).to.equal(nil)
