@@ -125,6 +125,10 @@ return function()
 			local player_removing = {}
 			local equipped_changed = {}
 			local connections = {}
+			local next_attack_at = os.clock() + 5
+			local remote_at = {
+				Attack = os.clock(),
+			}
 			local service = setmetatable({
 				Trove = {
 					Connect = function(_, signal, callback)
@@ -154,12 +158,10 @@ return function()
 					[player] = 2,
 				},
 				NextAttackAt = {
-					[player] = os.clock() + 5,
+					[player] = next_attack_at,
 				},
 				RemoteAt = {
-					[player] = {
-						Attack = os.clock(),
-					},
+					[player] = remote_at,
 				},
 				PlayerTroves = {},
 			}, CombatService)
@@ -170,8 +172,8 @@ return function()
 			expect(service.ActiveAttacks[player]).to.equal(nil)
 			expect(next(active.HitTargets)).to.equal(nil)
 			expect(service.NextAttack[player]).to.equal(1)
-			expect(service.NextAttackAt[player] ~= nil).to.equal(true)
-			expect(service.RemoteAt[player] ~= nil).to.equal(true)
+			expect(service.NextAttackAt[player]).to.equal(next_attack_at)
+			expect(service.RemoteAt[player]).to.equal(remote_at)
 		end)
 
 		it("clears attack state and player cleanup ownership on removal", function()
