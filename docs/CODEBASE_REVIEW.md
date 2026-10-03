@@ -21,7 +21,7 @@ Player removal deletes active attacks, combo state, cooldown state, and rate-lim
 
 ## Tier 2: structure
 
-Parkour is decomposed into queries, state, ledge traversal, vault traversal, and math modules. Hanging and mantling execution data now lives in explicit `ParkourState` records, and the controller no longer acts as a forwarding shell for most traversal/query methods. The largest remaining work is pure geometry/classification decomposition inside the traversal modules.
+Parkour is decomposed into queries, state, ledge detection, ledge traversal, vault traversal, and math modules. `LedgeDetection` owns candidate search/classification while `LedgeTraversal` owns traversal state and movement side effects. Hanging and mantling execution data lives in explicit `ParkourState` records, and the controller no longer acts as a forwarding shell for most traversal/query methods.
 
 Combat has the useful split between input buffering, lifecycle orchestration, and hitbox sampling. Animation submodules are still thin adapters, which is acceptable until they acquire independent policy.
 
