@@ -19,6 +19,7 @@ MovementValidation.Limits = {
 	MaxVerticalSpeed = MAX_VERTICAL_SPEED,
 	MaxSampleGap = MAX_SAMPLE_GAP,
 	TeleportDistance = TELEPORT_DISTANCE,
+	CharacterGracePeriod = CHARACTER_GRACE_PERIOD,
 }
 
 local function finite_vector(value)
@@ -196,6 +197,12 @@ function MovementValidation:_observe(player, state, now)
 	end
 
 	local delta_time = now - sample_at
+	if now < (state.IgnoreUntil or 0) then
+		state.LastSampleAt = now
+		state.Position = position
+		return
+	end
+
 	local reason = MovementValidation.ClassifyDelta(state.Position, position, delta_time)
 
 	state.Position = position
