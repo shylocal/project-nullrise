@@ -117,7 +117,7 @@ end
 function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_y)
 	local hang = ParkourState.get_data(self, "Hanging")
 	local root = self.Root
-	local normal = hang.Normal
+	local normal = hang and hang.Normal
 	local candidate_position = root and hang.HangPosition
 	if not root or not normal or not candidate_position or not expected_guide then
 		return false
@@ -241,7 +241,7 @@ end
 function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 	local hang = ParkourState.get_data(self, "Hanging")
 	local root = self.Root
-	local normal = hang.Normal
+	local normal = hang and hang.Normal
 	if not root or not top or not normal then return false end
 
 	local destination_normal = Vector.flatten(target_normal or normal)
@@ -462,6 +462,9 @@ end
 function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 	local hang = ParkourState.get_data(self, "Hanging")
 	local root = self.Root
+	if not hang then
+		return false
+	end
 	if not root or not current_top or not normal or not tangent then
 		return false
 	end
@@ -589,6 +592,9 @@ function LedgeTraversal.is_guide_within_mantle_search(self, guide, current_top, 
 end
 function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 	local hang = ParkourState.get_data(self, "Hanging")
+	if not hang then
+		return false
+	end
 	local root = self.Root
 	local wall = hang.CurrentClimbable
 	if not root or not wall or not wall:IsA("BasePart")
