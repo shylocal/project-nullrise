@@ -252,31 +252,8 @@ function ParkourController:_step(dt)
 		end
 		Traversal.traverse(self, dt)
 	elseif self.State == "Mantling" then
-		local root = self.Root
-		local mantle = ParkourState.get_data(self, "Mantling")
-		local duration = mantle and mantle.Duration
-		if not duration or duration <= 0 or not mantle.Start or not mantle.Target then
+		if not LedgeTraversal.update_mantle(self, dt) then
 			self:_release()
-			return
-		end
-		mantle.Elapsed = math.min((mantle.Elapsed or 0) + math.max(dt, 0), duration)
-		local linear = mantle.Elapsed / duration
-		local alpha = VaultMath.smoothstep(linear)
-		if root then
-			root.CFrame = mantle.Start:Lerp(mantle.Target, alpha)
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-		end
-		if linear >= 1 then
-			ParkourState.transition(self, "Grounded")
-			ParkourState.clear_data(self, "Mantling")
-			-- Restore ordinary Humanoid movement when the mantle ends. The
-			-- jump/grab lock is independent and remains set until Space is released.
-			ParkourState.restore_humanoid(self, "Hang", { "AutoRotate", "PlatformStand" })
-			if self.Humanoid then
-				self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
-			end
-			if self.MovementController then self.MovementController:SetSprintBlocked(false, self) end
 		end
 	elseif self.State == "Vaulting" then
 		local root = self.Root
