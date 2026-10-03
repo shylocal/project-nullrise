@@ -72,7 +72,7 @@ function CombatValidation.ValidateHit(
 	end
 
 	local range = active.Attack.Range or 8
-	local network_tolerance = active.Attack.NetworkTolerance or HIT_DISTANCE_MARGIN
+	local network_tolerance = active.Attack.HitPositionTolerance or HIT_DISTANCE_MARGIN
 
 	if typeof(range) ~= "number"
 		or not math.isfinite(range)
