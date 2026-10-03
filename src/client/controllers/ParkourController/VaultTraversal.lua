@@ -12,7 +12,7 @@ local ParkourState = require(script.Parent.State)
 local VaultTraversal = {}
 
 function VaultTraversal.try_vault(self)
-	if self._topHopActive then return false end
+	if ParkourState.get_data(self, "TopHop") then return false end
 	local sprinting = self.MovementController and self.MovementController:IsSprinting() or false
 	if not Config.VaultEnabled then
 		return false
@@ -350,7 +350,7 @@ function VaultTraversal.try_vault(self)
 			JumpPowerBefore = launch_jump_power,
 			JumpHeightBefore = launch_jump_height,
 		}
-		self._topHopActive = top_hop
+		ParkourState.set_data(self, "TopHop", top_hop)
 		-- The default Humanoid jump impulse was overshooting the calculated
 		-- obstacle-relative launch speed. Temporarily zero the active native
 		-- jump setting while preserving the Jumping state transition/animation;
@@ -565,14 +565,16 @@ function VaultTraversal.try_vault(self)
 		return false
 	end
 	self.NextVaultAt = now + Config.VaultCooldown
-	self._vaultExitVelocity = horizontal_velocity
-	self._vaultStart = start_cframe
-	self._vaultTarget = target_cframe
-	self._vaultElapsed = 0
-	self._vaultDuration = vault_duration
-	self._vaultArcHeight = arc_height
-	self._vaultArcPeakProgress = arc_peak_progress
-	self._vaultObstacle = obstacle
+	ParkourState.set_data(self, "Vault", {
+		ExitVelocity = horizontal_velocity,
+		Start = start_cframe,
+		Target = target_cframe,
+		Elapsed = 0,
+		Duration = vault_duration,
+		ArcHeight = arc_height,
+		ArcPeakProgress = arc_peak_progress,
+		Obstacle = obstacle,
+	})
 	ParkourState.capture_humanoid(self, "Vault", {
 		"AutoRotate",
 		"PlatformStand",
@@ -591,11 +593,11 @@ function VaultTraversal.try_vault(self)
 	return true
 end
 function VaultTraversal.finish_top_hop(self, landed)
-	local top_hop = self._topHopActive
+	local top_hop = ParkourState.get_data(self, "TopHop")
 	if not top_hop then
 		return
 	end
-	self._topHopActive = nil
+	ParkourState.clear_data(self, "TopHop")
 	local root = self.Root
 	local humanoid = self.Humanoid
 	if humanoid and humanoid.Parent then
@@ -612,15 +614,9 @@ function VaultTraversal.finish_vault(self, completed)
 	end
 
 	ParkourState.transition(self, "Grounded")
-	local exit_velocity = self._vaultExitVelocity
-	self._vaultExitVelocity = nil
-	self._vaultStart = nil
-	self._vaultTarget = nil
-	self._vaultElapsed = nil
-	self._vaultDuration = nil
-	self._vaultArcHeight = nil
-	self._vaultArcPeakProgress = nil
-	self._vaultObstacle = nil
+	local vault = ParkourState.get_data(self, "Vault")
+	local exit_velocity = vault and vault.ExitVelocity
+	ParkourState.clear_data(self, "Vault")
 
 	local humanoid = self.Humanoid
 	ParkourState.restore_humanoid(self, "Vault", { "HipHeight", "AutoRotate", "PlatformStand" })
