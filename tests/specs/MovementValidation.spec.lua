@@ -38,7 +38,7 @@ return function()
 		it("flags implausible vertical displacement", function()
 			expect(MovementValidation.ClassifyDelta(
 				Vector3.zero,
-				Vector3.new(8, 8, 0),
+				Vector3.new(0, 8, 0),
 				0.05
 			)).to.equal("VerticalSpeed")
 		end)
