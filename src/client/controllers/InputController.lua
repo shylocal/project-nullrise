@@ -12,6 +12,7 @@ local Signal = require(Packages:WaitForChild("Signal"))
 
 local PCInput = require(script.Parent.Parent.input.PC)
 local MobileInput = require(script.Parent.Parent.input.Mobile)
+local GamepadInput = require(script.Parent.Parent.input.Gamepad)
 
 local DEFAULT_SOURCE = "Default"
 
@@ -64,7 +65,7 @@ function InputController.new()
 		-- This is the sole source of truth; IsDown derives from its membership.
 		SourcesDown = {},
 		ActiveInputSource = sourceFromInputType(UserInputService:GetLastInputType()),
-		_Destroyed = false,
+		_destroyed = false,
 	}, InputController)
 
 	self.Trove:Add(self.ActionBegan)
@@ -89,7 +90,7 @@ function InputController:_start()
 	-- Device changes are committed only when an adapter reports a real bound
 	-- action. LastInputTypeChanged also fires for passive mouse movement/drift.
 	local function began(action, source, sourceId)
-		if self._Destroyed then
+		if self._destroyed then
 			return
 		end
 		self:_set_active_source(source)
@@ -97,7 +98,7 @@ function InputController:_start()
 	end
 
 	local function ended(action, source, sourceId)
-		if self._Destroyed then
+		if self._destroyed then
 			return
 		end
 		self:_ended(action, source, sourceId)
@@ -107,6 +108,7 @@ function InputController:_start()
 	if UserInputService.TouchEnabled then
 		self.Trove:Add(MobileInput.new(began, ended))
 	end
+	self.Trove:Add(GamepadInput.new(began, ended))
 end
 
 function InputController:_began(action, source, sourceId)
