@@ -413,16 +413,6 @@ function VaultTraversal.try_vault(self)
 	end
 	local has_limit_probe = false
 	for _, extra_distance in ipairs(landing_extra_distances) do
-		if math.abs(extra_distance - max_landing_extra) < 1e-4 then
-			has_limit_probe = true
-			break
-		end
-	end
-	if max_landing_extra > 0 and not has_limit_probe then
-		table.insert(landing_extra_distances, max_landing_extra)
-	end
-
-	for _, extra_distance in ipairs(landing_extra_distances) do
 		local landing_distance = hop_distance + extra_distance
 		if landing_distance <= max_vault_distance then
 			for _, lateral_adjustment in ipairs({ 0, -0.75, 0.75 }) do
@@ -435,26 +425,18 @@ function VaultTraversal.try_vault(self)
 				-- the lateral fan otherwise adds a small amount beyond 24 studs.
 				local actual_hop_distance = Vector.flatten(landing_xz - root.Position).Magnitude
 				if actual_hop_distance <= max_vault_distance + 1e-4 then
-					local landing_ground = Queries.cast(self, 
-						Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z),
-						landing_ray,
-						true
-					)
-					if not landing_ground then
-					else
-						if landing_ground.Normal.Y < 0.5 then
-						elseif math.abs(landing_ground.Position.Y - current_ground_y) > Config.VaultLandingHeightTolerance then
-						elseif is_obstacle_part(landing_ground.Instance) then
-						else
-							target_position = Vector3.new(
-								landing_ground.Position.X,
-								landing_ground.Position.Y + standing_height - 0.05,
-								landing_ground.Position.Z
-							)
-							break
-						end
+					local landing_ground = Queries.cast(self, Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z), landing_ray, true)
+					if landing_ground
+						and landing_ground.Normal.Y >= 0.5
+						and math.abs(landing_ground.Position.Y - current_ground_y) <= Config.VaultLandingHeightTolerance
+						and not is_obstacle_part(landing_ground.Instance) then
+						target_position = Vector3.new(
+							landing_ground.Position.X,
+							landing_ground.Position.Y + standing_height - 0.05,
+							landing_ground.Position.Z
+						)
+						break
 					end
-				else
 				end
 			end
 			if target_position then
