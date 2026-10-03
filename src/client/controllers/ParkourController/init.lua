@@ -109,7 +109,6 @@ function ParkourController:_bind_humanoid(humanoid)
 	end)
 end
 
-
 function ParkourController:_grab(guide, normal, position, edge_gap)
 	local humanoid = self.Humanoid
 	if self.State ~= "Grounded" or not guide or not humanoid or humanoid.Health <= 0 or humanoid.Sit then return end
@@ -173,7 +172,6 @@ function ParkourController:_position_hanging()
 	root.AssemblyAngularVelocity = Vector3.zero
 end
 
-
 function ParkourController:_clear_jump_block()
 	if not self.GrabBlockedUntilJumpReleased then
 		return
@@ -216,7 +214,7 @@ function ParkourController:_step(dt)
 		local elapsed = os.clock() - top_hop.StartedAt
 		local landed = top_hop.SawAir and humanoid
 			and humanoid.FloorMaterial ~= Enum.Material.Air
-		if landed or elapsed >= 3 then
+		if landed or elapsed >= Config.VaultTopHopTimeout then
 			VaultTraversal.finish_top_hop(self, landed)
 		end
 	end
@@ -264,14 +262,6 @@ function ParkourController:_standing_height()
 	return hip_height + root.Size.Y * 0.5
 end
 
-
-
-
-
-
-
-
-
 function ParkourController:GetQueryMetrics()
 	return Metrics.snapshot(self)
 end
@@ -298,6 +288,7 @@ function ParkourController:_release()
 
 	if state == "Hanging" then
 		ParkourState.clear_data(self, "Hanging")
+		self.CornerProbeMiss = nil
 	elseif state == "Mantling" then
 		ParkourState.clear_data(self, "Mantling")
 	end

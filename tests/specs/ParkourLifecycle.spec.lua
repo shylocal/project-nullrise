@@ -100,12 +100,20 @@ return function()
 		ParkourState.capture_humanoid(controller, "Hang", { "AutoRotate", "PlatformStand" })
 		humanoid.AutoRotate = false
 		humanoid.PlatformStand = true
+		controller.CornerProbeMiss = {
+			Climbable = climbable,
+			Direction = 1,
+			Normal = Vector3.xAxis,
+			HangPosition = Vector3.new(1, 2, 3),
+			RootPosition = Vector3.new(1, 2, 3),
+		}
 
 		controller:_release()
 		controller:_release()
 
 		expect(controller.State).to.equal("Grounded")
 		expect(ParkourState.get_data(controller, "Hanging")).to.equal(nil)
+		expect(controller.CornerProbeMiss).to.equal(nil)
 		expect(humanoid.AutoRotate).to.equal(true)
 		expect(humanoid.PlatformStand).to.equal(false)
 		expect(ParkourState.get_humanoid_snapshot(controller, "Hang")).to.equal(nil)

@@ -166,7 +166,7 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 		Traversal.restore_hang_pose(self, pose_snapshot)
 		return false
 	end
-		local final_clear = Queries.has_hang_body_clearance(self, 
+	local final_clear = Queries.has_hang_body_clearance(self, 
 		hang.HangPosition,
 		hang.Normal
 	)
@@ -220,7 +220,7 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 		Start = start_cframe,
 		Target = target_cframe,
 		Elapsed = 0,
-		Duration = 0.35,
+		Duration = Config.MantleDuration,
 	})
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
@@ -280,7 +280,7 @@ function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 		Start = root.CFrame,
 		Target = target_cframe,
 		Elapsed = 0,
-		Duration = 0.35,
+		Duration = Config.MantleDuration,
 	})
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
@@ -342,7 +342,7 @@ function LedgeTraversal.update_mantle(self, dt)
 		return false
 	end
 
-	mantle.Elapsed = math.min((mantle.Elapsed or 0) + math.max(dt, 0), duration)
+	mantle.Elapsed = math.min(mantle.Elapsed + math.max(dt, 0), duration)
 	local linear = mantle.Elapsed / duration
 	local alpha = VaultMath.smoothstep(linear)
 	if root then

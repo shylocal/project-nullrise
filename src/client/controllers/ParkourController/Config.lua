@@ -18,7 +18,7 @@ return {
 	VaultMinHeight = 0.3,
 	VaultMaxHeight = 4,
 	VaultLandingGap = 2,
-	VaultMaxHopDistance = 26,
+	-- Hard cap on the root-to-landing displacement of a scripted vault.
 	VaultMaxOverDistance = 13.5,
 	VaultTopLandingInset = 1,
 	VaultLandingHeightTolerance = 1.1,
@@ -33,6 +33,8 @@ return {
 	VaultMinTopHopDepth = 2.5,
 	VaultTopHopHeightMargin = 0.8,
 	VaultTopHopForwardBoostSpeed = 8,
+	-- Seconds before an unlanded top-hop restores the native jump settings.
+	VaultTopHopTimeout = 3,
 	VaultPhysicalExitProgress = 0.45,
 	VaultDuration = 0.42,
 	VaultDurationMultiplier = 0.95,
@@ -49,6 +51,10 @@ return {
 	MantleMaxOutward = 2,
 	MantleMaxLateral = 5,
 	MantleMinRise = 0.25,
+	MantleDuration = 0.35,
 	TraverseHeightTolerance = 1.5,
 	CornerLockDistance = 1.75,
+	-- While straight A/D traversal stays valid, the corner probe fan is only
+	-- re-run after the hang target moves this far from its last empty result.
+	CornerProbeRecheckDistance = 0.5,
 }

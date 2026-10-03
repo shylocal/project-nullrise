@@ -31,6 +31,14 @@ return function()
 	local humanoid
 	local input
 	local movement
+	local moving
+
+	-- Humanoid.MoveDirection is read-only from scripts, so specs drive the
+	-- movement gate through the controller's _is_moving hook instead.
+	local function set_moving(value)
+		moving = value
+		movement:_update_sprinting()
+	end
 
 	beforeEach(function()
 		character = Instance.new("Model")
@@ -41,6 +49,10 @@ return function()
 
 		input = make_input()
 		movement = MovementController.new(character, input)
+		moving = true
+		movement._is_moving = function()
+			return moving
+		end
 	end)
 
 	afterEach(function()
@@ -59,9 +71,51 @@ return function()
 		humanoid = nil
 	end)
 
-	it("starts at the Humanoid's default walk speed", function()
+	it("starts at the configured walk speed", function()
 		expect(movement:IsSprinting()).to.equal(false)
 		expect(humanoid.WalkSpeed).to.equal(MovementConfig.WalkSpeed)
+	end)
+
+	it("applies the configured walk speed instead of adopting the Humanoid's", function()
+		local other_character = Instance.new("Model")
+		local other_humanoid = Instance.new("Humanoid")
+		other_humanoid.WalkSpeed = MovementConfig.WalkSpeed + 7
+		other_humanoid.Parent = other_character
+		local other_input = make_input()
+		local other_movement = MovementController.new(other_character, other_input)
+
+		expect(other_movement.DefaultWalkSpeed).to.equal(MovementConfig.WalkSpeed)
+		expect(other_humanoid.WalkSpeed).to.equal(MovementConfig.WalkSpeed)
+
+		other_movement:Destroy()
+		destroy_input(other_input)
+		other_character:Destroy()
+	end)
+
+	it("defines a valid sprint movement threshold", function()
+		local threshold = MovementConfig.SprintMinMoveMagnitude
+		expect(typeof(threshold)).to.equal("number")
+		expect(threshold > 0 and threshold <= 1).to.equal(true)
+	end)
+
+	it("does not sprint while Sprint is held without movement", function()
+		set_moving(false)
+		input:_began(Actions.Sprint)
+		expect(movement:IsSprinting()).to.equal(false)
+		expect(humanoid.WalkSpeed).to.equal(MovementConfig.WalkSpeed)
+
+		set_moving(true)
+		expect(movement:IsSprinting()).to.equal(true)
+		expect(humanoid.WalkSpeed).to.equal(MovementConfig.SprintSpeed)
+
+		set_moving(false)
+		expect(movement:IsSprinting()).to.equal(false)
+		expect(humanoid.WalkSpeed).to.equal(MovementConfig.WalkSpeed)
+	end)
+
+	it("treats a stationary Humanoid as not moving", function()
+		-- A Humanoid outside the simulated world has a zero MoveDirection.
+		expect(MovementController._is_moving(movement)).to.equal(false)
 	end)
 
 	it("switches between walk and sprint speeds from input transitions", function()

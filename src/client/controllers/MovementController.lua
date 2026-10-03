@@ -17,9 +17,9 @@ function MovementController.new(character, input_controller)
 		Trove = Trove.new(),
 
 		Humanoid = nil,
+		HumanoidTrove = nil,
 		DefaultWalkSpeed = MovementConfig.WalkSpeed,
 		SprintSpeed = MovementConfig.SprintSpeed,
-		HasSpeedOverride = false,
 		SprintBlocked = false,
 		SprintBlockers = {},
 		Sprinting = false,
@@ -73,14 +73,36 @@ end
 
 function MovementController:_set_humanoid(humanoid)
 	self.Humanoid = humanoid
-	if not self.HasSpeedOverride then
-		self.DefaultWalkSpeed = humanoid.WalkSpeed
+
+	-- MovementConfig (or a SetSpeeds override) is authoritative for speed;
+	-- _update_sprinting writes it to the Humanoid instead of adopting the
+	-- Humanoid's existing WalkSpeed.
+	if self.HumanoidTrove then
+		self.HumanoidTrove:Clean()
+	else
+		self.HumanoidTrove = self.Trove:Extend()
 	end
+	self.HumanoidTrove:Connect(
+		humanoid:GetPropertyChangedSignal("MoveDirection"),
+		function()
+			self:_update_sprinting()
+		end
+	)
+
 	self:_update_sprinting()
 end
 
+function MovementController:_is_moving()
+	local humanoid = self.Humanoid
+	return humanoid ~= nil
+		and humanoid.MoveDirection.Magnitude >= MovementConfig.SprintMinMoveMagnitude
+end
+
 function MovementController:_update_sprinting()
-	local sprinting = not self.SprintBlocked and self.InputController:IsDown(Actions.Sprint)
+	-- Holding Sprint while standing still must not enter the sprint state.
+	local sprinting = not self.SprintBlocked
+		and self.InputController:IsDown(Actions.Sprint)
+		and self:_is_moving()
 	local changed = self.Sprinting ~= sprinting
 
 	self.Sprinting = sprinting
@@ -106,7 +128,6 @@ function MovementController:SetSpeeds(walk_speed, sprint_speed)
 
 	self.DefaultWalkSpeed = walk_speed
 	self.SprintSpeed = sprint_speed
-	self.HasSpeedOverride = true
 	self:_update_sprinting()
 	return true
 end

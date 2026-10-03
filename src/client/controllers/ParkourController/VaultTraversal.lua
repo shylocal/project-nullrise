@@ -4,6 +4,8 @@ local Workspace = game:GetService("Workspace")
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Vector = require(ReplicatedStorage.shared.utility.Vector)
 
+local MovementConfig = require(ReplicatedStorage.shared.movement.Config)
+
 local Config = require(script.Parent.Config)
 local ClimbableQuery = require(script.Parent.ClimbableQuery)
 local VaultMath = require(script.Parent.VaultMath)
@@ -24,7 +26,7 @@ function VaultTraversal.try_vault(self)
 	if self.GrabBlockedUntilJumpReleased then
 		return false
 	end
-	if os.clock() < (self.NextVaultAt or 0) then
+	if os.clock() < self.NextVaultAt then
 		return false
 	end
 	if not self.MovementController then
@@ -42,14 +44,11 @@ function VaultTraversal.try_vault(self)
 		return false
 	end
 
-	-- Follow actual movement when available, falling back to facing for the
-	-- Space-press frame before Humanoid.MoveDirection has updated.
+	-- Vaults follow actual movement. Holding Sprint while standing still is
+	-- not a sprint, so a stationary Space press never starts a vault.
 	local forward = Vector.flatten(humanoid.MoveDirection)
 	local facing = Vector.flatten(root.CFrame.LookVector)
-	if forward.Magnitude < 0.05 then
-		forward = facing
-	end
-	if forward.Magnitude < 0.05 then
+	if forward.Magnitude < MovementConfig.SprintMinMoveMagnitude then
 		return false
 	end
 	forward = forward.Unit
@@ -345,8 +344,6 @@ function VaultTraversal.try_vault(self)
 		local top_hop = {
 			StartedAt = os.clock(),
 			SawAir = false,
-			StartPosition = root.Position,
-			LaunchForward = forward,
 			UseJumpPower = launch_use_jump_power,
 			JumpPowerBefore = launch_jump_power,
 			JumpHeightBefore = launch_jump_height,
@@ -382,7 +379,6 @@ function VaultTraversal.try_vault(self)
 		-(landing_origin_y - current_ground_y + Config.VaultLandingHeightTolerance + 1),
 		0
 	)
-	local hit_relative = obstacle_hit.Position - root.Position
 	-- Continue along the exact lane that detected the obstacle. Side probes
 	-- can hit a wall away from the character's centerline, so dropping this
 	-- offset would aim the far-side landing back into the wall footprint.
@@ -400,11 +396,8 @@ function VaultTraversal.try_vault(self)
 	local landing_extra_distances = { 0, 0.75, 1.5, 2.5, 4, 6 }
 	-- Keep scripted vaults from traversing an entire long obstacle when
 	-- approached along its side. This cap applies to the root-to-landing
-	-- displacement; the broader general hop limit remains a hard upper bound.
-	local max_vault_distance = math.min(
-		Config.VaultMaxHopDistance,
-		Config.VaultMaxOverDistance
-	)
+	-- displacement and is the only scripted-vault distance limit.
+	local max_vault_distance = Config.VaultMaxOverDistance
 	local max_landing_extra = math.max(0, max_vault_distance - hop_distance)
 	local next_landing_extra = 6.75
 	while next_landing_extra < max_landing_extra do
@@ -422,7 +415,7 @@ function VaultTraversal.try_vault(self)
 					landing_xz += side.Unit * lateral_adjustment
 				end
 				-- Enforce the cap on the real horizontal displacement too;
-				-- the lateral fan otherwise adds a small amount beyond 24 studs.
+				-- the lateral fan otherwise adds a small amount beyond the cap.
 				local actual_hop_distance = Vector.flatten(landing_xz - root.Position).Magnitude
 				if actual_hop_distance <= max_vault_distance + 1e-4 then
 					local landing_ground = Queries.cast(self, Vector3.new(landing_xz.X, landing_origin_y, landing_xz.Z), landing_ray, true)
@@ -496,7 +489,7 @@ function VaultTraversal.try_vault(self)
 		root.Size.Z + 0.5
 	)
 	for _, alpha in ipairs({ 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1 }) do
-		local eased = alpha * alpha * (3 - 2 * alpha)
+		local eased = VaultMath.smoothstep(alpha)
 		local base = start_cframe:Lerp(target_cframe, eased)
 		local horizontal = start_cframe.Position:Lerp(target_cframe.Position, alpha)
 		local arc = VaultMath.arc_weight(alpha, arc_peak_progress) * arc_height
@@ -504,7 +497,7 @@ function VaultTraversal.try_vault(self)
 		local sample_cframe = CFrame.new(
 			sample_position + Vector3.new(0, arc, 0)
 		) * base.Rotation
-		local clear, blocker = Queries.has_vault_clearance(self, sample_cframe, clearance_size, obstacle)
+		local clear = Queries.has_vault_clearance(self, sample_cframe, clearance_size, obstacle)
 		if not clear then
 			return false
 		end
@@ -575,7 +568,7 @@ function VaultTraversal.update_vault(self, dt)
 		return false
 	end
 
-	vault.Elapsed = math.min((vault.Elapsed or 0) + math.max(dt, 0), duration)
+	vault.Elapsed = math.min(vault.Elapsed + math.max(dt, 0), duration)
 	local linear = vault.Elapsed / duration
 	local eased = VaultMath.smoothstep(linear)
 	local base = vault.Start:Lerp(vault.Target, eased)
@@ -643,7 +636,6 @@ function VaultTraversal.finish_top_hop(self, landed)
 	local jump_power_before = top_hop.JumpPowerBefore
 	local jump_height_before = top_hop.JumpHeightBefore
 	ParkourState.clear_data(self, "TopHop")
-	local root = self.Root
 	local humanoid = self.Humanoid
 	if humanoid and humanoid.Parent then
 		if use_jump_power then

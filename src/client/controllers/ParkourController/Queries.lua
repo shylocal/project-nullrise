@@ -229,18 +229,14 @@ function Queries.cast_reachable_grab_top(
 
 	local best = nil
 	local best_height_distance = math.huge
-	local first_candidate = nil
-	local first_walkable_surface = nil
-	local candidate_count = 0
 	local reference_height = reference_y or root_position.Y
 
-	local function consider_candidate(candidate, sample_offset, source)
+	local function consider_candidate(candidate)
 		if not candidate then return end
 
 		local root_height_delta = root_position.Y - candidate.Position.Y
 		local reference_height_delta = reference_height - candidate.Position.Y
 		local height_distance = math.abs(reference_height_delta)
-		local valid_surface = ClimbableQuery.is_climbable(candidate.Instance)
 		local walkable = candidate.Normal.Y >= 0.5
 		local above_side_hit = candidate.Position.Y >= wall_position.Y - 0.5
 		-- Initial grabs measure "near the top" from the avatar's standing reach,
@@ -252,28 +248,9 @@ function Queries.cast_reachable_grab_top(
 			and lower_reach_delta <= Config.MaxGrabHeight
 			and above_side_hit
 
-		candidate_count += 1
-		local candidate_info = {
-			Instance = candidate.Instance,
-			Group = candidate.Instance:IsA("BasePart") and candidate.Instance.CollisionGroup or "nonpart",
-			CanCollide = candidate.Instance:IsA("BasePart") and candidate.Instance.CanCollide or false,
-			Tagged = ClimbableQuery.is_climbable(candidate.Instance),
-			Normal = candidate.Normal,
-			RootHeightDelta = root_height_delta,
-			ReferenceHeightDelta = reference_height_delta,
-			ValidSurface = valid_surface,
-			Walkable = walkable,
-			AboveSideHit = above_side_hit,
-			Reachable = reachable,
-			SampleOffset = sample_offset,
-			Source = source,
-		}
-		if not first_candidate then first_candidate = candidate_info end
-		if valid_surface and walkable and not first_walkable_surface then
-			first_walkable_surface = candidate_info
-		end
-
-		if valid_surface and walkable and reachable and height_distance < best_height_distance then
+		-- Check the cheap geometric conditions before the tag ancestry walk.
+		if walkable and reachable and height_distance < best_height_distance
+			and ClimbableQuery.is_climbable(candidate.Instance) then
 			best = candidate
 			best_height_distance = height_distance
 		end
@@ -288,11 +265,11 @@ function Queries.cast_reachable_grab_top(
 			wall_top_params.FilterDescendantsInstances = { wall_instance }
 			Metrics.record(self, "Raycasts")
 			local wall_top = Workspace:Raycast(sample_origin, direction, wall_top_params)
-			consider_candidate(wall_top, sample_offset, "detected-wall")
+			consider_candidate(wall_top)
 		end
 
 		local exclusions = { self.Character }
-		for hit_index = 1, Config.MaxTopSurfaceHits do
+		for _ = 1, Config.MaxTopSurfaceHits do
 			params.FilterDescendantsInstances = exclusions
 			Metrics.record(self, "Raycasts")
 			local candidate = Workspace:Raycast(sample_origin, direction, params)
@@ -300,14 +277,11 @@ function Queries.cast_reachable_grab_top(
 				break
 			end
 
-			consider_candidate(candidate, sample_offset, "world")
+			consider_candidate(candidate)
 			table.insert(exclusions, candidate.Instance)
 		end
 	end
 
-	if not best then
-		local diagnostic = first_walkable_surface or first_candidate
-	end
 	return best
 end
 function Queries.get_guide_top(self, guide, sample_position)
@@ -530,9 +504,11 @@ function Queries.has_hang_body_clearance(self, position, normal)
 	-- bounding box. Accessories and non-colliding limbs can extend well beyond
 	-- the actual movement collider and falsely reject tight but valid corners.
 	local target_cframe = CFrame.lookAt(position, position - facing)
-	-- Query with a box-shaped probe against exact part geometry. The bounds
-	-- query below can treat a cylinder's enclosing box as solid, falsely
-	-- rejecting otherwise clear positions beside its curved surface.
+	-- Query with a box-shaped probe against exact part geometry. A bounds
+	-- query can treat a cylinder's enclosing box as solid, falsely rejecting
+	-- otherwise clear positions beside its curved surface. The probe is only
+	-- the query volume: CanQuery = false keeps it invisible to every other
+	-- raycast and overlap query, while GetPartsInPart still uses its geometry.
 	local probe = self.HangClearanceProbe
 	if not probe or not probe.Parent then
 		probe = Instance.new("Part")
@@ -540,7 +516,7 @@ function Queries.has_hang_body_clearance(self, position, normal)
 		probe.Anchored = true
 		probe.CanCollide = false
 		probe.CanTouch = false
-		probe.CanQuery = true
+		probe.CanQuery = false
 		probe.CollisionGroup = Config.ClimbableCollisionGroup
 		probe.Transparency = 1
 		probe.CastShadow = false
@@ -561,7 +537,7 @@ function Queries.has_hang_body_clearance(self, position, normal)
 	local overlaps = Workspace:GetPartsInPart(probe, overlap_params)
 	for _, part in ipairs(overlaps) do
 		if part.CanCollide then
-						return false, part
+			return false, part
 		end
 	end
 

@@ -56,6 +56,145 @@ function Traversal.restore_hang_pose(self, snapshot)
 	end
 	return true
 end
+-- Confirm that a perpendicular corner face has a reachable top at the same
+-- height whose guide covers the column the body moves into after turning, and
+-- that the body fits there. Returns the corner transfer or nil.
+local function validate_corner(self, candidate, normal, active_top_y)
+	local root = self.Root
+	local corner_probe = candidate.Probe
+	local corner_normal = candidate.Normal
+	local corner_top = Queries.cast_reachable_grab_top(self, 
+		corner_probe.Position,
+		corner_probe.Normal,
+		root.Position,
+		root.Position.Y + Config.HangDrop
+	)
+	local corner_guide = corner_top
+		and (ClimbableQuery.get_guide(corner_top.Instance) or corner_top.Instance)
+	local corner_height_ok = corner_top
+		and math.abs(corner_top.Position.Y - active_top_y) <= Config.TraverseHeightTolerance
+		and corner_top.Normal.Y >= 0.5
+	if not corner_top or not corner_guide or not corner_height_ok then
+		return nil
+	end
+
+	-- The root is centered at the corner seam after a 90-degree turn, so its
+	-- body can still overlap the old wall. Move one half-root-width along the
+	-- old wall's outward axis, then confirm that the destination guide
+	-- actually covers that landing column before accepting the corner.
+	local corner_clearance = math.max(root.Size.X, root.Size.Z) * 0.5 + 0.1
+	local cleared_sample = corner_top.Position + normal * corner_clearance
+	local cleared_top = nil
+	local cleared_distance = math.huge
+	-- The exact clearance column can land on a part's inclusive edge. A tiny
+	-- inward nudge avoids intermittent ray misses without weakening the
+	-- requirement that the guide cover the intended landing column.
+	local coverage_samples = {
+		cleared_sample - normal * 0.2,
+		cleared_sample,
+		cleared_sample + normal * 0.2,
+	}
+	for _, coverage_sample in ipairs(coverage_samples) do
+		for _, candidate_top in ipairs(Queries.get_guide_tops(self, corner_guide, coverage_sample)) do
+			local distance = math.abs(candidate_top.Position.Y - active_top_y)
+			local sample_distance = Vector.flatten(candidate_top.Position - cleared_sample).Magnitude
+			if distance <= Config.TraverseHeightTolerance
+				and sample_distance <= 1.25
+				and distance < cleared_distance then
+				cleared_top = candidate_top
+				cleared_distance = distance
+			end
+		end
+	end
+	if not cleared_top then
+		return nil
+	end
+
+	local candidate_hang = cleared_top.Position
+		+ corner_normal * Config.WallGap
+		- Vector3.new(0, Config.HangDrop, 0)
+	if not Queries.has_hang_body_clearance(self, candidate_hang, corner_normal) then
+		return nil
+	end
+
+	return {
+		Top = cleared_top,
+		Guide = corner_guide,
+		Normal = corner_normal,
+		WallInstance = corner_probe.Instance,
+	}
+end
+
+-- Probe a fan of side rays for a perpendicular climbable face near the
+-- character. Every candidate's score is known from its side ray alone, so
+-- candidates are validated in score order and the first valid one wins; this
+-- selects the same corner as validating every candidate, without paying for
+-- the expensive top/coverage/clearance queries of lower-ranked candidates.
+-- turn_normals is ordered by preference: the travel-side face scores at
+-- least 100 lower than any opposite-side face, so the opposite side is only
+-- probed when the travel side has no valid corner.
+function Traversal.find_corner(self, turn_normals, candidate_position, normal, movement_tangent, active_top_y)
+	local corner_longitudinal_offsets = {
+		-normal * 1.8,
+		-normal * 0.9,
+		normal * 0.9,
+		normal * 1.8,
+	}
+
+	for _, turn_normal in ipairs(turn_normals) do
+		local turn_side_penalty = turn_normal:Dot(movement_tangent) >= 0 and 0 or 100
+		local candidates = {}
+		for order, longitudinal_offset in ipairs(corner_longitudinal_offsets) do
+			local corner_origin = candidate_position
+				+ Vector3.new(0, 1.5, 0)
+				+ longitudinal_offset
+				+ turn_normal * (Config.WallGap + 0.75)
+			local corner_probe = Queries.cast_climbable_side(self, 
+				corner_origin,
+				-turn_normal * (Config.WallGap + Config.SurfaceProbe + 2)
+			)
+			local corner_normal = corner_probe and Vector.flatten(corner_probe.Normal)
+			if corner_normal and corner_normal.Magnitude >= 0.05 then
+				corner_normal = corner_normal.Unit
+				local alignment_to_old = math.abs(corner_normal:Dot(normal))
+				local alignment_to_turn = corner_normal:Dot(turn_normal)
+				local along_movement = Vector.flatten(corner_probe.Position - candidate_position):Dot(movement_tangent)
+				local perpendicular = alignment_to_old <= 0.45
+					and alignment_to_turn >= 0.55
+				local near_corner = along_movement >= -1.5
+					and along_movement <= Config.WallGap + Config.SurfaceProbe + 1.5
+
+				if perpendicular and near_corner then
+					table.insert(candidates, {
+						Probe = corner_probe,
+						Normal = corner_normal,
+						Order = order,
+						Score = turn_side_penalty
+							+ math.abs(along_movement)
+							+ alignment_to_old * 2
+							+ longitudinal_offset.Magnitude * 0.05,
+					})
+				end
+			end
+		end
+
+		-- Equal scores keep probe order, matching a strict "<" best search.
+		table.sort(candidates, function(a, b)
+			if a.Score ~= b.Score then
+				return a.Score < b.Score
+			end
+			return a.Order < b.Order
+		end)
+		for _, candidate in ipairs(candidates) do
+			local corner = validate_corner(self, candidate, normal, active_top_y)
+			if corner then
+				return corner
+			end
+		end
+	end
+
+	return nil
+end
 function Traversal.traverse(self, dt)
 	local hang = ParkourState.get_data(self, "Hanging")
 	local root = self.Root
@@ -99,7 +238,6 @@ function Traversal.traverse(self, dt)
 			and math.abs(climbable.CFrame.RightVector.Y) >= 0.75
 			and climbable
 		if cylinder then
-			local axis = cylinder.CFrame.RightVector
 			local center = cylinder.Position
 			local radial = Vector.flatten(root.Position - center)
 			if radial.Magnitude < 0.05 then
@@ -184,113 +322,41 @@ function Traversal.traverse(self, dt)
 			-- face remains a fallback for concave layouts, not an equal candidate.
 			corner_turn_normals = { movement_tangent, -movement_tangent }
 		end
-		local corner_longitudinal_offsets = {
-			-normal * 1.8,
-			-normal * 0.9,
-			normal * 0.9,
-			normal * 1.8,
-		}
-		local best_corner = nil
-		local best_corner_score = math.huge
-		local corner_probe_count = 0
-		local corner_valid_count = 0
-		local corner_clearance = math.max(root.Size.X, root.Size.Z) * 0.5 + 0.1
-
-		for _, turn_normal in ipairs(corner_turn_normals) do
-			for _, longitudinal_offset in ipairs(corner_longitudinal_offsets) do
-				local corner_origin = candidate_position
-					+ Vector3.new(0, 1.5, 0)
-					+ longitudinal_offset
-					+ turn_normal * (Config.WallGap + 0.75)
-				local corner_probe = Queries.cast_climbable_side(self, 
-					corner_origin,
-					-turn_normal * (Config.WallGap + Config.SurfaceProbe + 2)
-				)
-				if corner_probe then
-					corner_probe_count += 1
-					local corner_normal = Vector.flatten(corner_probe.Normal)
-					if corner_normal.Magnitude >= 0.05 then
-						corner_normal = corner_normal.Unit
-						local alignment_to_old = math.abs(corner_normal:Dot(normal))
-						local alignment_to_turn = corner_normal:Dot(turn_normal)
-						local along_movement = Vector.flatten(corner_probe.Position - candidate_position):Dot(movement_tangent)
-						local perpendicular = alignment_to_old <= 0.45
-							and alignment_to_turn >= 0.55
-						local near_corner = along_movement >= -1.5
-							and along_movement <= Config.WallGap + Config.SurfaceProbe + 1.5
-
-						if perpendicular and near_corner then
-							local corner_top = Queries.cast_reachable_grab_top(self, 
-								corner_probe.Position,
-								corner_probe.Normal,
-								root.Position,
-								root.Position.Y + Config.HangDrop
-							)
-							local corner_guide = corner_top
-								and (ClimbableQuery.get_guide(corner_top.Instance) or corner_top.Instance)
-							local corner_height_ok = corner_top
-								and math.abs(corner_top.Position.Y - active_top_y) <= Config.TraverseHeightTolerance
-								and corner_top.Normal.Y >= 0.5
-
-							if corner_top and corner_guide and corner_height_ok then
-								-- The root is centered at the corner seam after a 90-degree
-								-- turn, so its body can still overlap the old wall. Move one
-								-- half-root-width along the old wall's outward axis, then
-								-- confirm that the destination guide actually covers that
-								-- landing column before accepting the corner.
-								local cleared_sample = corner_top.Position + normal * corner_clearance
-								local cleared_top = nil
-								local cleared_distance = math.huge
-								-- The exact clearance column can land on a part's inclusive
-								-- edge. A tiny inward nudge avoids intermittent ray misses
-								-- without weakening the requirement that the guide cover the
-								-- intended landing column.
-								local coverage_samples = {
-									cleared_sample - normal * 0.2,
-									cleared_sample,
-									cleared_sample + normal * 0.2,
-								}
-								for _, coverage_sample in ipairs(coverage_samples) do
-									for _, candidate_top in ipairs(Queries.get_guide_tops(self, corner_guide, coverage_sample)) do
-										local distance = math.abs(candidate_top.Position.Y - active_top_y)
-										local sample_distance = Vector.flatten(candidate_top.Position - cleared_sample).Magnitude
-										if distance <= Config.TraverseHeightTolerance
-											and sample_distance <= 1.25
-											and distance < cleared_distance then
-											cleared_top = candidate_top
-											cleared_distance = distance
-										end
-									end
-								end
-								local clearance_valid = cleared_top ~= nil
-								if clearance_valid then
-									local candidate_hang = cleared_top.Position
-										+ corner_normal * Config.WallGap
-										- Vector3.new(0, Config.HangDrop, 0)
-									local candidate_clear = Queries.has_hang_body_clearance(self, candidate_hang, corner_normal)
-									if candidate_clear then
-										corner_valid_count += 1
-									local turn_side_penalty = turn_normal:Dot(movement_tangent) >= 0 and 0 or 100
-									local score = turn_side_penalty
-										+ math.abs(along_movement)
-										+ alignment_to_old * 2
-										+ math.abs(longitudinal_offset.Magnitude) * 0.05
-									if score < best_corner_score then
-										best_corner = {
-											Top = cleared_top,
-											Guide = corner_guide,
-											Normal = corner_normal,
-											WallInstance = corner_probe.Instance,
-										}
-										best_corner_score = score
-									end
-									end
-								end
-							end
-						end
-					end
-				end
-			end
+		-- While straight traversal is still valid and neither the hang target nor
+		-- the root has moved meaningfully since the fan last found nothing, the
+		-- fan would repeat the same empty search. Skip it until movement exceeds
+		-- CornerProbeRecheckDistance; a blocked traversal always re-probes.
+		local straight_valid = top ~= nil and same_height
+			and horizontal_normal.Magnitude >= 0.05
+			and horizontal_normal.Unit:Dot(normal) >= 0.65
+		local last_miss = self.CornerProbeMiss
+		if straight_valid and last_miss
+			and last_miss.Climbable == climbable
+			and last_miss.Direction == direction
+			and last_miss.Normal:Dot(normal) >= 0.999
+			and (last_miss.HangPosition - hang.HangPosition).Magnitude < Config.CornerProbeRecheckDistance
+			and (last_miss.RootPosition - root.Position).Magnitude < Config.CornerProbeRecheckDistance then
+			corner_turn_normals = {}
+		end
+		local probed_corners = #corner_turn_normals > 0
+		local best_corner = Traversal.find_corner(
+			self,
+			corner_turn_normals,
+			candidate_position,
+			normal,
+			movement_tangent,
+			active_top_y
+		)
+		if best_corner or not straight_valid then
+			self.CornerProbeMiss = nil
+		elseif probed_corners then
+			self.CornerProbeMiss = {
+				Climbable = climbable,
+				Direction = direction,
+				Normal = normal,
+				HangPosition = hang.HangPosition,
+				RootPosition = root.Position,
+			}
 		end
 
 		local is_corner_transfer = best_corner ~= nil
@@ -299,7 +365,7 @@ function Traversal.traverse(self, dt)
 			next_climbable = best_corner.Guide
 			same_height = true
 			horizontal_normal = best_corner.Normal
-					end
+		end
 
 		if horizontal_normal.Magnitude >= 0.05 then
 			horizontal_normal = horizontal_normal.Unit
@@ -330,8 +396,7 @@ function Traversal.traverse(self, dt)
 				hang.HangPosition.Y,
 				top.Position.Z
 			) + hang.HangDepthOffset
-		else
-					end
+		end
 
 		-- Exempt only the exact wall part supporting the hang; the top is below the root by Config.HangDrop and must not mask a thick-wall collision.
 		local pose_changed = (hang.HangPosition - pose_snapshot.HangPosition).Magnitude > 1e-3
@@ -343,16 +408,12 @@ function Traversal.traverse(self, dt)
 			if midpoint_normal.Magnitude < 0.05 then midpoint_normal = hang.Normal end
 			midpoint_clear = Queries.has_hang_body_clearance(self, midpoint, midpoint_normal)
 		end
-		local proposed_hang_position = hang.HangPosition
-		local proposed_normal = hang.Normal
 		local body_clear = not pose_changed or (midpoint_clear and Queries.has_hang_body_clearance(self, hang.HangPosition, hang.Normal))
 		if not body_clear then
 			Traversal.restore_hang_pose(self, pose_snapshot)
-		else
-			if is_corner_transfer then
-				hang.CornerLockPosition = hang.HangPosition
-				hang.CornerLockInputDirection = direction
-			end
+		elseif is_corner_transfer then
+			hang.CornerLockPosition = hang.HangPosition
+			hang.CornerLockInputDirection = direction
 		end
 	end
 

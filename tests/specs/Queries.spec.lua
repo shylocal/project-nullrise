@@ -89,5 +89,42 @@ return function()
 
 			destroy_fixture(controller, { blocker })
 		end)
+
+		it("keeps the hang clearance probe invisible to other spatial queries", function()
+			local controller = make_fixture()
+			local hang_position = Vector3.new(100000, 40, 100000)
+
+			local clear = Queries.has_hang_body_clearance(controller, hang_position, Vector3.zAxis)
+			expect(clear).to.equal(true)
+
+			local probe = controller.HangClearanceProbe
+			expect(probe ~= nil).to.equal(true)
+			expect(probe.CanQuery).to.equal(false)
+			expect(probe.CanCollide).to.equal(false)
+			expect(probe.CanTouch).to.equal(false)
+
+			-- A ray that ignores CanCollide must pass straight through the probe.
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			params.FilterDescendantsInstances = { controller.Character }
+			params.RespectCanCollide = false
+			local hit = Workspace:Raycast(hang_position + Vector3.new(0, 5, 0), Vector3.new(0, -10, 0), params)
+			expect(hit == nil or hit.Instance ~= probe).to.equal(true)
+
+			-- The probe still measures overlaps against solid geometry.
+			local blocker = Instance.new("Part")
+			blocker.Name = "HangClearanceBlocker"
+			blocker.Anchored = true
+			blocker.Size = Vector3.new(4, 4, 4)
+			blocker.CFrame = CFrame.new(hang_position)
+			blocker.Parent = Workspace
+
+			local blocked, blocking_part = Queries.has_hang_body_clearance(controller, hang_position, Vector3.zAxis)
+			expect(blocked).to.equal(false)
+			expect(blocking_part).to.equal(blocker)
+
+			probe:Destroy()
+			destroy_fixture(controller, { blocker })
+		end)
 	end)
 end

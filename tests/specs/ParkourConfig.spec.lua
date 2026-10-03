@@ -30,7 +30,6 @@ return function()
 				"VaultDetectionDistance",
 				"VaultDetectionHeight",
 				"VaultLandingGap",
-				"VaultMaxHopDistance",
 				"VaultMaxOverDistance",
 				"VaultTopLandingInset",
 				"VaultLandingHeightTolerance",
@@ -41,6 +40,7 @@ return function()
 				"VaultTallDurationPerStud",
 				"VaultTopHopHeightMargin",
 				"VaultTopHopForwardBoostSpeed",
+				"VaultTopHopTimeout",
 				"VaultDuration",
 				"VaultCooldown",
 				"VaultForwardBoostSpeed",
@@ -51,9 +51,24 @@ return function()
 			end
 
 			expect(Config.VaultMaxArcHeight >= Config.VaultMinArcHeight).to.equal(true)
-			expect(Config.VaultMaxHopDistance >= Config.VaultMaxOverDistance).to.equal(true)
+			expect(Config.VaultMaxOverDistance > 0).to.equal(true)
+			expect(Config.VaultTopHopTimeout > 0).to.equal(true)
 			expect(Config.VaultDurationMultiplier >= 0.5 and Config.VaultDurationMultiplier <= 1.5).to.equal(true)
 			expect(typeof(Config.VaultEnabled)).to.equal("boolean")
+		end)
+
+		it("drops the shadowed hop-distance knob in favour of the effective cap", function()
+			-- VaultMaxOverDistance is the only scripted-vault distance limit.
+			expect(Config.VaultMaxHopDistance).to.equal(nil)
+		end)
+
+		it("defines the mantle and corner-probe timings used by traversal", function()
+			expect(is_finite_nonnegative(Config.MantleDuration) and Config.MantleDuration > 0).to.equal(true)
+			expect(is_finite_nonnegative(Config.CornerProbeRecheckDistance)
+				and Config.CornerProbeRecheckDistance > 0).to.equal(true)
+			-- A recheck distance at or beyond the corner lock would let straight
+			-- traversal carry the hang past a corner before the fan re-runs.
+			expect(Config.CornerProbeRecheckDistance < Config.CornerLockDistance).to.equal(true)
 		end)
 	end)
 end
