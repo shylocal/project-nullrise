@@ -361,7 +361,7 @@ end
 
 function ParkourController:_release()
 	if ParkourState.get_data(self, "TopHop") then
-		self:_finish_top_hop(false)
+		VaultTraversal.finish_top_hop(self, false)
 	end
 
 	local state = self.State
