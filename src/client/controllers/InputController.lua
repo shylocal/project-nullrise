@@ -221,10 +221,10 @@ function InputController:GetActiveSource()
 end
 
 function InputController:Destroy()
-	if self._Destroyed then
+	if self._destroyed then
 		return
 	end
-	self._Destroyed = true
+	self._destroyed = true
 
 	-- Emit final releases while listeners are still alive, then dispose resources.
 	self:_release_all()
