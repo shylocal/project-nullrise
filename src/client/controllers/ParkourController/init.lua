@@ -312,7 +312,7 @@ function ParkourController:_step(dt)
 		local horizontal = self._vaultStart.Position:Lerp(self._vaultTarget.Position, linear)
 		local arc = VaultMath.arc_weight(linear, self._vaultArcPeakProgress) * self._vaultArcHeight
 		local position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
-		local physical_exit_progress = math.clamp(Config.VaultPhysicalExitProgress or 0.35, 0.05, 0.95)
+		local physical_exit_progress = math.clamp(Config.VaultPhysicalExitProgress, 0.05, 0.95)
 		if linear < physical_exit_progress then
 			root.CFrame = CFrame.new(position + Vector3.new(0, arc, 0)) * base.Rotation
 			root.AssemblyLinearVelocity = Vector3.zero
@@ -342,7 +342,7 @@ function ParkourController:_step(dt)
 		local vault_humanoid = vault_snapshot and vault_snapshot.Humanoid
 		local original_hip_height = ParkourState.get_humanoid_value(self, "Vault", "HipHeight")
 		if vault_humanoid and vault_humanoid.Parent and original_hip_height ~= nil then
-			local reduction = math.max(0, Config.VaultHipHeightReduction or 0)
+			local reduction = math.max(0, Config.VaultHipHeightReduction)
 			local weight = VaultMath.hip_height_weight(linear)
 			local minimum_hip_height = 0
 			if vault_humanoid.RigType == Enum.HumanoidRigType.R6 then
