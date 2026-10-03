@@ -100,7 +100,7 @@ return function()
 			local target = make_character("Target", Vector3.new(0, 0, -6), created)
 			local wielded = Instance.new("Part")
 			wielded.Name = "TestHitbox"
-			wielded.CFrame = attacker.HumanoidRootPart.CFrame
+			wielded.CFrame = CFrame.new(0, 0, -3)
 			wielded.Parent = attacker
 			table.insert(created, wielded)
 
@@ -123,8 +123,8 @@ return function()
 			local target = make_character("Target", Vector3.new(0, 0, 6), created)
 			local wielded = Instance.new("Part")
 			wielded.Name = "TestHitbox"
+			wielded.CFrame = CFrame.new(0, 0, 3)
 			wielded.Parent = attacker
-			table.insert(created, wielded)
 
 			local active, segment = make_active(attacker, wielded)
 			local result = CombatValidation.ValidateHit(
@@ -152,7 +152,7 @@ return function()
 			local wall = Instance.new("Part")
 			wall.Name = "Wall"
 			wall.Size = Vector3.new(4, 6, 0.5)
-			wall.CFrame = CFrame.new(0, 0, -3)
+			wall.CFrame = CFrame.new(0, 0, -4.5)
 			wall.Parent = Workspace
 			table.insert(created, wall)
 
