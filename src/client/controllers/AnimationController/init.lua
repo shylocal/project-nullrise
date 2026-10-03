@@ -109,9 +109,8 @@ function AnimationController:Load(definition)
 	-- changes and character setup cannot lose an Equipped event.
 	local owning_trove = self.AnimationTrove
 	task.defer(function()
-		if self.AnimationTrove ~= owning_trove or animation.Parent ~= nil then
-			-- The animation is normally parentless, but the trove identity check
-			-- still prevents stale background work after a weapon swap.
+		if self.AnimationTrove ~= owning_trove then
+			return
 		end
 
 		pcall(function()
