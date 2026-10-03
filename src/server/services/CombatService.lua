@@ -410,7 +410,7 @@ function CombatService:_hit(player, attack_key, hit_character, segment_instance,
 		return
 	end
 
-	if active.HitTargets[hit_character] or active.HitCount >= MAX_HITS_PER_ATTACK then
+	if active.HitTargets[hit_character] or (active.HitCount or 0) >= MAX_HITS_PER_ATTACK then
 		return
 	end
 
