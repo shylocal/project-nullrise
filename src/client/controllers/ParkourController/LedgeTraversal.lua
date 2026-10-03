@@ -134,7 +134,7 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 	local planned_position = top.Position
 		+ depth_offset
 		- Vector3.new(0, Config.HangDrop, 0)
-	local planned_clear, planned_blocker = Queries.has_hang_body_clearance(self, 
+	local planned_clear = Queries.has_hang_body_clearance(self, 
 		planned_position,
 		destination_normal
 	)
@@ -166,7 +166,7 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 		Traversal.restore_hang_pose(self, pose_snapshot)
 		return false
 	end
-		local final_clear, final_blocker = Queries.has_hang_body_clearance(self, 
+		local final_clear = Queries.has_hang_body_clearance(self, 
 		hang.HangPosition,
 		hang.Normal
 	)
@@ -184,6 +184,7 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 		return false
 	end
 
+	local standing_height = self:_standing_height()
 	local ground = LedgeDetection.find_ground_mantle(
 		self,
 		current_top,
@@ -191,14 +192,13 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 		tangent,
 		hang.CurrentClimbable,
 		root.Position.Y,
-		self:_standing_height(),
+		standing_height,
 		root.Size.X
 	)
 	if not ground then
 		return false
 	end
 
-	local standing_height = self:_standing_height()
 	local grounded_position = Vector3.new(
 		ground.Position.X,
 		ground.Position.Y + standing_height - 0.05,
@@ -276,7 +276,7 @@ function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 
 	local target_cframe = CFrame.lookAt(standing_position, standing_position - normal)
 	ParkourState.clear_data(self, "Hanging")
-	local mantle = ParkourState.set_data(self, "Mantling", {
+	ParkourState.set_data(self, "Mantling", {
 		Start = root.CFrame,
 		Target = target_cframe,
 		Elapsed = 0,
