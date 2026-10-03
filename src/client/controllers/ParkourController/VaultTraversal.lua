@@ -571,14 +571,19 @@ function VaultTraversal.finish_top_hop(self, landed)
 	if not top_hop then
 		return
 	end
+	-- clear_data intentionally clears the returned record before removing it,
+	-- so snapshot the values needed for restoration first.
+	local use_jump_power = top_hop.UseJumpPower
+	local jump_power_before = top_hop.JumpPowerBefore
+	local jump_height_before = top_hop.JumpHeightBefore
 	ParkourState.clear_data(self, "TopHop")
 	local root = self.Root
 	local humanoid = self.Humanoid
 	if humanoid and humanoid.Parent then
-		if top_hop.UseJumpPower then
-			humanoid.JumpPower = top_hop.JumpPowerBefore
+		if use_jump_power then
+			humanoid.JumpPower = jump_power_before
 		else
-			humanoid.JumpHeight = top_hop.JumpHeightBefore
+			humanoid.JumpHeight = jump_height_before
 		end
 	end
 end
