@@ -6,9 +6,17 @@
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
 
+      "packages": {
+        "$className": "Folder"
+      },
+
       "shared": {
         "$className": "Folder",
         "$path": "src/shared"
+      },
+
+      "ui": {
+        "$className": "Folder"
       },
 
       "remotes": {
@@ -28,6 +36,14 @@
         "Inventory": {
           "$className": "RemoteEvent"
         }
+      }
+    },
+
+    "ServerStorage": {
+      "$className": "ServerStorage",
+
+      "weapon_models": {
+        "$className": "Folder"
       }
     },
 
