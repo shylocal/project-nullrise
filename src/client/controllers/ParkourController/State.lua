@@ -73,10 +73,10 @@ function State.clear_all_data(controller)
 		return
 	end
 
-	for key, record in pairs(state_data) do
+	for _, record in pairs(state_data) do
 		table.clear(record)
-		state_data[key] = nil
 	end
+	table.clear(state_data)
 end
 
 local function write_humanoid_value(humanoid, property, value)
