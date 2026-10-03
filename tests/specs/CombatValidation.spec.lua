@@ -35,7 +35,7 @@ local function make_active(attacker, wielded)
 		Attack = {
 			Hitbox = "TestHitbox",
 			Range = 8,
-			NetworkTolerance = 3,
+			HitPositionTolerance = 3,
 		},
 		ValidationRaycastParams = RaycastParams.new(),
 	}
