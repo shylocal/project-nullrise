@@ -27,6 +27,58 @@ local function read_humanoid_value(humanoid, property)
 	return humanoid[property]
 end
 
+function State.get_data(controller, key)
+	local state_data = controller._stateData
+	return state_data and state_data[key] or nil
+end
+
+function State.set_data(controller, key, data)
+	local state_data = controller._stateData
+	if not state_data then
+		state_data = {}
+		controller._stateData = state_data
+	end
+
+	local record = state_data[key]
+	if not record then
+		record = {}
+		state_data[key] = record
+	else
+		table.clear(record)
+	end
+
+	for field, value in pairs(data or {}) do
+		record[field] = value
+	end
+
+	return record
+end
+
+function State.clear_data(controller, key)
+	local state_data = controller._stateData
+	if not state_data then
+		return
+	end
+
+	local record = state_data[key]
+	if record then
+		table.clear(record)
+		state_data[key] = nil
+	end
+end
+
+function State.clear_all_data(controller)
+	local state_data = controller._stateData
+	if not state_data then
+		return
+	end
+
+	for key, record in pairs(state_data) do
+		table.clear(record)
+		state_data[key] = nil
+	end
+end
+
 local function write_humanoid_value(humanoid, property, value)
 	if property == "JumpingEnabled" then
 		humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, value)
