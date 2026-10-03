@@ -8,7 +8,7 @@ local MovementValidation = {}
 MovementValidation.__index = MovementValidation
 
 local MAX_HORIZONTAL_SPEED = 96
-local MAX_VERTICAL_SPEED = 120
+local MAX_VERTICAL_SPEED = 240
 local MAX_SAMPLE_GAP = 0.5
 local TELEPORT_DISTANCE = 40
 local LOG_INTERVAL = 1

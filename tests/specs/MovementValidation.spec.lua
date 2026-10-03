@@ -77,10 +77,18 @@ return function()
 			)).to.equal("HorizontalSpeed")
 		end)
 
+		it("allows high downward physics velocity", function()
+			expect(MovementValidation.ClassifyDelta(
+				Vector3.zero,
+				Vector3.new(0, -10, 0),
+				0.05
+			)).to.equal(nil)
+		end)
+
 		it("flags implausible vertical displacement", function()
 			expect(MovementValidation.ClassifyDelta(
 				Vector3.zero,
-				Vector3.new(0, 8, 0),
+				Vector3.new(0, 13, 0),
 				0.05
 			)).to.equal("VerticalSpeed")
 		end)

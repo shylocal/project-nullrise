@@ -16,7 +16,7 @@ A server-side `MovementValidation` observer now watches the replicated character
 
 - `TeleportDistance`: more than 40 studs between accepted samples.
 - `HorizontalSpeed`: more than 96 studs/s horizontally.
-- `VerticalSpeed`: more than 120 studs/s vertically.
+- `VerticalSpeed`: more than 240 studs/s vertically.
 
 The observer resets its baseline when a character spawns/removes and ignores the first 1.5 seconds of each character's life while Roblox settles spawn physics. During that grace period it continues refreshing its baseline without classifying movement. It also ignores samples separated by more than 0.5 seconds so server stalls do not become false positives.
 
