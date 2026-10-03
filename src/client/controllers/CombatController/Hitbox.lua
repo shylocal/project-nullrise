@@ -9,7 +9,7 @@ Hitbox.__index = Hitbox
 function Hitbox.new(character, wielded, on_hit)
 	local raycast_params = RaycastParams.new()
 	raycast_params.FilterType = Enum.RaycastFilterType.Exclude
-	raycast_params.FilterDescendantsInstances = {character}
+	raycast_params.FilterDescendantsInstances = { character }
 
 	local shapecast = ShapecastHitbox.new(wielded, raycast_params)
 
@@ -24,6 +24,14 @@ function Hitbox.new(character, wielded, on_hit)
 		local hit_character = hit_part and hit_part:FindFirstAncestorOfClass("Model")
 
 		if not hit_character or hit_character == character then
+			return
+		end
+
+		-- The client only forwards humanoid-bearing models. This prevents walls,
+		-- props, and map container models from consuming the per-target dedupe
+		-- slot before a real combat target is encountered.
+		local hit_humanoid = hit_character:FindFirstChildOfClass("Humanoid")
+		if not hit_humanoid or hit_humanoid.Health <= 0 then
 			return
 		end
 
