@@ -51,7 +51,7 @@ Fists.Attacks = {
 		Hitbox = "RightFist",
 		Damage = 10,
 		Cooldown = 0.1,
-		NetworkTolerance = 3,
+		HitPositionTolerance = 3,
 		Range = 8,
 	},
 
@@ -65,7 +65,7 @@ Fists.Attacks = {
 		Hitbox = "LeftFist",
 		Damage = 10,
 		Cooldown = 0.1,
-		NetworkTolerance = 3,
+		HitPositionTolerance = 3,
 		Range = 8,
 	},
 }
@@ -75,7 +75,7 @@ Fists.Charge = {
 	Hitbox = "RightFist",
 	Damage = 20,
 	Cooldown = 0.1,
-	NetworkTolerance = 3,
+	HitPositionTolerance = 3,
 	Range = 8,
 	HoldTime = 0.15,
 }
