@@ -164,12 +164,14 @@ return function()
 		humanoid:SetStateEnabled(jumping, false)
 		humanoid.AutoRotate = false
 		humanoid.PlatformStand = true
-		controller._vaultStart = controller.Root.CFrame
-		controller._vaultTarget = controller.Root.CFrame * CFrame.new(0, 0, -5)
-		controller._vaultElapsed = 0
-		controller._vaultDuration = 1
-		controller._vaultArcHeight = 1
-		controller._vaultArcPeakProgress = 0.5
+		ParkourState.set_data(controller, "Vault", {
+			Start = controller.Root.CFrame,
+			Target = controller.Root.CFrame * CFrame.new(0, 0, -5),
+			Elapsed = 0,
+			Duration = 1,
+			ArcHeight = 1,
+			ArcPeakProgress = 0.5,
+		})
 		controller.InputController.Down[Actions.Jump] = false
 
 		controller:_step(0.1)
