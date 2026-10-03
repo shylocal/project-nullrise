@@ -9,11 +9,9 @@ From the repository root:
 ```sh
 aftman install
 rojo build default.project.json -o build/project.rbxl
-stylua --check src tests
-selene src tests
 ```
 
-These checks validate project structure, formatting, and static analysis. They do not execute Roblox physics or multiplayer networking.
+The build check validates project structure but does not execute Roblox physics or multiplayer networking.
 
 ## Studio TestEZ run
 
