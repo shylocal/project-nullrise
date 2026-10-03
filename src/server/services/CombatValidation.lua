@@ -3,7 +3,6 @@ local Workspace = game:GetService("Workspace")
 
 local CombatValidation = {}
 
-local HIT_DISTANCE_MARGIN = 4
 local MIN_FACING_DOT = -0.25
 
 local function is_finite_vector3(value)
@@ -71,19 +70,19 @@ function CombatValidation.ValidateHit(
 		return nil
 	end
 
-	local range = active.Attack.Range or 8
-	local network_tolerance = active.Attack.HitPositionTolerance or HIT_DISTANCE_MARGIN
+	local range = active.Attack.Range
+	local hit_position_tolerance = active.Attack.HitPositionTolerance
 
 	if typeof(range) ~= "number"
 		or not math.isfinite(range)
 		or range <= 0
-		or typeof(network_tolerance) ~= "number"
-		or not math.isfinite(network_tolerance)
-		or network_tolerance < 0 then
+		or typeof(hit_position_tolerance) ~= "number"
+		or not math.isfinite(hit_position_tolerance)
+		or hit_position_tolerance < 0 then
 		return nil
 	end
 
-	local max_distance = range + network_tolerance
+	local max_distance = range + hit_position_tolerance
 
 	if (hit_root.Position - attacker_root.Position).Magnitude > max_distance then
 		return nil
@@ -93,7 +92,7 @@ function CombatValidation.ValidateHit(
 		return nil
 	end
 
-	if (segment_instance.WorldPosition - hit_position).Magnitude > network_tolerance then
+	if (segment_instance.WorldPosition - hit_position).Magnitude > hit_position_tolerance then
 		return nil
 	end
 
