@@ -30,7 +30,7 @@ function PCInput.new(on_began, on_ended)
 		OnBegan = on_began,
 		OnEnded = on_ended,
 		SprintActive = false,
-		Destroyed = false,
+		_destroyed = false,
 	}, PCInput)
 
 	local ok, err = xpcall(function()
@@ -44,7 +44,7 @@ function PCInput.new(on_began, on_ended)
 end
 
 function PCInput:_set_sprint_active(enabled)
-	if self.Destroyed or self.SprintActive == enabled then
+	if self._destroyed or self.SprintActive == enabled then
 		return
 	end
 	self.SprintActive = enabled
@@ -103,10 +103,10 @@ function PCInput:_start()
 end
 
 function PCInput:Destroy()
-	if self.Destroyed then
+	if self._destroyed then
 		return
 	end
-	self.Destroyed = true
+	self._destroyed = true
 	if self.SprintActive and self.OnEnded then
 		self.SprintActive = false
 		self.OnEnded(Actions.Sprint, "PC", "SprintToggle")
