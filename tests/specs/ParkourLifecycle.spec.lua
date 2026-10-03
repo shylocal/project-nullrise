@@ -87,12 +87,15 @@ return function()
 		local movement = controller.MovementController
 
 		expect(ParkourState.transition(controller, "Hanging")).to.equal(true)
-		controller.CurrentClimbable = Instance.new("Part")
-		controller.Normal = Vector3.xAxis
-		controller.HangDepthOffset = Vector3.xAxis
-		controller.HangPosition = Vector3.new(1, 2, 3)
-		controller.CornerLockPosition = Vector3.new(4, 5, 6)
-		controller.CornerLockInputDirection = 1
+		local climbable = Instance.new("Part")
+		ParkourState.set_data(controller, "Hanging", {
+			CurrentClimbable = climbable,
+			Normal = Vector3.xAxis,
+			HangDepthOffset = Vector3.xAxis,
+			HangPosition = Vector3.new(1, 2, 3),
+			CornerLockPosition = Vector3.new(4, 5, 6),
+			CornerLockInputDirection = 1,
+		})
 		ParkourState.capture_humanoid(controller, "Hang", { "AutoRotate", "PlatformStand" })
 		humanoid.AutoRotate = false
 		humanoid.PlatformStand = true
@@ -101,12 +104,7 @@ return function()
 		controller:_release()
 
 		expect(controller.State).to.equal("Grounded")
-		expect(controller.CurrentClimbable).to.equal(nil)
-		expect(controller.Normal).to.equal(nil)
-		expect(controller.HangDepthOffset).to.equal(nil)
-		expect(controller.HangPosition).to.equal(nil)
-		expect(controller.CornerLockPosition).to.equal(nil)
-		expect(controller.CornerLockInputDirection).to.equal(nil)
+		expect(ParkourState.get_data(controller, "Hanging")).to.equal(nil)
 		expect(humanoid.AutoRotate).to.equal(true)
 		expect(humanoid.PlatformStand).to.equal(false)
 		expect(ParkourState.get_humanoid_snapshot(controller, "Hang")).to.equal(nil)
@@ -127,18 +125,17 @@ return function()
 		controller.GrabBlockedUntilJumpReleased = true
 		ParkourState.capture_humanoid(controller, "Mantle", { "JumpingEnabled" })
 		humanoid:SetStateEnabled(jumping, false)
-		controller._mantleStart = CFrame.new(0, 0, 0)
-		controller._mantleTarget = CFrame.new(0, 4, 0)
-		controller._mantleElapsed = 0.2
-		controller._mantleDuration = 0.35
+		ParkourState.set_data(controller, "Mantling", {
+			Start = CFrame.new(0, 0, 0),
+			Target = CFrame.new(0, 4, 0),
+			Elapsed = 0.2,
+			Duration = 0.35,
+		})
 
 		controller:_release()
 
 		expect(controller.State).to.equal("Grounded")
-		expect(controller._mantleStart).to.equal(nil)
-		expect(controller._mantleTarget).to.equal(nil)
-		expect(controller._mantleElapsed).to.equal(nil)
-		expect(controller._mantleDuration).to.equal(nil)
+		expect(ParkourState.get_data(controller, "Mantling")).to.equal(nil)
 		expect(humanoid:GetStateEnabled(jumping)).to.equal(true)
 		expect(humanoid.AutoRotate).to.equal(true)
 		expect(humanoid.PlatformStand).to.equal(false)
