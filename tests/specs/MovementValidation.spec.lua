@@ -54,13 +54,19 @@ return function()
 
 			local service = setmetatable({}, MovementValidation)
 			root.Position = Vector3.new(0, 100, 0)
-			service:_observe(player, state, now)
 
-			expect(state.ViolationCount).to.equal(0)
-			expect(state.LastReason).to.equal(nil)
-			expect(state.Position).to.equal(root.Position)
+			local ok, err = pcall(function()
+				service:_observe(player, state, now)
+
+				expect(state.ViolationCount).to.equal(0)
+				expect(state.LastReason).to.equal(nil)
+				expect(state.Position).to.equal(root.Position)
+			end)
 
 			character:Destroy()
+			if not ok then
+				error(err, 0)
+			end
 		end)
 
 		it("flags implausible horizontal displacement", function()
