@@ -102,13 +102,11 @@ See [docs/TESTING.md](docs/TESTING.md) for setup and the current coverage bounda
 
 ## Tooling
 
-Aftman pins Rojo, StyLua, and Selene. `.stylua.toml` and `selene.toml` are checked into the repository. GitHub Actions builds the Rojo project and runs the static toolchain checks.
+Aftman pins the Rojo version used by local development and CI.
 
 ```sh
 aftman install
 rojo build default.project.json -o build/project.rbxl
-stylua --check src tests
-selene src tests
 ```
 
 Run the live game with:
