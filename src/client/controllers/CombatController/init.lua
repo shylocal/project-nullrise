@@ -31,6 +31,7 @@ function CombatController.new(
 		Hitbox = nil,
 
 		NextAttack = 1,
+		PendingAttackIndex = nil,
 		CurrentAttackKey = nil,
 		CurrentTrack = nil,
 
@@ -59,6 +60,29 @@ end
 
 function CombatController:_start(input_controller)
 	self.Trove:Connect(
+		CombatRemote.OnClientEvent,
+		function(action, attack_key, value)
+			if action == Protocol.Combat.AttackAccepted then
+				if typeof(attack_key) ~= "number"
+					or attack_key ~= self.PendingAttackIndex
+					or typeof(value) ~= "number" then
+					return
+				end
+
+				local weapon = self.WeaponController.Equipped
+				if not weapon or not weapon.Attacks or not weapon.Attacks[value] then
+					return
+				end
+
+				self.NextAttack = value
+				self.PendingAttackIndex = nil
+			elseif action == Protocol.Combat.HitConfirmed then
+				self.Hit:Fire(value)
+			end
+		end
+	)
+
+	self.Trove:Connect(
 		input_controller.ActionBegan,
 		function(action)
 			if action == Actions.Primary then
@@ -78,7 +102,7 @@ function CombatController:_start(input_controller)
 end
 
 function CombatController:Attack()
-	if not self:_can_begin_attack() then
+	if self.PendingAttackIndex ~= nil or not self:_can_begin_attack() then
 		return
 	end
 
@@ -110,8 +134,9 @@ function CombatController:Attack()
 		return
 	end
 
-	self.NextAttack = attack_index == #weapon.Attacks and 1 or attack_index + 1
-
+	-- The server is authoritative over combo sequencing. Keep this request
+	-- pending until AttackAccepted arrives instead of advancing locally.
+	self.PendingAttackIndex = attack_index
 	AttackLifecycle.begin_attack(self, attack_index, attack, track, Protocol.Combat.Attack)
 end
 
@@ -189,6 +214,7 @@ function CombatController:Reset()
 	self.MovementController:SetSprintBlocked(false, self)
 
 	self.NextAttack = 1
+	self.PendingAttackIndex = nil
 	self.AttackReadyAt = 0
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
