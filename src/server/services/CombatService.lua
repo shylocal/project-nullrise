@@ -291,13 +291,13 @@ function CombatService:_attack(player, attack_index)
 
 	local expected_attack = expected_attack_index(self, player)
 	if attack_index ~= expected_attack then
-		reject_attack(self, player)
+		reject_attack(self, player, attack_index)
 		return
 	end
 
 	local wielded = self.WeaponService:GetWielded(player, attack.Hitbox)
 	if not wielded or not wielded:IsDescendantOf(character) then
-		reject_attack(self, player)
+		reject_attack(self, player, attack_index)
 		return
 	end
 
