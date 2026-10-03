@@ -1,5 +1,2 @@
-# Toolchain pinned for local development and CI.
 [tools]
 rojo = "rojo-rbx/rojo@7.7.0"
-stylua = "johnnymorganz/stylua@2.5.2"
-selene = "kampfkarren/selene@0.31.0"
