@@ -12,7 +12,7 @@ Nullrise uses explicit ModuleScript dependencies, domain controllers/services, T
 
 Weapon swaps reset combo sequence but preserve cooldown and remote-rate-limit state. Character removal clears all player-scoped state.
 
-Remaining design debt: the shared weapon definitions still use 0.1-second cooldowns, which is a 10-attack-per-second authored cadence. That is a balance/configuration decision, not a validation hole; tune it deliberately before adding combat depth.
+~~Remaining design debt: the shared weapon definitions still use 0.1-second cooldowns, which is a 10-attack-per-second authored cadence.~~ **Fixed:** each attack now has a server-enforced `MinDuration` (0.3s Fists, 0.35s Katana, 0.6s charges), and the client `Cooldown` is validated to be no shorter. The values are first estimates and still need tuning against the animation markers in Studio.
 
 ## Parkour
 
@@ -30,7 +30,7 @@ Parkour execution data is owned by explicit `State` records for `Hanging`, `Mant
 
 ## Inventory and weapon lifecycle
 
-`InventoryService.Get` returns a detached snapshot, while mutation flows through validation methods. Inventory remotes are rate-limited.
+`InventoryService.Get` returns a detached snapshot, while mutation flows through validation methods. Inventory remotes are rate-limited. **Fixed:** `Inventory.Changed` now sends a dense `{ Slot, WeaponId }` array plus an integer selected slot (`0` = none), slots are bounded by `MAX_SLOTS`, and `PlayerController` is the single client listener that forwards it to the UI.
 
 `WeaponService` initializes player/character ownership independently of inventory signal ordering. Weapon templates are server-only in `ServerStorage.weapon_models`.
 
@@ -44,7 +44,7 @@ This remains a prototype boundary rather than server-authoritative movement, so 
 
 `default.project.json` now declares the runtime containers for packages, UI templates, and server weapon models, and the server registers the required `Climbable` collision group at startup.
 
-Those containers are still asset/package contracts rather than repository-complete source. The next step for a truly self-contained place is to vendor or otherwise source-control the approved package revisions and authored UI/weapon assets.
+Those containers are still asset/package contracts rather than repository-complete source. The next step for a truly self-contained place is to vendor or otherwise source-control the approved package revisions and authored UI/weapon assets. Packages are vendored now (see `docs/VENDORED.md`, which recommends moving to Wally). UI templates are optional at runtime: a missing template disables only that UI module.
 
 ## Refactor rules
 

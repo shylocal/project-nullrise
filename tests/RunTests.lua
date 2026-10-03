@@ -1,8 +1,9 @@
 -- Manual TestEZ entrypoint. This ModuleScript never runs automatically.
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
-local TestEZ = require(ReplicatedStorage.packages.TestEZ)
+-- TestEZ is vendored beside this module (tests/TestEZ -> TestService.TestEZ)
+-- so the test runner is never shipped to clients.
+local TestEZ = require(script.Parent.TestEZ)
 
 local RunTests = {}
 

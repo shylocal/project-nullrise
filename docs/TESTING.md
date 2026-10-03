@@ -11,11 +11,11 @@ aftman install
 rojo build default.project.json -o build/project.rbxl
 ```
 
-The build check validates project structure but does not execute Roblox physics or multiplayer networking.
+The build check validates project structure but does not parse or type-check Luau, and does not execute Roblox physics or multiplayer networking. There is no CI workflow; run these checks locally.
 
 ## Studio TestEZ run
 
-Populate `ReplicatedStorage.packages.TestEZ` using the pinned TestEZ package documented in `docs/DEPENDENCIES.md`, then start:
+TestEZ is vendored in `tests/TestEZ` (see `docs/VENDORED.md`) and Rojo maps it to `TestService.TestEZ`, next to `RunTests` and `specs`. Nothing needs to be installed. Start:
 
 ```sh
 rojo serve
@@ -38,10 +38,13 @@ The suite intentionally does not prove real map traversal, animation asset avail
 ## Combat cases that must stay regression-tested
 
 - Missing `Hit` segment or impact position is rejected.
-- A valid hit must pass target/range, facing, hitpoint, and obstruction checks.
+- A valid hit must pass target/range, facing, hitpoint, impact-on-target, and line-of-sight checks; a wall between attacker and target blocks the hit even when the hitpoint-to-impact segment is clear.
+- Every `Attack` request is answered with exactly one `AttackAccepted` or `AttackRejected`, including rate-limited and malformed requests.
+- A new attack before the previous attack's `MinDuration` is rejected, and an early `HitStart` (before `HitStartAt`) is ignored.
+- A charge held up to its `MaxHoldTime` still deals damage after release.
 - Weapon changes reset combo sequence without clearing cooldown or remote rate-limit timestamps.
 - Player removal clears every player-scoped combat table entry.
-- Multiple targets can be reported during one hit window, subject to the per-target dedupe and per-attack cap.
+- Multiple targets can be reported during one hit window (including on the same frame), subject to the per-target dedupe and per-attack caps.
 - A hitmarker is emitted only after the server confirms damage.
 
 ## Manual gameplay smoke tests
@@ -55,6 +58,9 @@ After changes to combat, inventory, input, or parkour, exercise at least:
 - character death/reset during a swing
 - touch controls for Jump/Forward/Backward/Left/Right
 - gamepad primary/jump/sprint and parkour direction controls
-- R15 character startup (it should be rejected because the game requires R6)
-- a climbable surface using the `Climbable` collision group/tag
+- R15 character startup (the client warns and skips character setup, and the server refuses to arm the character; set Avatar Type to R6 in Game Settings)
+- a climbable surface tagged `Climbable` (CollectionService tag; the `Climbable` collision group alone is ignored)
+- holding Sprint while standing still (no sprint animation, no vault on Space)
+- a long fall (no `MovementValidation` warning)
+- respawning keeps the weapon menu and hitmarker working
 - vault, mantle, and ledge release/reset cleanup
