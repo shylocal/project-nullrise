@@ -189,7 +189,9 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 		current_top,
 		normal,
 		tangent,
-		hang.CurrentClimbable
+		hang.CurrentClimbable,
+		root.Position.Y,
+		self:_standing_height()
 	)
 	if not ground then
 		return false
@@ -212,111 +214,6 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 	end
 	local start_cframe = root.CFrame
 	local target_cframe = CFrame.lookAt(grounded_position, grounded_position - Vector.flatten(normal).Unit)
-	ParkourState.clear_data(self, "Hanging")
-	ParkourState.set_data(self, "Mantling", {
-		Start = start_cframe,
-		Target = target_cframe,
-		Elapsed = 0,
-		Duration = 0.35,
-	})
-	root.AssemblyLinearVelocity = Vector3.zero
-	root.AssemblyAngularVelocity = Vector3.zero
-	return true
-end
-function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
-	local hang = ParkourState.get_data(self, "Hanging")
-	local root = self.Root
-	if not hang then
-		return false
-	end
-	if not root or not current_top or not normal or not tangent then
-		return false
-	end
-
-	local outward_normal = Vector.flatten(normal)
-	local sideways = Vector.flatten(tangent)
-	if outward_normal.Magnitude < 0.05 or sideways.Magnitude < 0.05 then
-		return false
-	end
-	outward_normal = outward_normal.Unit
-	sideways = sideways.Unit
-
-	local standing_height = self:_standing_height()
-	local max_rise = Config.GroundMantleMaxRise
-	local lateral_step = math.max(root.Size.X * 0.45, 0.4)
-	local inward_offsets = { 0.5, 1, 1.75, 2.75, 4, 5.5, 7 }
-	local lateral_factors = { 0, -1, 1 }
-	local ray_origin_y = current_top.Y + max_rise + standing_height + 2
-	local ray_length = max_rise + standing_height + 4
-	local best_ground = nil
-	local best_score = math.huge
-
-	-- W can mantle onto any collidable, walkable surface, including untagged
-	-- parts. The Climbable collision group is reserved for query/helper geometry.
-	for _, inward_offset in ipairs(inward_offsets) do
-		for _, lateral_factor in ipairs(lateral_factors) do
-			local sample = current_top
-				- outward_normal * inward_offset
-				+ sideways * (lateral_step * lateral_factor)
-			local ground = cast_mantle_ground(
-				self,
-				Vector3.new(sample.X, ray_origin_y, sample.Z),
-				Vector3.new(0, -ray_length, 0)
-			)
-			if ground and ground.Normal.Y >= 0.5 then
-				local ground_guide = ClimbableQuery.get_guide(ground.Instance)
-				local is_current_surface = ground.Instance == hang.CurrentClimbable
-					or (ground_guide ~= nil and ground_guide == hang.CurrentClimbable)
-				local rise = ground.Position.Y - current_top.Y
-				local relative = ground.Position - current_top
-				local inward_distance = relative:Dot(-outward_normal)
-				local lateral_distance = math.abs(Vector.flatten(relative):Dot(sideways))
-				local root_to_floor = root.Position.Y - ground.Position.Y
-				-- The current ledge may be level with the hang point; other
-				-- surfaces must still rise enough to be a meaningful mantle.
-				local minimum_rise = if is_current_surface then -0.25 else Config.MantleMinRise
-				local reachable = rise >= minimum_rise
-					and rise <= max_rise
-					and inward_distance >= 0.25
-					and inward_distance <= Config.MantleMaxInward
-					and lateral_distance <= Config.MantleMaxLateral
-					and root_to_floor <= max_rise + Config.HangDrop
-
-				if reachable then
-					local score = inward_distance * inward_distance
-						+ lateral_distance * lateral_distance
-						+ rise * rise * 0.15
-					if score < best_score then
-						best_ground = ground
-						best_score = score
-					end
-				end
-			end
-		end
-	end
-
-	if not best_ground then
-				return false
-	end
-
-	local grounded_position = Vector3.new(
-		best_ground.Position.X,
-		best_ground.Position.Y + standing_height - 0.05,
-		best_ground.Position.Z
-	)
-		if not ParkourState.transition(self, "Mantling") then
-		return false
-	end
-	self.GrabBlockedUntilJumpReleased = true
-	if self.Humanoid then
-		ParkourState.capture_humanoid(self, "Mantle", { "JumpingEnabled" })
-		self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-		self.Humanoid.Jump = false
-	end
-	local start_cframe = root.CFrame
-	local target_cframe = CFrame.lookAt(grounded_position, grounded_position - outward_normal)
-	-- Keep the hang's movement lock while blending to the floor so the
-	-- Humanoid cannot fight the scripted mantle path.
 	ParkourState.clear_data(self, "Hanging")
 	ParkourState.set_data(self, "Mantling", {
 		Start = start_cframe,
@@ -422,7 +319,7 @@ local function try_mantle_impl(self)
 		tangent = tangent.Unit
 	end
 
-	local best_top = LedgeDetection.find_higher_ledge(self, current_top, normal, tangent)
+	local best_top = LedgeDetection.find_higher_ledge(self, current_top, normal, tangent, root.Position.Y)
 	if best_top then
 		local target_normal = LedgeDetection.get_ledge_outward_normal(self, best_top, root.Position)
 		LedgeTraversal.transfer_hang_to_ledge(self, best_top, target_normal)
