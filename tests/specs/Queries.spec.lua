@@ -14,7 +14,7 @@ local function make_fixture()
 	local root = Instance.new("Part")
 	root.Name = "HumanoidRootPart"
 	root.Size = Vector3.new(2, 2, 1)
-	root.CFrame = CFrame.new(0, 4, 2)
+	root.CFrame = CFrame.new(100000, 4, 100000)
 	root.Parent = character
 
 	local humanoid = Instance.new("Humanoid")
@@ -76,7 +76,7 @@ return function()
 			blocker.Name = "NonCollidableDecoration"
 			blocker.Size = Vector3.new(2, 2, 0.5)
 			blocker.CanCollide = false
-			blocker.CFrame = CFrame.new(0, 5, 1)
+			blocker.CFrame = CFrame.new(100000, 5, 99999)
 			blocker.Parent = Workspace
 
 			local result = Queries.cast_grabbable_side(
