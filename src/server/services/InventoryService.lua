@@ -9,6 +9,10 @@ local InventoryRemote = ReplicatedStorage.remotes.Inventory
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
 local FISTS_ID = "Fists"
+local MAX_SLOTS = 9
+-- Replicated as the selected slot when nothing is selected (Fists).
+local NO_SELECTION = 0
+local MAX_ITEM_ID_LENGTH = 64
 local REMOTE_MIN_INTERVAL = 0.08
 local TEMPORARY_SLOTS = {
 	[2] = "Katana",
@@ -17,12 +21,39 @@ local TEMPORARY_SLOTS = {
 local function is_valid_slot(slot)
 	return typeof(slot) == "number"
 		and math.isfinite(slot)
-		and slot >= 1
 		and slot % 1 == 0
+		and slot >= 1
+		and slot <= MAX_SLOTS
+end
+
+local function is_valid_item_id(weapon_id)
+	return typeof(weapon_id) == "string"
+		and weapon_id ~= ""
+		and #weapon_id <= MAX_ITEM_ID_LENGTH
+end
+
+-- Slots is stored sparsely by slot index. RemoteEvents drop or mangle sparse
+-- arrays, so replication always uses this dense, slot-ordered entry list.
+local function build_entries(slots)
+	local entries = {}
+
+	for slot = 1, MAX_SLOTS do
+		local weapon_id = slots[slot]
+		if weapon_id ~= nil then
+			table.insert(entries, {
+				Slot = slot,
+				WeaponId = weapon_id,
+			})
+		end
+	end
+
+	return entries
 end
 
 local InventoryService = {}
 InventoryService.__index = InventoryService
+InventoryService.MAX_SLOTS = MAX_SLOTS
+InventoryService.NO_SELECTION = NO_SELECTION
 
 function InventoryService.new(player_service)
 	local self = setmetatable({
@@ -53,7 +84,9 @@ function InventoryService:_start()
 				return
 			end
 
-			if not self:_allow_remote(player) then
+			-- Ignore players without an inventory so RemoteAt cannot outlive
+			-- PlayerRemoving for late or out-of-session requests.
+			if not self:_get(player) or not self:_allow_remote(player) then
 				return
 			end
 
@@ -130,11 +163,11 @@ function InventoryService:_get_replication_snapshot(player)
 		return nil
 	end
 
-	-- Slots contains primitive weapon IDs, so a shallow clone detaches the
-	-- network payload from server-owned inventory state.
+	-- Entries are freshly built tables of primitive values, so the payload
+	-- is detached from server-owned inventory state.
 	return {
-		Slots = table.clone(inventory.Slots),
-		SelectedSlot = inventory.SelectedSlot,
+		Entries = build_entries(inventory.Slots),
+		SelectedSlot = inventory.SelectedSlot or NO_SELECTION,
 	}
 end
 
@@ -147,7 +180,7 @@ function InventoryService:_replicate(player)
 	InventoryRemote:FireClient(
 		player,
 		Protocol.Inventory.Changed,
-		snapshot.Slots,
+		snapshot.Entries,
 		snapshot.SelectedSlot
 	)
 
@@ -173,6 +206,10 @@ function InventoryService:Get(player)
 end
 
 function InventoryService:GetSlot(player, slot)
+	if not is_valid_slot(slot) then
+		return nil
+	end
+
 	local inventory = self:_get(player)
 	if not inventory then
 		return nil
@@ -225,7 +262,7 @@ function InventoryService:SetSlot(player, slot, weapon_id)
 	end
 
 	if weapon_id ~= nil then
-		if typeof(weapon_id) ~= "string" then
+		if not is_valid_item_id(weapon_id) then
 			return false
 		end
 
@@ -271,7 +308,7 @@ function InventoryService:SelectSlot(player, slot)
 end
 
 function InventoryService:SelectItem(player, weapon_id)
-	if typeof(weapon_id) ~= "string" then
+	if not is_valid_item_id(weapon_id) then
 		return false
 	end
 
@@ -284,8 +321,8 @@ function InventoryService:SelectItem(player, weapon_id)
 		return false
 	end
 
-	for slot, item_id in pairs(inventory.Slots) do
-		if item_id == weapon_id then
+	for slot = 1, MAX_SLOTS do
+		if inventory.Slots[slot] == weapon_id then
 			return self:SelectSlot(player, slot)
 		end
 	end
@@ -307,23 +344,28 @@ function InventoryService:_find_empty_slot(player)
 		return nil
 	end
 
-	local slot = 1
-
-	while inventory.Slots[slot] ~= nil do
-		slot += 1
+	for slot = 1, MAX_SLOTS do
+		if inventory.Slots[slot] == nil then
+			return slot
+		end
 	end
 
-	return slot
+	return nil
 end
 
 function InventoryService:Remove(player, weapon_id)
+	-- A nil ID would otherwise match the first empty slot.
+	if not is_valid_item_id(weapon_id) then
+		return false
+	end
+
 	local inventory = self:_get(player)
 	if not inventory then
 		return false
 	end
 
-	for slot, item_id in pairs(inventory.Slots) do
-		if item_id == weapon_id then
+	for slot = 1, MAX_SLOTS do
+		if inventory.Slots[slot] == weapon_id then
 			inventory.Slots[slot] = nil
 
 			if inventory.SelectedSlot == slot then

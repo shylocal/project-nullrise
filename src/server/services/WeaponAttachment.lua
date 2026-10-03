@@ -55,6 +55,26 @@ local function tag_hitpoints(instance)
 	end
 end
 
+-- Weapon wield mappings and animations target R6 limb names. Avatar type is
+-- a game setting the client also checks, so the server cannot trust it and
+-- must refuse to arm any other rig.
+function WeaponAttachment.IsSupportedRig(character)
+	if typeof(character) ~= "Instance" then
+		return false, "character is missing"
+	end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return false, "character has no Humanoid"
+	end
+
+	if humanoid.RigType ~= Enum.HumanoidRigType.R6 then
+		return false, ("expected an R6 rig, got %s"):format(humanoid.RigType.Name)
+	end
+
+	return true, nil
+end
+
 function WeaponAttachment.Attach(source, wield, character)
 	local clone = source:Clone()
 	clone.Parent = character

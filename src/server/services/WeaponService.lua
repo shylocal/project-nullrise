@@ -142,6 +142,18 @@ function WeaponService:_clear_character(player)
 end
 
 function WeaponService:_attach_weapon(player, character, weapon, character_trove)
+	-- Without an attached weapon GetWielded returns nil, so CombatService
+	-- also rejects attacks from unsupported rigs.
+	local supported, reason = WeaponAttachment.IsSupportedRig(character)
+	if not supported then
+		warn(("[WeaponService] Not arming %s (%d): %s. Set Avatar Type to R6 in Game Settings > Avatar."):format(
+			player.Name,
+			player.UserId,
+			reason
+		))
+		return
+	end
+
 	if not WeaponModels then
 		warn("[WeaponService] ServerStorage.weapon_models is missing")
 		return
