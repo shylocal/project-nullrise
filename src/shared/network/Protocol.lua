@@ -2,9 +2,11 @@
 return {
 	Combat = {
 		Attack = "Attack",
+		AttackAccepted = "AttackAccepted",
 		Charge = "Charge",
 		HitStart = "HitStart",
 		Hit = "Hit",
+		HitConfirmed = "HitConfirmed",
 		HitStop = "HitStop",
 	},
 	Inventory = {
