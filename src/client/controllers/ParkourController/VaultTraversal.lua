@@ -358,6 +358,16 @@ function VaultTraversal.try_vault(self)
 		else
 			humanoid.JumpHeight = 0
 		end
+		-- The zeroed setting only needs to cover the launch's Jumping state.
+		-- Restore it as soon as the Humanoid leaves that state; waiting for a
+		-- landing left jumping disabled until the timeout whenever a short hop
+		-- never reported FloorMaterial == Air.
+		top_hop.StateConnection = humanoid.StateChanged:Connect(function(old_state, new_state)
+			if old_state == Enum.HumanoidStateType.Jumping
+				and new_state ~= Enum.HumanoidStateType.Jumping then
+				VaultTraversal.restore_top_hop_jump(self)
+			end
+		end)
 		humanoid.Jump = true
 		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 		-- Apply calculated vertical and forward velocity. The Humanoid physics
@@ -625,25 +635,35 @@ function VaultTraversal.update_vault(self, dt)
 
 	return true
 end
-function VaultTraversal.finish_top_hop(self, landed)
+-- Restores the native jump setting zeroed for the top-hop launch. The TopHop
+-- record itself stays until landing so it keeps guarding against re-vaults.
+function VaultTraversal.restore_top_hop_jump(self)
 	local top_hop = ParkourState.get_data(self, "TopHop")
-	if not top_hop then
+	if not top_hop or top_hop.JumpRestored then
 		return
 	end
-	-- clear_data intentionally clears the returned record before removing it,
-	-- so snapshot the values needed for restoration first.
-	local use_jump_power = top_hop.UseJumpPower
-	local jump_power_before = top_hop.JumpPowerBefore
-	local jump_height_before = top_hop.JumpHeightBefore
-	ParkourState.clear_data(self, "TopHop")
+	top_hop.JumpRestored = true
+	if top_hop.StateConnection then
+		top_hop.StateConnection:Disconnect()
+		top_hop.StateConnection = nil
+	end
+
 	local humanoid = self.Humanoid
 	if humanoid and humanoid.Parent then
-		if use_jump_power then
-			humanoid.JumpPower = jump_power_before
+		if top_hop.UseJumpPower then
+			humanoid.JumpPower = top_hop.JumpPowerBefore
 		else
-			humanoid.JumpHeight = jump_height_before
+			humanoid.JumpHeight = top_hop.JumpHeightBefore
 		end
 	end
+end
+
+function VaultTraversal.finish_top_hop(self, landed)
+	if not ParkourState.get_data(self, "TopHop") then
+		return
+	end
+	VaultTraversal.restore_top_hop_jump(self)
+	ParkourState.clear_data(self, "TopHop")
 end
 function VaultTraversal.finish_vault(self, completed)
 	if self.State ~= "Vaulting" then
