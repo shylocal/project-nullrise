@@ -71,7 +71,6 @@ return function()
 			local wielded = Instance.new("Part")
 			wielded.Name = "TestHitbox"
 			wielded.Parent = attacker
-			table.insert(created, wielded)
 
 			local active = make_active(attacker, wielded)
 			local weapon_service = make_weapon_service(wielded)
