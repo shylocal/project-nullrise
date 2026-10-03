@@ -36,6 +36,16 @@ function CombatValidation.ValidateHit(
 		return nil
 	end
 
+	if typeof(active) ~= "table"
+		or typeof(active.Character) ~= "Instance"
+		or not active.Character:IsA("Model")
+		or typeof(active.Wielded) ~= "Instance"
+		or not active.Wielded:IsA("BasePart")
+		or typeof(active.Attack) ~= "table"
+		or typeof(active.Attack.Hitbox) ~= "string" then
+		return nil
+	end
+
 	if hit_character == active.Character or not hit_character:IsDescendantOf(Workspace) then
 		return nil
 	end
@@ -106,7 +116,7 @@ function CombatValidation.ValidateHit(
 	end
 
 	local raycast_params = active.ValidationRaycastParams
-	if not raycast_params then
+	if typeof(raycast_params) ~= "RaycastParams" then
 		return nil
 	end
 
