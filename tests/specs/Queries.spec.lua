@@ -63,7 +63,7 @@ return function()
 				ledge
 			)
 
-			expect(top).never.to.equal(nil)
+			expect(top ~= nil).to.equal(true)
 			expect(top.Instance).to.equal(ledge)
 			expect(top.Position.Y).to.equal(4.5)
 
