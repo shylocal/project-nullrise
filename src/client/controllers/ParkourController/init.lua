@@ -28,17 +28,11 @@ function ParkourController.new(character, input_controller, movement_controller)
 		Humanoid = nil,
 		BoundHumanoid = nil,
 		Root = character:FindFirstChild("HumanoidRootPart"),
-		CurrentClimbable = nil,
-		Normal = nil,
-		HangDepthOffset = nil,
-		HangPosition = nil,
 		GrabBlockedUntilJumpReleased = false,
 		_humanoidSnapshots = {},
 		_stateData = {},
 		_destroyed = false,
 		NextVaultAt = 0,
-		CornerLockPosition = nil,
-		CornerLockInputDirection = nil,
 	}, ParkourController)
 
 	local ok, err = pcall(self._start, self)
@@ -60,14 +54,14 @@ function ParkourController:_start()
 			if self.State == "Grounded" then
 				-- Space explicitly requests a vault; if no valid vault is found,
 				-- the ordinary jump or ledge-grab flow remains available.
-				self:_try_vault()
+				VaultTraversal.try_vault(self)
 			end
 		elseif action == Actions.Forward and self.State == "Hanging" then
 			if not self.ForwardBlockedUntilRelease then
-				self:_try_mantle()
+				LedgeTraversal.try_mantle(self)
 			end
 		elseif action == Actions.Backward and self.State == "Hanging" then
-			self:_try_lower_ledge()
+			LedgeTraversal.try_lower_ledge(self)
 		end
 	end)
 
@@ -115,17 +109,6 @@ function ParkourController:_bind_humanoid(humanoid)
 	end)
 end
 
-function ParkourController:_cast(origin, direction, respect_can_collide)
-	return Queries.cast(self, origin, direction, respect_can_collide)
-end
-
-function ParkourController:_cast_grabbable_side(origin, direction)
-	return Queries.cast_grabbable_side(self, origin, direction)
-end
-
-function ParkourController:_cast_climbable_side(origin, direction)
-	return Queries.cast_climbable_side(self, origin, direction)
-end
 
 function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, root_position, reference_y, max_above_height, wall_instance)
 	return Queries.cast_reachable_grab_top(
@@ -139,9 +122,6 @@ function ParkourController:_cast_reachable_grab_top(wall_position, wall_normal, 
 	)
 end
 
-function ParkourController:_detect_surface()
-	return Queries.detect_surface(self)
-end
 
 function ParkourController:_grab(guide, normal, position, edge_gap)
 	local humanoid = self.Humanoid
@@ -150,18 +130,23 @@ function ParkourController:_grab(guide, normal, position, edge_gap)
 	if humanoid_state == Enum.HumanoidStateType.Dead
 		or humanoid_state == Enum.HumanoidStateType.Swimming
 		or humanoid_state == Enum.HumanoidStateType.Climbing then return end
+
+	local horizontal_normal = Vector.flatten(normal)
+	if horizontal_normal.Magnitude < 0.05 then return end
 	if not ParkourState.transition(self, "Hanging") then return end
 	local forward_held = self.InputController:IsDown(Actions.Forward)
 	local is_tagged_guide = ClimbableQuery.is_climbable(guide)
 	-- Tagged ledges require a fresh Forward press after grabbing. A generic
 	-- tall wall instead uses the held Forward intent to mantle immediately.
 	self.ForwardBlockedUntilRelease = forward_held and is_tagged_guide
-	self.CurrentClimbable = guide
-	local horizontal_normal = Vector.flatten(normal)
-	if horizontal_normal.Magnitude < 0.05 then return end
-	self.Normal = horizontal_normal.Unit
-	self.HangDepthOffset = self.Normal * (edge_gap or Config.WallGap)
-	self.HangPosition = position
+	ParkourState.set_data(self, "Hanging", {
+		CurrentClimbable = guide,
+		Normal = horizontal_normal.Unit,
+		HangDepthOffset = horizontal_normal.Unit * (edge_gap or Config.WallGap),
+		HangPosition = position,
+		CornerLockPosition = nil,
+		CornerLockInputDirection = nil,
+	})
 
 	if self.Humanoid then
 		local humanoid = self.Humanoid
@@ -175,14 +160,15 @@ function ParkourController:_grab(guide, normal, position, edge_gap)
 	end
 	self:_position_hanging()
 	if forward_held and not is_tagged_guide then
-		self:_try_mantle()
+		LedgeTraversal.try_mantle(self)
 	end
 end
 
 function ParkourController:_position_hanging()
+	local hang = ParkourState.get_data(self, "Hanging")
 	local root = self.Root
-	local position = self.HangPosition
-	local normal = self.Normal
+	local position = hang and hang.HangPosition
+	local normal = hang and hang.Normal
 	if not root or not position or not normal then return end
 
 	local target = CFrame.lookAt(position, position - normal)
@@ -200,9 +186,6 @@ function ParkourController:_position_hanging()
 	root.AssemblyAngularVelocity = Vector3.zero
 end
 
-function ParkourController:_has_hang_body_clearance(position, normal)
-	return Queries.has_hang_body_clearance(self, position, normal)
-end
 
 function ParkourController:_clear_jump_block()
 	if not self.GrabBlockedUntilJumpReleased then
@@ -247,7 +230,7 @@ function ParkourController:_step(dt)
 		local landed = top_hop.SawAir and humanoid
 			and humanoid.FloorMaterial ~= Enum.Material.Air
 		if landed or elapsed >= 3 then
-			self:_finish_top_hop(landed)
+			VaultTraversal.finish_top_hop(self, landed)
 		end
 	end
 
@@ -259,7 +242,7 @@ function ParkourController:_step(dt)
 			and humanoid_state ~= Enum.HumanoidStateType.Swimming
 			and humanoid_state ~= Enum.HumanoidStateType.Climbing
 		if can_probe and self.InputController:IsDown(Actions.Jump) and not self.GrabBlockedUntilJumpReleased then
-			local climbable, normal, position, edge_gap = self:_detect_surface()
+			local climbable, normal, position, edge_gap = Queries.detect_surface(self)
 			if climbable then self:_grab(climbable, normal, position, edge_gap) end
 		end
 	elseif self.State == "Hanging" then
@@ -270,25 +253,23 @@ function ParkourController:_step(dt)
 		Traversal.traverse(self, dt)
 	elseif self.State == "Mantling" then
 		local root = self.Root
-		local duration = self._mantleDuration
-		if not duration or duration <= 0 or not self._mantleStart or not self._mantleTarget then
+		local mantle = ParkourState.get_data(self, "Mantling")
+		local duration = mantle and mantle.Duration
+		if not duration or duration <= 0 or not mantle.Start or not mantle.Target then
 			self:_release()
 			return
 		end
-		self._mantleElapsed = math.min((self._mantleElapsed or 0) + math.max(dt, 0), duration)
-		local linear = self._mantleElapsed / duration
+		mantle.Elapsed = math.min((mantle.Elapsed or 0) + math.max(dt, 0), duration)
+		local linear = mantle.Elapsed / duration
 		local alpha = VaultMath.smoothstep(linear)
-		if root and self._mantleStart and self._mantleTarget then
-			root.CFrame = self._mantleStart:Lerp(self._mantleTarget, alpha)
+		if root then
+			root.CFrame = mantle.Start:Lerp(mantle.Target, alpha)
 			root.AssemblyLinearVelocity = Vector3.zero
 			root.AssemblyAngularVelocity = Vector3.zero
 		end
 		if linear >= 1 then
 			ParkourState.transition(self, "Grounded")
-			self._mantleStart = nil
-			self._mantleTarget = nil
-			self._mantleElapsed = nil
-			self._mantleDuration = nil
+			ParkourState.clear_data(self, "Mantling")
 			-- Restore ordinary Humanoid movement when the mantle ends. The
 			-- jump/grab lock is independent and remains set until Space is released.
 			ParkourState.restore_humanoid(self, "Hang", { "AutoRotate", "PlatformStand" })
@@ -302,7 +283,7 @@ function ParkourController:_step(dt)
 		local vault = ParkourState.get_data(self, "Vault")
 		local duration = vault and vault.Duration
 		if not root or not vault or not duration or not vault.Start or not vault.Target then
-			self:_finish_vault(false)
+			VaultTraversal.finish_vault(self, false)
 			return
 		end
 
@@ -358,38 +339,17 @@ function ParkourController:_step(dt)
 		end
 
 		if linear >= 1 then
-			self:_finish_vault(true)
+			VaultTraversal.finish_vault(self, true)
 		end
 	end
 end
 
-function ParkourController:_has_vault_clearance(cframe, size, obstacle)
-	return Queries.has_vault_clearance(self, cframe, size, obstacle)
-end
 
-function ParkourController:_try_vault()
-	return VaultTraversal.try_vault(self)
-end
 
-function ParkourController:_finish_top_hop(landed)
-	return VaultTraversal.finish_top_hop(self, landed)
-end
 
-function ParkourController:_finish_vault(completed)
-	return VaultTraversal.finish_vault(self, completed)
-end
 
-function ParkourController:_snapshot_hang_pose()
-	return Traversal.snapshot_hang_pose(self)
-end
 
-function ParkourController:_restore_hang_pose(snapshot)
-	Traversal.restore_hang_pose(self, snapshot)
-end
 
-function ParkourController:_try_lower_ledge()
-	return LedgeTraversal.try_lower_ledge(self)
-end
 
 function ParkourController:_standing_height()
 	local root = self.Root
@@ -406,37 +366,13 @@ function ParkourController:_standing_height()
 	return hip_height + root.Size.Y * 0.5
 end
 
-function ParkourController:_refresh_hang_contact(expected_guide, expected_top_y)
-	return LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_y)
-end
 
-function ParkourController:_get_ledge_outward_normal(top, reference_position)
-	return LedgeTraversal.get_ledge_outward_normal(self, top, reference_position)
-end
 
-function ParkourController:_transfer_hang_to_ledge(top, target_normal)
-	return LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
-end
 
-function ParkourController:_get_guide_top(guide, sample_position)
-	return LedgeTraversal.get_guide_top(self, guide, sample_position)
-end
 
-function ParkourController:_get_guide_tops(guide, sample_position)
-	return LedgeTraversal.get_guide_tops(self, guide, sample_position)
-end
 
-function ParkourController:_try_ground_mantle(current_top, normal, tangent)
-	return LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
-end
 
-function ParkourController:_is_guide_within_mantle_search(guide, current_top, normal, tangent)
-	return LedgeTraversal.is_guide_within_mantle_search(self, guide, current_top, normal, tangent)
-end
 
-function ParkourController:_try_mantle()
-	return LedgeTraversal.try_mantle(self)
-end
 
 function ParkourController:GetQueryMetrics()
 	return Metrics.snapshot(self)
@@ -453,7 +389,7 @@ function ParkourController:_release()
 
 	local state = self.State
 	if state == "Vaulting" then
-		self:_finish_vault(false)
+		VaultTraversal.finish_vault(self, false)
 		return
 	end
 
@@ -463,19 +399,9 @@ function ParkourController:_release()
 	end
 
 	if state == "Hanging" then
-		self.CurrentClimbable = nil
-		self.Normal = nil
-		self.HangDepthOffset = nil
-		self.HangPosition = nil
-		self.CornerLockPosition = nil
-		self.CornerLockInputDirection = nil
-	end
-
-	if state == "Mantling" then
-		self._mantleStart = nil
-		self._mantleTarget = nil
-		self._mantleElapsed = nil
-		self._mantleDuration = nil
+		ParkourState.clear_data(self, "Hanging")
+	elseif state == "Mantling" then
+		ParkourState.clear_data(self, "Mantling")
 	end
 
 	local jump_held = self.InputController:IsDown(Actions.Jump)
