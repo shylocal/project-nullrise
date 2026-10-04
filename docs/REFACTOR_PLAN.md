@@ -1264,6 +1264,29 @@ Phase 1 (recorded by INTEGRATE-1):
 - (P1-client) WeaponMenu shows the loadout state at startup: the Katana button is hidden until the server reports Katana in a slot.
 - (INTEGRATE-1) `WeaponMenu:SetInventory` / `:SetEquipped` were renamed to the private `_show_inventory` / `_show_equipped`, so no public `SetInventory` / `SetEquipped` remains.
 
+Phase 2 (recorded by INTEGRATE-2):
+
+- (P2-combat) `Validator` rejects `Name` / `Id` only in authored data (the Catalog injects them); the move name `Combo` is reserved; `Validator.move_ids` and `Validator.ComboTap` are exported.
+- (P2-combat) `Catalog.ComboMoveId(weapon, index)` errors for an index outside `1..#Combo` instead of returning nil.
+- (P2-combat) `CombatValidation.ValidateHit` takes an `opts = { History, Rewind }` argument and returns a third value, `rewound`. The rewind time is `history:Latest(target).Time - Rewind`. After a rewind, the line-of-sight casts shift the target's root and head by the rewound offset.
+- (P2-combat) `CombatService` deps add `damage` and `history`; `LagCompensation.Enabled` is read from Config. The active record has `MoveId`, `Move`, `Kind`, `PendingHitStart` and `CancelPendingHitStart`. An early HitStart is still counted as `EarlyHitStart` (now with a lower suspicion weight, see below). `AttackRejected` carries a nil next combo move id when the player has no state or weapon.
+- (P2-combat) `DamageService:Apply` returns `(applied, reason)`, with reasons `NotDamageable`, `InvalidRequest` and `NoEffect` besides policy names. `applied` is the health actually removed, so a ForceField now yields no `HitConfirmed` (previously confirmed). A policy may return any positive amount. The `Invulnerable` attribute name comes from `Config.World.Attributes`.
+- (P2-combat) CombatFx reaches the victim only while its session is Ready. `CombatClient.Damaged` fires when the FX victim is `LocalPlayer.Character`.
+- (P2-combat) Each client hitbox remembers the move it was last started for, so late hits from the same move still forward. `DamageIndicator` is silent (no warning) when its template is missing.
+- (P2-combat) `MovementValidation` is driven by `PositionHistory.Stepped` and reads positions from the history (its `step` dep is replaced by `history`).
+- (P2-combat) Heavy and the combo share the `Combat.Attack` budget (12/s, burst 3) now that `Combat.Charge` is gone.
+- (P2-items) `Schema.run_migrations(data, migrations, target)` is the pure runner behind `Schema.migrate`; `ItemCatalog.check` is exported and also checks that every loadout weapon has an item.
+- (P2-items) `PlayerDataService` checks for `Leaving` after `StartSessionAsync` returns and releases the session; it ends the session when migration fails; `StoreLike.IsClosing` is optional; the kick messages are exported as `LOAD_FAILED_MESSAGE` / `SESSION_ENDED_MESSAGE`; Telemetry `Data` reasons are `LoadFailed`, `Sanitized` and `SessionEnded`; `Config.Data.UseMockInStudio` selects the mock store in Studio.
+- (P2-items) `compose/Items` requires ProfileStore lazily (so specs can require the module without starting ProfileStore).
+- (P2-items) `InventoryService:SelectUid` toggles like `SelectSlot`; an empty slot can be selected (it holds the default weapon); `Grant` into an occupied slot returns nil.
+- (P2-items) `WeaponService` returns true for coalesced and same-weapon equip requests, and warns once per weapon id about a missing template. Its new required dep is `scheduler`.
+- (P2-items) `LoadoutClient` rejects Phase 1 `{ Slot, WeaponId }` entries as malformed.
+- (P2-content) selene uses an extra `luau_extras` standard library (`math.isfinite` / `isnan` / `isinf`), runs with `--allow-warnings`, and `roblox.yml` is generated locally and git-ignored rather than committed. The `.gitignore` entries for `Packages/` and `DevPackages/` are anchored to the repository root.
+- (P2-content) `UiContracts.Report` is the client twin of `AssetContracts.Report` (Studio errors, live warns).
+- (P2-content) Content contracts only read the v2 `Moves` shape: a v1 definition or an id missing from the manifest gets no hitbox or timing checks. The bake helpers are tested in `AnimationContracts.spec`.
+- (INTEGRATE-2) `Config.Telemetry.Weights` adds `Rewound = 0`, `Blocked = 0` and `EarlyHitStart = 0.25`, so lag-compensated hits, policy-blocked damage and armed early HitStarts do not build suspicion like cheating reasons.
+- (INTEGRATE-2) In Studio the ProfileStore `Mock` table gets a metatable that exposes the module's `IsClosing`, so a Studio shutdown is not reported as a session steal.
+
 ## 17. Phase 1 status
 
 Recorded by INTEGRATE-1 after reconciling the four Phase 1 agents.
@@ -1286,3 +1309,30 @@ Recorded by INTEGRATE-1 after reconciling the four Phase 1 agents.
 - The LateHitStart and charge-past-MaxHoldTime specs set `HitStartClosesAt` on the active record through `session:Get`.
 - The manual smoke tests in `docs/TESTING.md` ("Refactor (Phase 1) smoke tests") have not been run yet.
 - Phase 2 (§9) has not started: weapon schema v2 and moves, DamageService and CombatFx, lag compensation and PendingHitStart, items and persistence, content contracts, selene and Wally.
+
+## 18. Phase 2 status
+
+Recorded by INTEGRATE-2 after reconciling P2-combat, P2-items and P2-content.
+
+**Done**
+
+- §9.1 weapon schema v2: Fists and Katana are `Moves` (`Light1`, `Light2`, `Heavy`) with `Combo = { "Light1", "Light2" }` and `Bindings.Primary = { Tap = "Combo", Hold = "Heavy" }`. Catalog assigns sorted move ids (Heavy = 1, Light1 = 2, Light2 = 3). `MoveKinds` holds the Light and Charge timing. `WeaponGolden.spec` pins every number, which match the pre-refactor commit.
+- §8.2 wire: Combat payload keys are move ids, `Combat.Charge` is gone, Heavy gets an Accepted/Rejected reply, and Inventory uses `SelectSlot(n)` / `SelectUid(uid)` with `Changed({ { Slot, Uid, ItemId } }, selected)`.
+- §9.2 `DamageService` (policies Invulnerable / SpawnProtection / Team, recent attackers, `Damaged` / `Killed`) and `CombatFxService` (relevance-filtered `CombatFx.Hit`), with the client `HitHighlight` and `DamageIndicator`.
+- §9.3 `PositionHistory` (ring buffer, `Stepped`), lag-compensated reach and body checks, and early HitStarts armed for the opening edge.
+- §9.4 `ItemCatalog`, profile `Schema` v1 with migrations and sanitising, `PlayerDataService` on vendored ProfileStore v1.0.3 (session lock, Studio mock, kick on live load failure or session steal), the Phase 2 `InventoryService` API, and `WeaponService` model caching with equip coalescing.
+- §9.5 `AssetContracts` at server boot (before Core), `UiContracts` at client boot, `AnimationContracts` checks and the `BakeAnimationManifest` tool.
+- §9.6 selene and §9.8 Wally: Trove 1.8.0 and TestEZ 0.4.1 come from Wally; `src/packages/Trove.lua` and `tests/TestEZ/` are deleted.
+- INTEGRATE-2 fixed `TrackCache.spec` (it still iterated `weapon.Attacks`), added the Telemetry weights above, gave the Studio mock store `IsClosing`, removed the stale `tests/TestEZ` selene exclude, checked every compose deps table against its constructor, and grepped the repo for every removed identifier. `sh scripts/analyze.sh` reports zero luau-lsp diagnostics and zero selene errors or warnings, and `rojo build` succeeds.
+
+**Deviations:** see the Phase 2 block in §16.
+
+**Deferred / to verify in Studio**
+
+- Nothing from Phase 1 or Phase 2 has been run in Studio yet. The suite has been checked only by inspection and the analyzer (the pre-refactor baseline was 151/151).
+- `AnimationManifest.lua` is still empty, so no timing is checked against the animations until the manifest is baked (`docs/DEPENDENCIES.md`).
+- The live Katana template has not been checked against the AssetContracts weld rule. If `Mesh` is not welded or jointed to `Handle`, the Studio server boot stops with that error (intended).
+- ProfileStore's `Mock.StartSessionAsync` ignores `Cancel`; the `Leaving` check after it covers a player who leaves while loading.
+- Re-keying the active attack by Combatant waits for the first NPC attacker.
+- `WeaponService.spec` still accepts both definition shapes; drop the v1 branch in Phase 3.
+- The Phase 2 smoke tests in `docs/TESTING.md` have not been run.
