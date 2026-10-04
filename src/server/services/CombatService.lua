@@ -71,6 +71,8 @@ type State = {
 	-- 1-based cursor into the equipped weapon's Combo.
 	ComboIndex: number,
 	NextAttackAt: number?,
+	-- When the last charge held past its HitStart marker was released.
+	ChargeReleasedAt: number?,
 	LastThrottledRejectAt: number,
 	Destroy: (self: State) -> (),
 }
@@ -130,6 +132,23 @@ local function is_bound(weapon: WeaponDefinition, move: MoveDef): boolean
 	return primary.Hold == move.Name or (primary.Tap ~= Validator.ComboTap and primary.Tap == move.Name)
 end
 
+-- The earliest HitStart of a Hold move started after a released charge, or
+-- nil when there is no bound. The client ignores presses while a charge is
+-- held, so the Hold move needs a fresh press held for its HoldTime after the
+-- release, and its hit starts at its HitStartAt marker after that. The
+-- previous move's MinDuration is anchored at that move's start and cannot
+-- see a long hold, so without this a charge released just before its
+-- MinDuration could be followed by a second charge's hit within a few frames.
+-- One tolerance absorbs the jitter between the two HitStart packets.
+local function hold_hit_opens_at(state: State, weapon: WeaponDefinition, move: MoveDef): number?
+	local released_at = state.ChargeReleasedAt
+	local hold = move.Hold
+	if released_at == nil or hold == nil or weapon.Bindings.Primary.Hold ~= move.Name then
+		return nil
+	end
+	return released_at + hold.HoldTime + move.HitStartAt - TIMING_TOLERANCE
+end
+
 local function clear_attack(state: State)
 	local active = state.Active
 	if not active then
@@ -160,6 +179,7 @@ local function new_state(): State
 		Active = nil,
 		ComboIndex = 1,
 		NextAttackAt = nil,
+		ChargeReleasedAt = nil,
 		LastThrottledRejectAt = -math.huge,
 		Destroy = clear_attack,
 	}
@@ -261,6 +281,7 @@ function CombatService.OnCharacterRemoving(self: CombatService, session: PlayerS
 
 	self:_reset_attack_sequence(state)
 	state.NextAttackAt = nil
+	state.ChargeReleasedAt = nil
 end
 
 function CombatService.OnPlayerRemoving(self: CombatService, session: PlayerSession)
@@ -514,7 +535,12 @@ function CombatService._attack(self: CombatService, player: Player, session: Pla
 	end
 	state.NextAttackAt = math.max(state.NextAttackAt or 0, now + move.MinDuration)
 
-	self:_create_active(state, weapon, move, wielded, character, now)
+	local active = self:_create_active(state, weapon, move, wielded, character, now)
+	local hold_opens_at = hold_hit_opens_at(state, weapon, move)
+	if hold_opens_at then
+		-- An earlier HitStart is armed until then, like any early HitStart.
+		active.HitStartOpensAt = math.max(active.HitStartOpensAt, hold_opens_at)
+	end
 	self._remote:FireClient(
 		player,
 		CombatActions.AttackAccepted,
@@ -577,6 +603,11 @@ function CombatService._hit_start(self: CombatService, player: Player, move_id: 
 
 	if not self:_check_attacker(player, state, session, active) then
 		return
+	end
+
+	local released_at = active.Kind.released_at(active.Move, active.StartedAt, now, TIMING_TOLERANCE)
+	if released_at then
+		state.ChargeReleasedAt = released_at
 	end
 
 	-- The client identifies the marker frame, but the hit cannot start before

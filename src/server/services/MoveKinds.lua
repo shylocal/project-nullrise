@@ -14,6 +14,10 @@ export type MoveKind = {
 	create_timing: (move: Types.MoveDef, started_at: number, tolerance: number) -> Timing,
 	-- When hits stop being accepted, given the HitStart arrived at `now`.
 	hit_expires_at: (move: Types.MoveDef, active: ActiveTiming, now: number, tolerance: number) -> number,
+	-- When the move started at `started_at` was released, given its HitStart
+	-- arrived at `now`. Only a charge held past its HitStart marker has a
+	-- known release; nil otherwise.
+	released_at: (move: Types.MoveDef, started_at: number, now: number, tolerance: number) -> number?,
 }
 
 local function hit_start_opens_at(move: Types.MoveDef, started_at: number, tolerance: number): number
@@ -33,6 +37,9 @@ local Light: MoveKind = {
 	hit_expires_at = function(_move, active, _now, _tolerance)
 		return active.ExpiresAt
 	end,
+	released_at = function(_move, _started_at, _now, _tolerance)
+		return nil
+	end,
 }
 
 -- A charge may be held until Hold.MaxHoldTime, and its hit window starts when
@@ -49,6 +56,16 @@ local Charge: MoveKind = {
 	end,
 	hit_expires_at = function(move, active, now, tolerance)
 		return math.min(active.ExpiresAt, now + move.HitWindow + tolerance)
+	end,
+	-- The client pauses a held charge on its marker and sends HitStart on the
+	-- release, so a HitStart past the marker (plus jitter) is the release. One
+	-- released before the marker sends HitStart at the marker instead, and
+	-- its release time is unknown.
+	released_at = function(move, started_at, now, tolerance)
+		if now > started_at + move.HitStartAt + tolerance then
+			return now
+		end
+		return nil
 	end,
 }
 

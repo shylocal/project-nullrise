@@ -569,6 +569,98 @@ return function()
 			expect(state_of(f).Active).to.equal(nil)
 		end)
 
+		it("delays a second Heavy's hit until a fresh hold after the release could reach it", function()
+			-- Regression: a Heavy released just before its MinDuration, then a
+			-- second Heavy, used to land both hits within a few frames.
+			local heavy = DEFAULT_WEAPON.Moves.Heavy
+			local tolerance = Config.Combat.TimingTolerance
+			local target, humanoid = make_target(f, Vector3.new(0, 0, -6))
+
+			send(f, Actions.Attack, HEAVY)
+			f.h.Clock:advance(heavy.MinDuration - 0.05)
+			local released_at = f.h.Clock.now()
+			send(f, Actions.HitStart, HEAVY)
+			send(f, Actions.Hit, HEAVY, target, f.hitpoint, Vector3.new(0, 0, -6))
+			expect(humanoid.Health).to.equal(humanoid.MaxHealth - heavy.Damage)
+			expect(state_of(f).ChargeReleasedAt).to.equal(released_at)
+
+			-- The second Heavy itself still starts on MinDuration, as before.
+			f.h.Clock:advance(0.01)
+			send(f, Actions.Attack, HEAVY)
+			expect(last_reply(f)[2]).to.equal(Actions.AttackAccepted)
+			local second = state_of(f).Active
+			local opens_at = released_at + heavy.Hold.HoldTime + heavy.HitStartAt - tolerance
+			expect(second.HitStartOpensAt).to.be.near(opens_at)
+
+			-- Its HitStart right away is armed, and the hit waits for the window.
+			start_hit(HEAVY)
+			expect(second.PendingHitStart).to.equal(true)
+			send(f, Actions.Hit, HEAVY, target, f.hitpoint, Vector3.new(0, 0, -6))
+			expect(humanoid.Health).to.equal(humanoid.MaxHealth - heavy.Damage)
+
+			f.h.Clock:advance(second.HitStartOpensAt - f.h.Clock.now())
+			expect(second.HitActive).to.equal(true)
+			expect(humanoid.Health).to.equal(humanoid.MaxHealth - 2 * heavy.Damage)
+		end)
+
+		it("does not delay a Light right after a long Heavy hold", function()
+			send(f, Actions.Attack, HEAVY)
+			f.h.Clock:advance(2)
+			send(f, Actions.HitStart, HEAVY)
+			expect(state_of(f).Active.HitActive).to.equal(true)
+
+			-- The client's cooldown (from the Heavy's start) ran out long ago,
+			-- so a Light right after the release is legitimate and opens at once.
+			f.h.Clock:advance(0.01)
+			send(f, Actions.Attack, LIGHT1)
+			expect(last_reply(f)[2]).to.equal(Actions.AttackAccepted)
+			start_hit(LIGHT1)
+			expect(state_of(f).Active.HitActive).to.equal(true)
+		end)
+
+		it("does not delay a Heavy from a fresh hold after a long Heavy hold", function()
+			local heavy = DEFAULT_WEAPON.Moves.Heavy
+			send(f, Actions.Attack, HEAVY)
+			f.h.Clock:advance(2)
+			send(f, Actions.HitStart, HEAVY)
+
+			-- The earliest legitimate second Heavy: pressed on the release, held
+			-- for HoldTime, its HitStart sent on its marker.
+			f.h.Clock:advance(heavy.Hold.HoldTime)
+			send(f, Actions.Attack, HEAVY)
+			expect(last_reply(f)[2]).to.equal(Actions.AttackAccepted)
+			f.h.Clock:advance(heavy.HitStartAt)
+			send(f, Actions.HitStart, HEAVY)
+
+			local active = state_of(f).Active
+			expect(active.PendingHitStart).to.equal(false)
+			expect(active.HitActive).to.equal(true)
+		end)
+
+		it("records no release for a charge let go before its marker", function()
+			local heavy = DEFAULT_WEAPON.Moves.Heavy
+			send(f, Actions.Attack, HEAVY)
+			f.h.Clock:advance(heavy.HitStartAt)
+			send(f, Actions.HitStart, HEAVY)
+			expect(state_of(f).ChargeReleasedAt).to.equal(nil)
+
+			f.h.Clock:advance(heavy.MinDuration)
+			send(f, Actions.Attack, HEAVY)
+			local active = state_of(f).Active
+			expect(active.HitStartOpensAt).to.be.near(active.StartedAt + heavy.HitStartAt - Config.Combat.TimingTolerance)
+		end)
+
+		it("forgets the last charge release when the character is removed", function()
+			send(f, Actions.Attack, HEAVY)
+			f.h.Clock:advance(2)
+			send(f, Actions.HitStart, HEAVY)
+			expect(state_of(f).ChargeReleasedAt).to.be.ok()
+
+			f.player:SetCharacter(nil)
+
+			expect(state_of(f).ChargeReleasedAt).to.equal(nil)
+		end)
+
 		it("drops hit packets with a malformed move id", function()
 			send(f, Actions.Attack, LIGHT1)
 			start_hit(LIGHT1)

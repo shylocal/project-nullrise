@@ -51,5 +51,19 @@ return function()
 				timing.ExpiresAt
 			)
 		end)
+
+		it("knows a charge's release only once it was held past its HitStart marker", function()
+			local heavy = (Catalog.Get("Katana") :: any).Moves.Heavy
+			local light = (Catalog.Get("Katana") :: any).Moves.Light1
+			local marker = 10 + heavy.HitStartAt
+
+			-- At or before the marker (plus jitter) the client may have released
+			-- early and sent HitStart at the marker: the release is unknown.
+			expect(MoveKinds.Charge.released_at(heavy, 10, marker, TOLERANCE)).to.equal(nil)
+			expect(MoveKinds.Charge.released_at(heavy, 10, marker + TOLERANCE, TOLERANCE)).to.equal(nil)
+			expect(MoveKinds.Charge.released_at(heavy, 10, 12, TOLERANCE)).to.equal(12)
+			-- A light move is never held.
+			expect(MoveKinds.Light.released_at(light, 10, 12, TOLERANCE)).to.equal(nil)
+		end)
 	end)
 end
