@@ -11,15 +11,22 @@
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Packages = ReplicatedStorage.packages
-local Trove = require(Packages.Trove)
-
 local Config = require(ReplicatedStorage.shared.config)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local ItemCatalog = require(ReplicatedStorage.shared.items.ItemCatalog)
 local Schema = require(ReplicatedStorage.shared.data.Schema)
 
+local PlayerService = require(script.Parent.PlayerService)
+local PlayerSession = require(script.Parent.PlayerSession)
+local Telemetry = require(script.Parent.Telemetry)
+
+type PlayerService = PlayerService.PlayerService
+type PlayerSession = PlayerSession.PlayerSession
+
+-- Vendor boundary: ProfileStore (or its mock, or a spec fake). Methods take
+-- the vendor's own object as `self`, and Data is unvalidated until
+-- Schema.migrate has run.
 export type ConnectionLike = { Disconnect: (self: any) -> () }
 export type SignalLike = { Connect: (self: any, listener: () -> ()) -> ConnectionLike }
 
@@ -40,11 +47,11 @@ export type StoreLike = {
 }
 
 export type Deps = {
-	players: any,
+	players: PlayerService,
 	store: StoreLike,
 	is_studio: boolean,
 	config: Config.DataConfig,
-	telemetry: any,
+	telemetry: Telemetry.Telemetry,
 }
 
 type State = {
@@ -121,25 +128,34 @@ local function seed(data: Schema.ProfileDataV1)
 	inventory.Seeded = true
 end
 
-function PlayerDataService.new(deps: Deps)
+type PlayerDataServiceFields = {
+	_players: PlayerService,
+	_store: StoreLike,
+	_is_studio: boolean,
+	_config: Config.DataConfig,
+	_telemetry: Telemetry.Telemetry,
+}
+
+export type PlayerDataService = typeof(setmetatable({} :: PlayerDataServiceFields, PlayerDataService))
+
+function PlayerDataService.new(deps: Deps): PlayerDataService
 	Deps.check(deps, "PlayerDataService", { "players", "store", "is_studio", "config", "telemetry" })
 
-	local self = setmetatable({
-		Trove = Trove.new(),
-
+	local fields: PlayerDataServiceFields = {
 		_players = deps.players,
 		_store = deps.store,
 		_is_studio = deps.is_studio,
 		_config = deps.config,
 		_telemetry = deps.telemetry,
-	}, PlayerDataService)
+	}
+	local self = setmetatable(fields, PlayerDataService)
 
 	deps.players:Register(self, "PlayerDataService")
 
 	return self
 end
 
-function PlayerDataService._load(self: any, session: any): (ProfileLike?, string?)
+function PlayerDataService._load(self: PlayerDataService, session: PlayerSession): (ProfileLike?, string?)
 	local key = self._config.KeyPrefix .. tostring(session.UserId)
 	local ok, result = pcall(self._store.StartSessionAsync, self._store, key, {
 		Cancel = function(): boolean
@@ -156,7 +172,7 @@ function PlayerDataService._load(self: any, session: any): (ProfileLike?, string
 end
 
 -- Live servers kick; Studio continues on an unsaved default profile.
-function PlayerDataService._fail(self: any, session: any, reason: string)
+function PlayerDataService._fail(self: PlayerDataService, session: PlayerSession, reason: string)
 	local player = session.Player
 	self._telemetry:Count(player, "Data", "LoadFailed")
 
@@ -175,7 +191,7 @@ function PlayerDataService._fail(self: any, session: any, reason: string)
 	session:Set(self, new_state(nil, data, false))
 end
 
-function PlayerDataService.OnPlayerAdded(self: any, session: any)
+function PlayerDataService.OnPlayerAdded(self: PlayerDataService, session: PlayerSession)
 	local player = session.Player
 	local profile, load_error = self:_load(session)
 
@@ -231,35 +247,34 @@ function PlayerDataService.OnPlayerAdded(self: any, session: any)
 	session:Set(self, state)
 end
 
-function PlayerDataService.OnPlayerRemoving(self: any, session: any)
+function PlayerDataService.OnPlayerRemoving(self: PlayerDataService, session: PlayerSession)
 	session:Clear(self)
 end
 
-function PlayerDataService._state(self: any, player: any): State?
+function PlayerDataService._state(self: PlayerDataService, player: Player): State?
 	local session = self._players:Get(player)
 	if not session or session.Phase == "Leaving" then
 		return nil
 	end
-	return session:Get(self)
+	return session:Get(self) :: State?
 end
 
 -- The live profile data, or nil when the player has no loaded profile.
-function PlayerDataService.GetData(self: any, player: any): Schema.ProfileDataV1?
+function PlayerDataService.GetData(self: PlayerDataService, player: Player): Schema.ProfileDataV1?
 	local state = self:_state(player)
 	return state and state.Data
 end
 
 -- True while the player's data is backed by an active store session.
-function PlayerDataService.IsPersistent(self: any, player: any): boolean
+function PlayerDataService.IsPersistent(self: PlayerDataService, player: Player): boolean
 	local state = self:_state(player)
 	return state ~= nil and state.Persistent and not state.Ended
 end
 
-function PlayerDataService.Destroy(self: any)
+function PlayerDataService.Destroy(self: PlayerDataService)
 	for _, session in self._players:GetSessions() do
 		session:Clear(self)
 	end
-	self.Trove:Destroy()
 end
 
 return PlayerDataService

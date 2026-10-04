@@ -346,7 +346,7 @@ function Validator.check(definition: any, id: string): { string }
 	return errors
 end
 
--- Compatibility wrapper: (true) or (false, errors joined by newlines).
+-- check() as (true) or (false, every error joined by newlines).
 function Validator.validate(definition: any, id: string?): (boolean, string?)
 	local errors = Validator.check(definition, id or "definition")
 	if #errors > 0 then

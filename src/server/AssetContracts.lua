@@ -14,7 +14,7 @@ local MODELS_FOLDER = World.Folders.WeaponModels
 
 export type CatalogLike = {
 	Ids: () -> { string },
-	Get: (id: any) -> any,
+	Get: (id: string) -> unknown,
 }
 
 local AssetContracts = {}
@@ -100,6 +100,8 @@ local function has_hitpoint(part: BasePart): boolean
 	return false
 end
 
+-- `definition` is read defensively: spec catalogs hand in partial tables,
+-- and any shape problem is reported rather than raised.
 local function verify_weapon(errors: { string }, id: string, definition: any, models: Instance)
 	local function fail(message: string)
 		table.insert(errors, ("%s: %s"):format(id, message))

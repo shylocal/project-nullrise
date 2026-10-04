@@ -11,23 +11,31 @@ local Config = require(ReplicatedStorage.shared.config)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
+local DamageService = require(script.Parent.DamageService)
+local PlayerService = require(script.Parent.PlayerService)
+local PlayerSession = require(script.Parent.PlayerSession)
+
+type DamageRequest = DamageService.DamageRequest
+
 local ROOT_PART = Config.World.Names.RootPart
 
+-- Engine boundary: an UnreliableRemoteEvent (a FakeRemote in specs), so
+-- `self` and the payload are untyped.
 export type UnreliableRemoteLike = {
-	FireClient: (self: any, player: any, ...any) -> (),
+	FireClient: (self: any, player: Player, ...any) -> (),
 }
 
 export type CombatFxServiceDeps = {
-	damage: any,
-	players: any,
+	damage: DamageService.DamageService,
+	players: PlayerService.PlayerService,
 	remote: UnreliableRemoteLike,
 	config: { RelevanceRadius: number },
 }
 
 type CombatFxServiceFields = {
-	Trove: any,
-	_damage: any,
-	_players: any,
+	Trove: PlayerSession.Trove,
+	_damage: DamageService.DamageService,
+	_players: PlayerService.PlayerService,
 	_remote: UnreliableRemoteLike,
 	_radius: number,
 }
@@ -49,7 +57,7 @@ function CombatFxService.new(deps: CombatFxServiceDeps): CombatFxService
 	}
 	local self = setmetatable(fields, CombatFxService)
 
-	self.Trove:Connect(deps.damage.Damaged, function(request: any, applied: number)
+	self.Trove:Connect(deps.damage.Damaged, function(request: DamageRequest, applied: number)
 		self:_on_damaged(request, applied)
 	end)
 
@@ -65,9 +73,9 @@ local function root_position(character: Model?): Vector3?
 end
 
 -- Players that should see a hit at `position` on `victim`.
-function CombatFxService.Recipients(self: CombatFxService, victim: Model, position: Vector3): { any }
-	local recipients = {}
-	local seen = {}
+function CombatFxService.Recipients(self: CombatFxService, victim: Model, position: Vector3): { Player }
+	local recipients: { Player } = {}
+	local seen: { [Player]: boolean } = {}
 	local victim_player = self._damage:GetPlayer(victim)
 	if victim_player and self._players:GetReady(victim_player) then
 		seen[victim_player] = true
@@ -88,12 +96,12 @@ function CombatFxService.Recipients(self: CombatFxService, victim: Model, positi
 	return recipients
 end
 
-function CombatFxService._on_damaged(self: CombatFxService, request: any, applied: number)
+function CombatFxService._on_damaged(self: CombatFxService, request: DamageRequest, applied: number)
 	if applied <= 0 then
 		return
 	end
 	local victim = request.Target
-	local source = request.Source and request.Source.Model
+	local source = request.Source.Model
 	for _, player in self:Recipients(victim, request.Position) do
 		self._remote:FireClient(
 			player,

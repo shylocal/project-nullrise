@@ -4,7 +4,7 @@
 -- stops at the first one). Records reject unknown keys unless opened.
 --
 -- Error strings are "<path>: <message>", where path is built like
--- `Katana.Attacks[2].HitWindow`. Within a single value only the first failing
+-- `Katana.Moves.Light2.HitWindow`. Within a single value only the first failing
 -- constraint is reported (e.g. a NaN is "must be finite", not also "must be > 0").
 local Schema = {}
 

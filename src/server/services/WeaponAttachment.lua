@@ -1,3 +1,7 @@
+--!strict
+-- Clones a weapon template into a character: weapon parts become visual-only,
+-- each Wield entry is joined to its character limb with a Motor6D, and
+-- hitpoint attachments are tagged for hit validation.
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -8,29 +12,30 @@ local HITPOINT_ATTACHMENT = World.Names.HitpointAttachment
 
 local WeaponAttachment = {}
 
-local function get_root(instance)
+local function get_root(instance: Instance): BasePart?
 	if instance:IsA("BasePart") then
 		return instance
 	end
 
-	return instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
+	local primary = if instance:IsA("Model") then instance.PrimaryPart else nil
+	return primary or instance:FindFirstChildWhichIsA("BasePart", true) :: BasePart?
 end
 
-local function warn_attachment(instance, message)
+local function warn_attachment(instance: Instance, message: string)
 	warn(("[WeaponAttachment] %s: %s"):format(instance:GetFullName(), message))
 end
 
 -- Weapon geometry is visual only: it never collides, never adds mass, and
 -- is invisible to spatial queries, so hit and line-of-sight casts pass
 -- through a held weapon to the body behind it.
-local function prepare_part(part)
+local function prepare_part(part: BasePart)
 	part.Anchored = false
 	part.CanCollide = false
 	part.CanQuery = false
 	part.Massless = true
 end
 
-local function prepare(instance)
+local function prepare(instance: Instance): Instance?
 	if instance:IsA("BasePart") then
 		prepare_part(instance)
 
@@ -57,7 +62,7 @@ local function prepare(instance)
 	return instance
 end
 
-local function tag_hitpoints(instance)
+local function tag_hitpoints(instance: Instance)
 	for _, descendant in instance:GetDescendants() do
 		if not descendant:IsA("Attachment") or descendant.Name ~= HITPOINT_ATTACHMENT then
 			continue
@@ -70,8 +75,8 @@ end
 -- Weapon wield mappings and animations target R6 limb names. Avatar type is
 -- a game setting the client also checks, so the server cannot trust it and
 -- must refuse to arm any other rig.
-function WeaponAttachment.IsSupportedRig(character)
-	if typeof(character) ~= "Instance" then
+function WeaponAttachment.IsSupportedRig(character: Instance?): (boolean, string?)
+	if character == nil or typeof(character) ~= "Instance" then
 		return false, "character is missing"
 	end
 
@@ -87,7 +92,11 @@ function WeaponAttachment.IsSupportedRig(character)
 	return true, nil
 end
 
-function WeaponAttachment.Attach(source, wield, character)
+-- `wield` maps a weapon part name to the character part it is joined to. It
+-- is checked here (not trusted), so a malformed mapping is warned about:
+-- a non-table mapping rejects the clone, bad entries are skipped.
+-- Returns the parented clone, or nil (after a warning) when it is unusable.
+function WeaponAttachment.Attach(source: Instance, wield: unknown, character: Instance): Instance?
 	local clone = source:Clone()
 	clone.Parent = character
 
@@ -104,13 +113,14 @@ function WeaponAttachment.Attach(source, wield, character)
 		return nil
 	end
 
-	if wield ~= nil and typeof(wield) ~= "table" then
+	local mapping: any = wield
+	if mapping ~= nil and type(mapping) ~= "table" then
 		warn_attachment(clone, "wield mapping must be a table")
 		clone:Destroy()
 		return nil
 	end
 
-	for wield_name, character_part_name in pairs(wield or {}) do
+	for wield_name, character_part_name in pairs(mapping or {}) do
 		if typeof(wield_name) ~= "string" or wield_name == "" then
 			warn_attachment(clone, ("invalid wield item name %q"):format(tostring(wield_name)))
 			continue
@@ -151,8 +161,8 @@ function WeaponAttachment.Attach(source, wield, character)
 		end
 
 		local motor6d = Instance.new("Motor6D")
-		motor6d.Part0 = target
-		motor6d.Part1 = wielded
+		motor6d.Part0 = target :: BasePart
+		motor6d.Part1 = wielded :: BasePart
 		motor6d.Parent = wielded
 	end
 
@@ -161,4 +171,4 @@ function WeaponAttachment.Attach(source, wield, character)
 	return clone
 end
 
-return WeaponAttachment
+return table.freeze(WeaponAttachment)

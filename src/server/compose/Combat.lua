@@ -11,6 +11,7 @@ local Runtime = require(ReplicatedStorage.shared.runtime.Runtime)
 
 local server = script.Parent.Parent
 local Core = require(server.compose.Core)
+local Remotes = require(server.compose.Remotes)
 local CombatFxService = require(server.services.CombatFxService)
 local CombatService = require(server.services.CombatService)
 local DamageService = require(server.services.DamageService)
@@ -52,7 +53,7 @@ return function(rt: Runtime.Runtime, env: Core.ServerEnv): ()
 			damage = get("DamageService"),
 			players = get("PlayerService"),
 			-- Engine boundary: UnreliableRemoteEvent satisfies UnreliableRemoteLike.
-			remote = env.Remotes:FindFirstChild("CombatFx") :: any,
+			remote = Remotes.unreliable(env.Remotes, "CombatFx") :: any,
 			config = Config.Combat.Fx,
 		})
 	end)
@@ -61,7 +62,7 @@ return function(rt: Runtime.Runtime, env: Core.ServerEnv): ()
 		return CombatService.new({
 			players = get("PlayerService"),
 			weapons = get("WeaponService"),
-			remote = env.Remotes:FindFirstChild("Combat"),
+			remote = Remotes.event(env.Remotes, "Combat"),
 			budget = get("RemoteBudget"),
 			telemetry = get("Telemetry"),
 			scheduler = env.Scheduler,

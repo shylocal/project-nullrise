@@ -132,14 +132,14 @@ function Catalog.All(): { WeaponDefinition }
 	return ordered
 end
 
-function Catalog.Get(weapon_id: any): WeaponDefinition?
+function Catalog.Get(weapon_id: unknown): WeaponDefinition?
 	if type(weapon_id) ~= "string" then
 		return nil
 	end
 	return definitions[weapon_id]
 end
 
-function Catalog.Has(weapon_id: any): boolean
+function Catalog.Has(weapon_id: unknown): boolean
 	return type(weapon_id) == "string" and definitions[weapon_id] ~= nil
 end
 
@@ -156,7 +156,7 @@ end
 
 -- The move of a catalog weapon with this id, or nil for an unknown weapon or
 -- id (any value is accepted, so remote payloads can be passed straight in).
-function Catalog.GetMove(weapon_id: string, move_id: any): MoveDef?
+function Catalog.GetMove(weapon_id: string, move_id: unknown): MoveDef?
 	local by_id = moves_by_id[weapon_id]
 	if by_id == nil or type(move_id) ~= "number" then
 		return nil

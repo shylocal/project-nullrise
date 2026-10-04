@@ -1,3 +1,4 @@
+--!strict
 -- One player's server-side lifetime: the current character, a Trove that
 -- dies with the session, a Trove that dies with each character, and keyed
 -- per-component state. Phase is written only by PlayerService.
@@ -9,20 +10,48 @@ local Signal = require(Packages.Signal)
 
 export type Phase = "Loading" | "Ready" | "Leaving"
 
+-- Vendor boundary: Trove's own type has generic methods that do not compare
+-- across module boundaries, so troves are held as `any`.
+export type Trove = any
+
+type PlayerSessionFields = {
+	Player: Player,
+	UserId: number,
+	Phase: Phase,
+	Character: Model?,
+
+	Trove: Trove,
+	CharacterTrove: Trove?,
+
+	-- Vendored GoodSignal is untyped. Both fire (character: Model).
+	CharacterAdded: any,
+	CharacterRemoving: any,
+
+	-- Component state is heterogeneous: each component casts what it reads
+	-- back to the type it stored.
+	_state: { [unknown]: unknown },
+	_destroyed: boolean,
+}
+
 local PlayerSession = {}
 PlayerSession.__index = PlayerSession
 
-local function destroy_state(state)
-	if type(state) == "table" and type(state.Destroy) == "function" then
-		state:Destroy()
+export type PlayerSession = typeof(setmetatable({} :: PlayerSessionFields, PlayerSession))
+
+local function destroy_state(state: unknown): ()
+	if type(state) == "table" then
+		local destroy = (state :: any).Destroy
+		if type(destroy) == "function" then
+			destroy(state)
+		end
 	end
 end
 
-function PlayerSession.new(player)
-	local self = setmetatable({
+function PlayerSession.new(player: Player): PlayerSession
+	local fields: PlayerSessionFields = {
 		Player = player,
 		UserId = player.UserId,
-		Phase = "Loading" :: Phase,
+		Phase = "Loading",
 		Character = nil,
 
 		Trove = Trove.new(),
@@ -33,7 +62,8 @@ function PlayerSession.new(player)
 
 		_state = {},
 		_destroyed = false,
-	}, PlayerSession)
+	}
+	local self = setmetatable(fields, PlayerSession)
 
 	self.Trove:Add(self.CharacterAdded)
 	self.Trove:Add(self.CharacterRemoving)
@@ -47,12 +77,12 @@ function PlayerSession.new(player)
 	return self
 end
 
-function PlayerSession:_start()
-	self.Trove:Connect(self.Player.CharacterAdded, function(character)
+function PlayerSession._start(self: PlayerSession)
+	self.Trove:Connect(self.Player.CharacterAdded, function(character: Model)
 		self:_set_character(character)
 	end)
 
-	self.Trove:Connect(self.Player.CharacterRemoving, function(character)
+	self.Trove:Connect(self.Player.CharacterRemoving, function(character: Model)
 		self:_remove_character(character)
 	end)
 
@@ -62,7 +92,7 @@ function PlayerSession:_start()
 	end
 end
 
-function PlayerSession:_set_character(character)
+function PlayerSession._set_character(self: PlayerSession, character: Model)
 	if self._destroyed or self.Character == character then
 		return
 	end
@@ -83,7 +113,7 @@ function PlayerSession:_set_character(character)
 	self.CharacterAdded:Fire(character)
 end
 
-function PlayerSession:_remove_character(character)
+function PlayerSession._remove_character(self: PlayerSession, character: Model?)
 	if not character or self.Character ~= character then
 		return
 	end
@@ -109,7 +139,7 @@ end
 -- Destroy method is destroyed. A destroyed session accepts no new state: the
 -- given state is destroyed immediately, so a component that finishes loading
 -- after the player left cannot leak it.
-function PlayerSession:Set(key, state)
+function PlayerSession.Set(self: PlayerSession, key: unknown, state: unknown)
 	assert(key ~= nil, "PlayerSession:Set: key must not be nil")
 
 	if self._destroyed then
@@ -125,14 +155,14 @@ function PlayerSession:Set(key, state)
 	end
 end
 
-function PlayerSession:Get(key)
+function PlayerSession.Get(self: PlayerSession, key: unknown): unknown
 	if key == nil then
 		return nil
 	end
 	return self._state[key]
 end
 
-function PlayerSession:Clear(key)
+function PlayerSession.Clear(self: PlayerSession, key: unknown)
 	if key == nil then
 		return
 	end
@@ -142,11 +172,7 @@ function PlayerSession:Clear(key)
 	destroy_state(state)
 end
 
-function PlayerSession:IsDestroyed()
-	return self._destroyed
-end
-
-function PlayerSession:Destroy()
+function PlayerSession.Destroy(self: PlayerSession)
 	if self._destroyed then
 		return
 	end
@@ -159,8 +185,10 @@ function PlayerSession:Destroy()
 
 	local states = self._state
 	self._state = {}
-	for _, state in pairs(states) do
-		local ok, err = pcall(destroy_state, state)
+	for _, state in states do
+		local ok, err = pcall(function()
+			destroy_state(state)
+		end)
 		if not ok then
 			warn(("[PlayerSession] failed to destroy state for %s: %s"):format(
 				tostring(self.Player.Name),

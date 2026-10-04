@@ -112,7 +112,7 @@ function ItemCatalog.Ids(): { string }
 	return ids
 end
 
-function ItemCatalog.Get(id: any): ItemDef?
+function ItemCatalog.Get(id: unknown): ItemDef?
 	if type(id) ~= "string" then
 		return nil
 	end
@@ -120,7 +120,7 @@ function ItemCatalog.Get(id: any): ItemDef?
 end
 
 -- The first item (in Ids() order) that grants the given weapon.
-function ItemCatalog.ForWeapon(weapon_id: any): ItemDef?
+function ItemCatalog.ForWeapon(weapon_id: unknown): ItemDef?
 	if type(weapon_id) ~= "string" then
 		return nil
 	end

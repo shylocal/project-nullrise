@@ -18,8 +18,9 @@ export type TelemetryConfig = {
 }
 
 -- Engine boundary: AnalyticsService:LogCustomEvent(player, name, value, fields).
+-- `self` is the AnalyticsService instance or a spec fake.
 export type AnalyticsLike = {
-	LogCustomEvent: (self: any, player: any, name: string, value: number?, fields: { [string]: string }?) -> (),
+	LogCustomEvent: (self: any, player: Player, name: string, value: number?, fields: { [string]: string }?) -> (),
 }
 
 export type Deps = {
@@ -72,13 +73,16 @@ local NO_DETAIL = "-"
 -- Counts with no player share this key.
 local SERVER = newproxy(false)
 
+-- A Player, or SERVER.
+type Owner = unknown
+
 type TelemetryFields = {
 	_config: TelemetryConfig,
 	_scheduler: Scheduler.Scheduler,
 	_analytics: AnalyticsLike?,
 	_is_studio: boolean,
-	_counts: { [any]: PlayerCounters },
-	_suspicion: { [any]: Suspicion },
+	_counts: { [Owner]: PlayerCounters },
+	_suspicion: { [Player]: Suspicion },
 	_cancel_flush: Scheduler.Cancel?,
 	_destroyed: boolean,
 }
@@ -109,7 +113,7 @@ local function key_of(category: string, reason: string, detail: string?): string
 	return ("%s.%s.%s"):format(category, reason, detail or NO_DETAIL)
 end
 
-local function clean_detail(detail: any): string?
+local function clean_detail(detail: string?): string?
 	if detail == nil then
 		return nil
 	end
@@ -134,7 +138,7 @@ function Telemetry._weight(self: Telemetry, reason: string): number
 	return weight
 end
 
-function Telemetry.Count(self: Telemetry, player: any, category: Category, reason: string, detail: string?): ()
+function Telemetry.Count(self: Telemetry, player: Player?, category: Category, reason: string, detail: string?): ()
 	if not CATEGORIES[category] then
 		error(("Telemetry:Count: unknown category %s"):format(tostring(category)), 2)
 	end
@@ -142,7 +146,7 @@ function Telemetry.Count(self: Telemetry, player: any, category: Category, reaso
 		error("Telemetry:Count: reason must be a non-empty string", 2)
 	end
 
-	local owner = if player ~= nil then player else SERVER
+	local owner: Owner = if player ~= nil then player else SERVER
 	local counters = self._counts[owner]
 	if not counters then
 		counters = { Keys = 0, Counters = {} }
@@ -176,7 +180,7 @@ function Telemetry.Count(self: Telemetry, player: any, category: Category, reaso
 	end
 end
 
-function Telemetry.GetSuspicion(self: Telemetry, player: any): number
+function Telemetry.GetSuspicion(self: Telemetry, player: Player): number
 	local suspicion = self._suspicion[player]
 	if not suspicion then
 		return 0
@@ -196,11 +200,13 @@ function Telemetry.Snapshot(self: Telemetry): { [string]: number }
 	return totals
 end
 
-function Telemetry._log(self: Telemetry, player: any, counter: Counter)
+function Telemetry._log(self: Telemetry, owner: Owner, counter: Counter)
 	local analytics = self._analytics
-	if not analytics or player == SERVER then
+	if not analytics or owner == SERVER then
 		return
 	end
+	-- Every owner other than SERVER is the Player that Count was given.
+	local player = owner :: Player
 
 	local ok, err = pcall(function()
 		-- String field names are the documented custom-field keys.
@@ -228,10 +234,8 @@ function Telemetry.Flush(self: Telemetry): ()
 
 	-- Suspicion of players who already left is no longer useful.
 	for player in self._suspicion do
-		if type(player) == "table" or typeof(player) == "Instance" then
-			if (player :: any).Parent == nil then
-				self._suspicion[player] = nil
-			end
+		if player.Parent == nil then
+			self._suspicion[player] = nil
 		end
 	end
 
@@ -287,11 +291,11 @@ end
 -- Logs a leaving player's unflushed counts right away (the player cannot be
 -- logged against after it is gone), keeps them in the server totals for
 -- Snapshot and the Studio summary, and drops the player's suspicion.
-function Telemetry.Forget(self: Telemetry, player: any): ()
+function Telemetry.Forget(self: Telemetry, player: Player): ()
 	self._suspicion[player] = nil
 
 	local counters = self._counts[player]
-	if not counters or player == nil then
+	if not counters then
 		return
 	end
 	self._counts[player] = nil

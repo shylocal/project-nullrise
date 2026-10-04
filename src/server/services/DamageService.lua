@@ -15,6 +15,11 @@ local CharacterQuery = require(ReplicatedStorage.shared.combat.CharacterQuery)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 local Scheduler = require(ReplicatedStorage.shared.runtime.Scheduler)
 
+local PlayerService = require(script.Parent.PlayerService)
+local PlayerSession = require(script.Parent.PlayerSession)
+
+type PlayerSession = PlayerSession.PlayerSession
+
 local INVULNERABLE_ATTRIBUTE = Config.World.Attributes.Invulnerable
 
 export type Combatant = { Model: Model, Player: Player? }
@@ -44,7 +49,7 @@ export type DamageConfig = {
 export type WorldTags = { Damageable: string, [string]: string }
 
 export type DamageServiceDeps = {
-	players: any,
+	players: PlayerService.PlayerService,
 	scheduler: Scheduler.Scheduler,
 	config: DamageConfig,
 	tags: WorldTags,
@@ -65,13 +70,15 @@ type TargetRecord = { Entries: { AttackerEntry }, Connection: RBXScriptConnectio
 type NamedPolicy = { Name: string, Policy: Policy }
 
 type DamageServiceFields = {
-	Trove: any,
+	Trove: PlayerSession.Trove,
+	-- Vendored GoodSignal is untyped.
+	-- Damaged fires (request: DamageRequest, applied: number, health_after: number).
 	Damaged: any,
+	-- Killed fires (request: DamageRequest, assists: { Combatant }).
 	Killed: any,
 	_config: DamageConfig,
 	_tags: WorldTags,
 	_scheduler: Scheduler.Scheduler,
-	_players: any,
 	_policies: { NamedPolicy },
 	_characters: { [Model]: CharacterInfo },
 	_recent: { [Model]: TargetRecord },
@@ -97,7 +104,6 @@ function DamageService.new(deps: DamageServiceDeps): DamageService
 		_config = deps.config,
 		_tags = deps.tags,
 		_scheduler = deps.scheduler,
-		_players = deps.players,
 		_policies = {},
 		_characters = {},
 		_recent = {},
@@ -164,11 +170,11 @@ function DamageService.AddPolicy(self: DamageService, name: string, policy: Poli
 	table.insert(self._policies, { Name = name, Policy = policy })
 end
 
-function DamageService.OnCharacterAdded(self: DamageService, session: any, character: Model)
+function DamageService.OnCharacterAdded(self: DamageService, session: PlayerSession, character: Model)
 	self._characters[character] = { Player = session.Player, SpawnedAt = self._scheduler.clock() }
 end
 
-function DamageService.OnCharacterRemoving(self: DamageService, _session: any, character: Model)
+function DamageService.OnCharacterRemoving(self: DamageService, _session: PlayerSession, character: Model)
 	self._characters[character] = nil
 	self:_forget(character)
 end
@@ -198,6 +204,8 @@ function DamageService.IsDamageable(self: DamageService, model: Model): (boolean
 	return false, nil
 end
 
+-- Requests are checked at runtime as well, so callers outside the type checker
+-- (or with partial tables) cannot reach TakeDamage with a malformed request.
 local function is_valid_request(request: any): boolean
 	return type(request) == "table"
 		and type(request.Source) == "table"

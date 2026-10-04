@@ -10,6 +10,7 @@ local Schema = require(ReplicatedStorage.shared.data.Schema)
 
 local server = script.Parent.Parent
 local Core = require(server.compose.Core)
+local Remotes = require(server.compose.Remotes)
 local PlayerDataService = require(server.services.PlayerDataService)
 local InventoryService = require(server.services.InventoryService)
 local WeaponService = require(server.services.WeaponService)
@@ -55,7 +56,7 @@ return function(rt: Runtime.Runtime, env: Core.ServerEnv): ()
 		return InventoryService.new({
 			players = get("PlayerService"),
 			data = get("PlayerDataService"),
-			remote = env.Remotes:FindFirstChild("Inventory"),
+			remote = Remotes.event(env.Remotes, "Inventory"),
 			budget = get("RemoteBudget"),
 			telemetry = get("Telemetry"),
 		})
@@ -65,7 +66,7 @@ return function(rt: Runtime.Runtime, env: Core.ServerEnv): ()
 		return WeaponService.new({
 			players = get("PlayerService"),
 			inventory = get("InventoryService"),
-			remote = env.Remotes:FindFirstChild("Weapon"),
+			remote = Remotes.event(env.Remotes, "Weapon"),
 			weapon_models = env.WeaponModels,
 			scheduler = env.Scheduler,
 		})

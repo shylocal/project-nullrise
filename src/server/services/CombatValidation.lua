@@ -1,3 +1,4 @@
+--!strict
 -- Server-side validation of one reported hit. Returns (humanoid, nil, rewound)
 -- when the hit is plausible and (nil, reason) otherwise, with reason a
 -- RejectReason. `rewound` is true when the hit only passed against the
@@ -10,6 +11,33 @@ local Config = require(ReplicatedStorage.shared.config)
 local CharacterQuery = require(ReplicatedStorage.shared.combat.CharacterQuery)
 local RejectReason = require(ReplicatedStorage.shared.combat.RejectReason)
 
+local Types = require(ReplicatedStorage.shared.weapons.Types)
+
+local PositionHistory = require(script.Parent.PositionHistory)
+
+type Reason = RejectReason.Reason
+
+-- The parts of an active move that validation reads (Move: Hitbox, Range
+-- and HitPositionTolerance).
+export type HitContext = {
+	Character: Model,
+	Wielded: Instance,
+	Move: Types.MoveDef,
+	ValidationRaycastParams: RaycastParams,
+}
+
+-- `P` identifies the attacker to the wield lookup (a Player in game).
+export type WieldLookup<P> = {
+	GetWielded: (self: any, player: P, wield_name: string) -> Instance?,
+}
+
+export type ValidateOptions = {
+	-- Target history for lag compensation; nil disables the rewind retry.
+	History: PositionHistory.PositionHistory?,
+	-- Seconds before the target's newest sample to rewind to.
+	Rewind: number,
+}
+
 local CombatValidation = {}
 
 local MIN_FACING_DOT = Config.Combat.MinFacingDot
@@ -19,16 +47,28 @@ local MAX_LINE_OF_SIGHT_CASTS = Config.Combat.MaxLineOfSightCasts
 local HITPOINT_TAG = Config.World.Tags.Hitpoint
 local ROOT_PART = Config.World.Names.RootPart
 
-local function is_finite_vector3(value)
-	return typeof(value) == "Vector3"
-		and math.isfinite(value.X)
-		and math.isfinite(value.Y)
-		and math.isfinite(value.Z)
+local function is_finite_vector3(value: unknown): boolean
+	if typeof(value) ~= "Vector3" then
+		return false
+	end
+	local vector = value :: Vector3
+	return math.isfinite(vector.X) and math.isfinite(vector.Y) and math.isfinite(vector.Z)
+end
+
+-- True when a Hit packet's arguments have the shape ValidateHit needs: the
+-- reported character Model, the hitpoint Attachment and a finite impact
+-- position. Says nothing about whether the hit is plausible.
+function CombatValidation.IsHitPayload(hit_character: unknown, segment_instance: unknown, hit_position: unknown): boolean
+	return typeof(hit_character) == "Instance"
+		and (hit_character :: Instance):IsA("Model")
+		and typeof(segment_instance) == "Instance"
+		and (segment_instance :: Instance):IsA("Attachment")
+		and is_finite_vector3(hit_position)
 end
 
 -- Distance from a world point to an oriented bounding box. Zero when the
 -- point is inside the box.
-local function distance_to_box(box_cframe, box_size, point)
+local function distance_to_box(box_cframe: CFrame, box_size: Vector3, point: Vector3): number
 	local local_point = box_cframe:PointToObjectSpace(point)
 	local half_size = box_size / 2
 	local clamped = Vector3.new(
@@ -43,7 +83,7 @@ end
 -- Casts from origin to target. Both combatants are excluded, parts with
 -- CanCollide or CanQuery disabled are ignored, and other characters are
 -- skipped so a bystander does not count as a wall.
-local function is_line_clear(raycast_params, exclude, origin, target)
+local function is_line_clear(raycast_params: RaycastParams, exclude: { Instance }, origin: Vector3, target: Vector3): boolean
 	local direction = target - origin
 
 	for _ = 1, MAX_LINE_OF_SIGHT_CASTS do
@@ -65,19 +105,30 @@ local function is_line_clear(raycast_params, exclude, origin, target)
 	return false
 end
 
-local function is_valid_active(active)
-	return typeof(active) == "table"
-		and typeof(active.Character) == "Instance"
-		and active.Character:IsA("Model")
-		and typeof(active.Wielded) == "Instance"
-		and active.Wielded:IsA("BasePart")
-		and typeof(active.Move) == "table"
-		and typeof(active.Move.Hitbox) == "string"
+-- The context comes from server state, but is re-checked so a stale or
+-- partial record fails as BadPayload instead of erroring mid-validation.
+local function is_valid_active(active: HitContext): boolean
+	local context: any = active
+	return type(context) == "table"
+		and typeof(context.Character) == "Instance"
+		and context.Character:IsA("Model")
+		and typeof(context.Wielded) == "Instance"
+		and context.Wielded:IsA("BasePart")
+		and type(context.Move) == "table"
+		and type(context.Move.Hitbox) == "string"
 end
 
 -- Reach (target root within weapon range of the attacker) and body (the
 -- reported impact on or near the target's bounding box) checks.
-local function check_reach_and_body(attacker_position, target_position, box_cframe, box_size, hit_position, range, tolerance)
+local function check_reach_and_body(
+	attacker_position: Vector3,
+	target_position: Vector3,
+	box_cframe: CFrame,
+	box_size: Vector3,
+	hit_position: Vector3,
+	range: number,
+	tolerance: number
+): Reason?
 	if (target_position - attacker_position).Magnitude > range + tolerance then
 		return RejectReason.Reach
 	end
@@ -91,59 +142,56 @@ local function check_reach_and_body(attacker_position, target_position, box_cfra
 	return nil
 end
 
-function CombatValidation.ValidateHit(
-	weapon_service,
-	player,
-	active,
-	hit_character,
-	segment_instance,
-	hit_position,
-	opts
-)
-	if typeof(hit_character) ~= "Instance" or not hit_character:IsA("Model") then
-		return nil, RejectReason.BadPayload
-	end
-
+-- hit_character, segment_instance and hit_position are the client's Hit
+-- packet arguments, unvalidated.
+function CombatValidation.ValidateHit<P>(
+	weapon_service: WieldLookup<P>,
+	player: P,
+	active: HitContext,
+	hit_character: unknown,
+	segment_instance: unknown,
+	hit_position: unknown,
+	opts: ValidateOptions?
+): (Humanoid?, Reason?, boolean?)
 	-- Hit packets are only meaningful when they include both the authored
 	-- hitpoint attachment and the world-space impact position. These fields are
 	-- required so the server can perform all spatial checks below.
-	if typeof(segment_instance) ~= "Instance" or not segment_instance:IsA("Attachment") then
+	if not CombatValidation.IsHitPayload(hit_character, segment_instance, hit_position) then
 		return nil, RejectReason.BadPayload
 	end
-
-	if not is_finite_vector3(hit_position) then
-		return nil, RejectReason.BadPayload
-	end
+	local target = hit_character :: Model
+	local segment = segment_instance :: Attachment
+	local impact = hit_position :: Vector3
 
 	if not is_valid_active(active) then
 		return nil, RejectReason.BadPayload
 	end
 
-	if hit_character == active.Character or not hit_character:IsDescendantOf(Workspace) then
+	if target == active.Character or not target:IsDescendantOf(Workspace) then
 		return nil, RejectReason.TargetInvalid
 	end
 
 	-- The client reports the resolved character, never a model nested inside
 	-- one (such as a held weapon).
-	if CharacterQuery.resolve(hit_character) ~= hit_character then
+	if CharacterQuery.resolve(target) ~= target then
 		return nil, RejectReason.TargetInvalid
 	end
 
 	local wielded = weapon_service:GetWielded(player, active.Move.Hitbox)
-	if wielded ~= active.Wielded or not wielded:IsDescendantOf(active.Character) then
+	if wielded == nil or wielded ~= active.Wielded or not wielded:IsDescendantOf(active.Character) then
 		return nil, RejectReason.WieldMismatch
 	end
 
-	if not segment_instance:IsDescendantOf(active.Wielded) then
+	if not segment:IsDescendantOf(active.Wielded) then
 		return nil, RejectReason.NoHitpoint
 	end
 
-	if not CollectionService:HasTag(segment_instance, HITPOINT_TAG) then
+	if not CollectionService:HasTag(segment, HITPOINT_TAG) then
 		return nil, RejectReason.NoHitpoint
 	end
 
-	local hit_humanoid = hit_character:FindFirstChildOfClass("Humanoid")
-	local hit_root = hit_character:FindFirstChild(ROOT_PART)
+	local hit_humanoid = target:FindFirstChildOfClass("Humanoid")
+	local hit_root = target:FindFirstChild(ROOT_PART)
 	local attacker_root = active.Character:FindFirstChild(ROOT_PART)
 
 	if not CharacterQuery.is_alive(hit_humanoid)
@@ -157,22 +205,23 @@ function CombatValidation.ValidateHit(
 	local range = active.Move.Range
 	local hit_position_tolerance = active.Move.HitPositionTolerance
 
-	if typeof(range) ~= "number"
+	-- Weapon data is validated at load; this guards a hand-built context.
+	if type(range) ~= "number"
 		or not math.isfinite(range)
 		or range <= 0
-		or typeof(hit_position_tolerance) ~= "number"
+		or type(hit_position_tolerance) ~= "number"
 		or not math.isfinite(hit_position_tolerance)
 		or hit_position_tolerance < 0 then
 		return nil, RejectReason.BadPayload
 	end
 
-	local box_cframe, box_size = hit_character:GetBoundingBox()
+	local box_cframe, box_size = target:GetBoundingBox()
 	local reason = check_reach_and_body(
 		attacker_root.Position,
 		hit_root.Position,
 		box_cframe,
 		box_size,
-		hit_position,
+		impact,
 		range,
 		hit_position_tolerance
 	)
@@ -184,9 +233,9 @@ function CombatValidation.ValidateHit(
 	local rewound = false
 	local target_offset = Vector3.zero
 	local history = opts and opts.History
-	if reason and history then
-		local latest = history:Latest(hit_character)
-		local sample = latest and history:Sample(hit_character, latest.Time - opts.Rewind)
+	if reason and opts and history then
+		local latest = history:Latest(target)
+		local sample = latest and history:Sample(target, latest.Time - opts.Rewind)
 		if sample then
 			local sample_root = sample.RootCFrame.Position
 			if not check_reach_and_body(
@@ -194,7 +243,7 @@ function CombatValidation.ValidateHit(
 				sample_root,
 				sample.BoxCFrame,
 				sample.BoxSize,
-				hit_position,
+				impact,
 				range,
 				hit_position_tolerance
 			) then
@@ -210,7 +259,7 @@ function CombatValidation.ValidateHit(
 	end
 
 	-- The impact must also be where the weapon's hitpoint actually is.
-	if (segment_instance.WorldPosition - hit_position).Magnitude > hit_position_tolerance then
+	if (segment.WorldPosition - impact).Magnitude > hit_position_tolerance then
 		return nil, RejectReason.HitpointOffset
 	end
 
@@ -220,9 +269,9 @@ function CombatValidation.ValidateHit(
 		attacker_root.CFrame.LookVector.Z
 	)
 	local horizontal_target = Vector3.new(
-		hit_position.X - attacker_root.Position.X,
+		impact.X - attacker_root.Position.X,
 		0,
-		hit_position.Z - attacker_root.Position.Z
+		impact.Z - attacker_root.Position.Z
 	)
 
 	if horizontal_look.Magnitude > 0.05 and horizontal_target.Magnitude > 0.05 then
@@ -233,7 +282,7 @@ function CombatValidation.ValidateHit(
 	end
 
 	local raycast_params = active.ValidationRaycastParams
-	if typeof(raycast_params) ~= "RaycastParams" then
+	if typeof(raycast_params :: unknown) ~= "RaycastParams" then
 		return nil, RejectReason.BadPayload
 	end
 
@@ -248,7 +297,7 @@ function CombatValidation.ValidateHit(
 	-- After a rewind, line of sight runs to where the target was.
 	if is_line_clear(
 		raycast_params,
-		{ active.Character, hit_character },
+		{ active.Character, target },
 		attacker_root.Position,
 		hit_root.Position + target_offset
 	) then
@@ -256,14 +305,14 @@ function CombatValidation.ValidateHit(
 	end
 
 	local attacker_head = active.Character:FindFirstChild("Head")
-	local hit_head = hit_character:FindFirstChild("Head")
+	local hit_head = target:FindFirstChild("Head")
 	if attacker_head
 		and hit_head
 		and attacker_head:IsA("BasePart")
 		and hit_head:IsA("BasePart")
 		and is_line_clear(
 			raycast_params,
-			{ active.Character, hit_character },
+			{ active.Character, target },
 			attacker_head.Position,
 			hit_head.Position + target_offset
 		) then

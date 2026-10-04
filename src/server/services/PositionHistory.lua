@@ -13,6 +13,11 @@ local CharacterQuery = require(ReplicatedStorage.shared.combat.CharacterQuery)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 local Scheduler = require(ReplicatedStorage.shared.runtime.Scheduler)
 
+local PlayerService = require(script.Parent.PlayerService)
+local PlayerSession = require(script.Parent.PlayerSession)
+
+type PlayerSession = PlayerSession.PlayerSession
+
 local ROOT_PART = Config.World.Names.RootPart
 
 -- Samples are read-only: Latest returns the stored table.
@@ -26,14 +31,16 @@ type Ring = {
 }
 
 export type PositionHistoryDeps = {
-	players: any,
+	players: PlayerService.PlayerService,
 	scheduler: Scheduler.Scheduler,
-	step: any,
+	-- RunService.Heartbeat (a Signal in specs).
+	step: RBXScriptSignal,
 	capacity: number,
 }
 
 type PositionHistoryFields = {
-	Trove: any,
+	Trove: PlayerSession.Trove,
+	-- Vendored GoodSignal is untyped. Fires (now: number).
 	Stepped: any,
 	Capacity: number,
 	_scheduler: Scheduler.Scheduler,
@@ -73,11 +80,11 @@ function PositionHistory.new(deps: PositionHistoryDeps): PositionHistory
 	return self
 end
 
-function PositionHistory.OnCharacterAdded(self: PositionHistory, _session: any, character: Model)
+function PositionHistory.OnCharacterAdded(self: PositionHistory, _session: PlayerSession, character: Model)
 	self._tracked[character] = { Samples = {}, Head = 0, Count = 0 }
 end
 
-function PositionHistory.OnCharacterRemoving(self: PositionHistory, _session: any, character: Model)
+function PositionHistory.OnCharacterRemoving(self: PositionHistory, _session: PlayerSession, character: Model)
 	self._tracked[character] = nil
 end
 

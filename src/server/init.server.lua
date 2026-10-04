@@ -1,3 +1,4 @@
+--!strict
 -- Server entry point: gathers the engine environment, composes every service
 -- through one Runtime (ordered construction and Start, reverse teardown) and
 -- tears it all down when this script is destroyed.

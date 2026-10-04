@@ -1,3 +1,4 @@
+--!strict
 local Katana = {}
 
 Katana.Type = "Melee"

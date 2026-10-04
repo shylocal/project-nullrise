@@ -6,6 +6,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 
+local services = script.Parent.Parent.services
+local PlayerService = require(services.PlayerService)
+local PlayerSession = require(services.PlayerSession)
+local Telemetry = require(services.Telemetry)
+
+type PlayerService = PlayerService.PlayerService
+type PlayerSession = PlayerSession.PlayerSession
+
 export type Rate = { Rate: number, Burst: number }
 export type BudgetConfig = { Global: Rate, Actions: { [string]: Rate } }
 
@@ -19,11 +27,18 @@ type BudgetState = {
 	Actions: { [string]: Bucket },
 }
 
+export type RemoteBudgetDeps = {
+	players: PlayerService,
+	config: BudgetConfig,
+	clock: () -> number,
+	telemetry: Telemetry.Telemetry,
+}
+
 type RemoteBudgetFields = {
-	_players: any,
+	_players: PlayerService,
 	_config: BudgetConfig,
 	_clock: () -> number,
-	_telemetry: any,
+	_telemetry: Telemetry.Telemetry,
 }
 
 local RemoteBudget = {}
@@ -31,6 +46,7 @@ RemoteBudget.__index = RemoteBudget
 
 export type RemoteBudget = typeof(setmetatable({} :: RemoteBudgetFields, RemoteBudget))
 
+-- Config is checked at runtime as well, so `rate` is read untyped.
 local function check_rate(rate: any, path: string)
 	if type(rate) ~= "table" then
 		error(("RemoteBudget.new: %s must be a table"):format(path), 3)
@@ -43,12 +59,7 @@ local function check_rate(rate: any, path: string)
 	end
 end
 
-function RemoteBudget.new(deps: {
-	players: any,
-	config: BudgetConfig,
-	clock: () -> number,
-	telemetry: any,
-}): RemoteBudget
+function RemoteBudget.new(deps: RemoteBudgetDeps): RemoteBudget
 	Deps.check(deps, "RemoteBudget", { "players", "config", "clock", "telemetry" })
 
 	check_rate(deps.config.Global, "Global")
@@ -85,23 +96,23 @@ local function refill(bucket: Bucket, rate: Rate, now: number)
 	bucket.At = now
 end
 
-function RemoteBudget.OnPlayerAdded(self: RemoteBudget, session: any): ()
+function RemoteBudget.OnPlayerAdded(self: RemoteBudget, session: PlayerSession): ()
 	session:Set(self, new_state(self))
 end
 
-function RemoteBudget.OnPlayerRemoving(self: RemoteBudget, session: any): ()
+function RemoteBudget.OnPlayerRemoving(self: RemoteBudget, session: PlayerSession): ()
 	session:Clear(self)
 end
 
 -- True when both the action bucket and the global bucket hold a token; one
 -- token is then taken from each. Counts any session, in any phase.
-function RemoteBudget.Take(self: RemoteBudget, player: any, action: string): boolean
+function RemoteBudget.Take(self: RemoteBudget, player: Player, action: string): boolean
 	local session = self._players:Get(player)
 	if not session or session.Phase == "Leaving" then
 		return false
 	end
 
-	local state: BudgetState? = session:Get(self)
+	local state = session:Get(self) :: BudgetState?
 	if not state then
 		-- A request can arrive before this component's OnPlayerAdded ran.
 		local created = new_state(self)
