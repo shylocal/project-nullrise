@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -8,13 +9,16 @@ local SharedConfig = require(ReplicatedStorage.shared.config)
 local VaultMath = require(script.Parent.VaultMath)
 local State = require(script.Parent.State)
 local Queries = require(script.Parent.Queries)
+local Types = require(script.Parent.Types)
+
+type Controller = Types.Controller
 
 local Config = SharedConfig.Parkour
 local MovementConfig = SharedConfig.Movement
 
 local VaultTraversal = {}
 
-function VaultTraversal.try_vault(self)
+function VaultTraversal.try_vault(self: Controller): boolean
 	if State.top_hop(self) then return false end
 	if not Config.VaultEnabled then
 		return false
@@ -76,7 +80,7 @@ function VaultTraversal.try_vault(self)
 		Config.VaultDetectionHalfWidth,
 		math.max(root.Size.X * 0.75, 0.75)
 	))
-	local function probe_obstacle(direction)
+	local function probe_obstacle(direction: Vector3): RaycastResult?
 		local right = direction:Cross(Vector3.yAxis)
 		if right.Magnitude < 0.05 then
 			return nil
@@ -98,7 +102,7 @@ function VaultTraversal.try_vault(self)
 			Vector3.new(0, -0.2, 0),
 			Vector3.new(0, 0.45, 0),
 		}
-		local best_hit = nil
+		local best_hit: RaycastResult? = nil
 		for _, offset in ipairs(offsets) do
 			local hit = Queries.cast(self, 
 				detection_origin + offset,
@@ -175,7 +179,7 @@ function VaultTraversal.try_vault(self)
 		obstacle_hit.Position + forward * 0.9,
 		projected_top_sample,
 	}
-	local top = nil
+	local top: RaycastResult? = nil
 	for _, sample in ipairs(top_samples) do
 		local top_origin = Vector3.new(
 			sample.X,
@@ -338,7 +342,7 @@ function VaultTraversal.try_vault(self)
 		return true
 	end
 
-	local target_position = nil
+	local far_side_position: Vector3? = nil
 	local hop_distance = far_edge_distance + Config.VaultLandingGap
 	local landing_origin_y = math.max(root.Position.Y, top.Position.Y)
 		+ standing_height + Config.VaultMaxHeight + 2
@@ -355,7 +359,7 @@ function VaultTraversal.try_vault(self)
 	-- can hit a wall away from the character's centerline, so dropping this
 	-- offset would aim the far-side landing back into the wall footprint.
 	local landing_lateral = Vector.flatten(hit_relative) - forward * Vector.flatten(hit_relative):Dot(forward)
-	local function is_obstacle_part(instance)
+	local function is_obstacle_part(instance: Instance): boolean
 		-- Exclude only the actual hit part. Its ancestor Model may also contain
 		-- legitimate floor geometry used by the far-side landing ray.
 		return instance == obstacle
@@ -394,7 +398,7 @@ function VaultTraversal.try_vault(self)
 						and landing_ground.Normal.Y >= 0.5
 						and math.abs(landing_ground.Position.Y - current_ground_y) <= Config.VaultLandingHeightTolerance
 						and not is_obstacle_part(landing_ground.Instance) then
-						target_position = Vector3.new(
+						far_side_position = Vector3.new(
 							landing_ground.Position.X,
 							landing_ground.Position.Y + standing_height - 0.05,
 							landing_ground.Position.Z
@@ -403,7 +407,7 @@ function VaultTraversal.try_vault(self)
 					end
 				end
 			end
-			if target_position then
+			if far_side_position then
 				break
 			end
 		end
@@ -412,20 +416,18 @@ function VaultTraversal.try_vault(self)
 	-- Taller walls should be cleared rather than converted into a hop onto
 	-- their top. If safe far-side ground is unavailable, decline that vault
 	-- instead of silently changing its destination.
-	if not target_position
+	if not far_side_position
 		and obstacle_height >= (Config.VaultFarSideOnlyHeight) then
 		return false
 	end
 
 	-- Preserve the short top landing for lower, broad obstacles when no
 	-- validated far-side floor is available.
-	if not target_position then
-		target_position = Vector3.new(
-			top.Position.X,
-			top.Position.Y + standing_height - 0.05,
-			top.Position.Z
-		)
-	end
+	local target_position = far_side_position or Vector3.new(
+		top.Position.X,
+		top.Position.Y + standing_height - 0.05,
+		top.Position.Z
+	)
 
 	local start_cframe = root.CFrame
 	local target_cframe = CFrame.lookAt(target_position, target_position + forward)
@@ -525,7 +527,7 @@ function VaultTraversal.try_vault(self)
 	return true
 end
 
-function VaultTraversal.update_vault(self, dt)
+function VaultTraversal.update_vault(self: Controller, dt: number): boolean
 	local root = self.Root
 	local vault = State.vault(self)
 	if not root or not vault then
@@ -593,7 +595,7 @@ end
 -- record, which holds the TopHop lease (blocking re-vaults) until landing or
 -- timeout, and zeroes the native jump impulse until the Humanoid leaves the
 -- launch's Jumping state.
-function VaultTraversal.start_top_hop(self)
+function VaultTraversal.start_top_hop(self: Controller): boolean
 	return State.enter(self, {
 		kind = "Grounded",
 		TopHop = {
@@ -605,18 +607,18 @@ end
 
 -- Restores the native jump setting zeroed for the top-hop launch. The TopHop
 -- record itself stays until landing so it keeps guarding against re-vaults.
-function VaultTraversal.restore_top_hop_jump(self)
+function VaultTraversal.restore_top_hop_jump(self: Controller)
 	State.restore_top_hop_jump(self)
 end
 
-function VaultTraversal.finish_top_hop(self, _landed)
+function VaultTraversal.finish_top_hop(self: Controller, _landed: boolean?)
 	if not State.top_hop(self) then
 		return
 	end
 	State.enter(self, { kind = "Grounded" })
 end
 
-function VaultTraversal.finish_vault(self, completed)
+function VaultTraversal.finish_vault(self: Controller, completed: boolean)
 	local vault = State.vault(self)
 	if not vault then
 		return

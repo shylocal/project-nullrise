@@ -1,3 +1,4 @@
+--!strict
 -- Ledge grabbing, hanging traversal, mantling and vaulting for the local
 -- character. State transitions live in State (which owns the leases and
 -- Humanoid overrides of each state); spatial queries live in Queries,
@@ -5,11 +6,13 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
-local Trove = require(ReplicatedStorage.packages.Trove)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Vector = require(ReplicatedStorage.shared.utility.Vector)
 local SharedConfig = require(ReplicatedStorage.shared.config)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
+
+local ClientTrove = require(script.Parent.Parent.ClientTrove)
+local CharacterStateModule = require(script.Parent.CharacterState)
 
 local ClimbableIndex = require(script.ClimbableIndex)
 local InputLatch = require(script.InputLatch)
@@ -19,7 +22,16 @@ local Queries = require(script.Queries)
 local QueryContext = require(script.QueryContext)
 local State = require(script.State)
 local Traversal = require(script.Traversal)
+local Types = require(script.Types)
 local VaultTraversal = require(script.VaultTraversal)
+
+export type Controller = Types.Controller
+export type Deps = {
+	character: Model,
+	input: Types.InputLike,
+	movement: Types.MovementLike,
+	state: CharacterStateModule.CharacterState,
+}
 
 local Config = SharedConfig.Parkour
 local ROOT_PART = SharedConfig.World.Names.RootPart
@@ -28,18 +40,20 @@ local METRICS_ATTRIBUTE = SharedConfig.World.Attributes.ParkourQueryMetrics
 local ParkourController = {}
 ParkourController.__index = ParkourController
 
--- deps.character: Model; deps.input: InputController-like (ActionBegan,
--- ActionEnded, IsDown); deps.movement: MovementController (IsSprinting);
--- deps.state: CharacterState.
-function ParkourController.new(deps)
+-- deps.input: InputController-like (ActionBegan, ActionEnded, IsDown);
+-- deps.movement: MovementController (IsSprinting); deps.state: CharacterState.
+function ParkourController.new(deps: Deps): Controller
 	Deps.check(deps, "ParkourController", { "character", "input", "movement", "state" })
 	local character = deps.character
-	local self = setmetatable({
+	-- The metatable supplies the methods Controller lists. Query is assigned
+	-- below (QueryContext.new reads the controller) and State.init installs
+	-- the initial state, before anything else reads either.
+	local self: Controller = setmetatable({
 		Character = character,
 		Input = deps.input,
 		Movement = deps.movement,
 		CharacterState = deps.state,
-		Trove = Trove.new(),
+		Trove = ClientTrove.new(),
 		Humanoid = nil,
 		Root = character:FindFirstChild(ROOT_PART),
 		Latch = InputLatch.new(),
@@ -50,11 +64,11 @@ function ParkourController.new(deps)
 		HangClearanceProbe = nil,
 		NextVaultAt = 0,
 		_destroyed = false,
-	}, ParkourController)
+	}, ParkourController) :: any
 	State.init(self)
 	self.Query = QueryContext.new(self)
 
-	local ok, err = pcall(self._start, self)
+	local ok, err = pcall(self._start :: (Controller) -> any, self)
 	if not ok then
 		self:Destroy()
 		error(err, 0)
@@ -62,12 +76,12 @@ function ParkourController.new(deps)
 	return self
 end
 
-function ParkourController:_start()
+function ParkourController._start(self: Controller)
 	self.Trove:Connect(self.Character:GetAttributeChangedSignal(METRICS_ATTRIBUTE), function()
 		Metrics.set_enabled(self, self.Character:GetAttribute(METRICS_ATTRIBUTE) == true)
 	end)
 
-	self.Trove:Connect(self.Input.ActionBegan, function(action)
+	self.Trove:Connect(self.Input.ActionBegan, function(action: string)
 		local kind = State.kind(self)
 		if action == Actions.Jump then
 			if kind == "Grounded" then
@@ -84,7 +98,7 @@ function ParkourController:_start()
 		end
 	end)
 
-	self.Trove:Connect(self.Input.ActionEnded, function(action)
+	self.Trove:Connect(self.Input.ActionEnded, function(action: string)
 		if action == Actions.Forward then
 			self.Latch:Release("Forward")
 		end
@@ -97,29 +111,30 @@ function ParkourController:_start()
 		end
 	end)
 
-	self.Trove:Connect(RunService.Heartbeat, function(dt)
+	self.Trove:Connect(RunService.Heartbeat, function(dt: number)
 		self:_step(dt)
 	end)
 
 	self:_bind_character_parts()
-	self.Trove:Connect(self.Character.ChildAdded, function(child)
+	self.Trove:Connect(self.Character.ChildAdded, function(child: Instance)
 		if child.Name == ROOT_PART then
-			self.Root = child
+			-- The Humanoid root is always a BasePart.
+			self.Root = child :: BasePart
 		elseif child:IsA("Humanoid") then
 			self:_bind_humanoid(child)
 		end
 	end)
 end
 
-function ParkourController:_bind_character_parts()
-	self.Root = self.Character:FindFirstChild(ROOT_PART)
+function ParkourController._bind_character_parts(self: Controller)
+	self.Root = self.Character:FindFirstChild(ROOT_PART) :: BasePart?
 	local humanoid = self.Character:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		self:_bind_humanoid(humanoid)
 	end
 end
 
-function ParkourController:_bind_humanoid(humanoid)
+function ParkourController._bind_humanoid(self: Controller, humanoid: Humanoid)
 	if self.Humanoid == humanoid then return end
 	self.Humanoid = humanoid
 	self.Trove:Connect(humanoid.Died, function()
@@ -127,7 +142,14 @@ function ParkourController:_bind_humanoid(humanoid)
 	end)
 end
 
-function ParkourController:_grab(guide, normal, position, edge_gap, dt)
+function ParkourController._grab(
+	self: Controller,
+	guide: Instance,
+	normal: Vector3,
+	position: Vector3,
+	edge_gap: number,
+	dt: number
+)
 	local humanoid = self.Humanoid
 	if State.kind(self) ~= "Grounded" or not guide or not humanoid or humanoid.Health <= 0 or humanoid.Sit then return end
 	local humanoid_state = humanoid:GetState()
@@ -147,7 +169,7 @@ function ParkourController:_grab(guide, normal, position, edge_gap, dt)
 		data = {
 			CurrentClimbable = guide,
 			Normal = horizontal_normal.Unit,
-			HangDepthOffset = horizontal_normal.Unit * (edge_gap or Config.WallGap),
+			HangDepthOffset = horizontal_normal.Unit * edge_gap,
 			HangPosition = position,
 			CornerLockPosition = nil,
 			CornerLockInputDirection = nil,
@@ -171,7 +193,7 @@ end
 
 -- Moves the root toward the hang target. `dt` is the frame time (0 for an
 -- input-driven snap, which applies no smoothing).
-function ParkourController:_position_hanging(dt)
+function ParkourController._position_hanging(self: Controller, dt: number)
 	local hang = State.hang(self)
 	local root = self.Root
 	if not root or not hang then return end
@@ -192,7 +214,7 @@ function ParkourController:_position_hanging(dt)
 	root.AssemblyAngularVelocity = Vector3.zero
 end
 
-function ParkourController:_step(dt)
+function ParkourController._step(self: Controller, dt: number)
 	if self._destroyed then
 		return
 	end
@@ -226,7 +248,8 @@ function ParkourController:_step(dt)
 			and humanoid_state ~= Enum.HumanoidStateType.Climbing
 		if can_probe and self.Input:IsDown(Actions.Jump) and not self.Latch:IsBlocked("Jump") then
 			local climbable, normal, position, edge_gap = Queries.detect_surface(self)
-			if climbable then
+			-- detect_surface returns all four values or none.
+			if climbable and normal and position and edge_gap then
 				self:_grab(climbable, normal, position, edge_gap, dt)
 			end
 		end
@@ -245,7 +268,7 @@ function ParkourController:_step(dt)
 	end
 end
 
-function ParkourController:_standing_height()
+function ParkourController._standing_height(self: Controller): number
 	local root = self.Root
 	local humanoid = self.Humanoid
 	if not root then return 3 end
@@ -260,17 +283,17 @@ function ParkourController:_standing_height()
 	return hip_height + root.Size.Y * 0.5
 end
 
-function ParkourController:GetQueryMetrics()
+function ParkourController.GetQueryMetrics(self: Controller): { [string]: number }
 	return Metrics.snapshot(self)
 end
 
-function ParkourController:ResetQueryMetrics()
+function ParkourController.ResetQueryMetrics(self: Controller)
 	Metrics.reset(self)
 end
 
 -- Lets go of whatever traversal is active and returns to Grounded. While
 -- Space is still held, grabbing stays blocked until it is released.
-function ParkourController:_release()
+function ParkourController._release(self: Controller)
 	if State.top_hop(self) then
 		VaultTraversal.finish_top_hop(self, false)
 	end
@@ -292,7 +315,7 @@ function ParkourController:_release()
 	end
 end
 
-function ParkourController:Destroy()
+function ParkourController.Destroy(self: Controller)
 	if self._destroyed then
 		return
 	end

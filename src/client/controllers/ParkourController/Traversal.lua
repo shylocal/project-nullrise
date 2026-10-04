@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -7,6 +8,16 @@ local Vector = require(ReplicatedStorage.shared.utility.Vector)
 local Config = require(ReplicatedStorage.shared.config).Parkour
 local State = require(script.Parent.State)
 local Queries = require(script.Parent.Queries)
+local Types = require(script.Parent.Types)
+
+type Controller = Types.Controller
+type GuideTop = Types.GuideTop
+type HangData = Types.HangData
+
+-- A perpendicular face found by the corner fan, before validation.
+type CornerCandidate = { Probe: RaycastResult, Normal: Vector3, Order: number, Score: number }
+-- A validated corner transfer.
+export type Corner = { Top: GuideTop, Guide: Instance, Normal: Vector3, WallInstance: BasePart }
 
 -- World up as a local value: selene's Roblox std types Vector3.yAxis as a
 -- plain value without Vector3 methods.
@@ -14,16 +25,25 @@ local UP = Vector3.yAxis
 
 local Traversal = {}
 
-function Traversal.get_traverse_speed(self)
+function Traversal.get_traverse_speed(self: Controller): number
 	local speed = Config.TraverseSpeed
 	if self.Input:IsDown(Actions.Sprint) then
 		speed *= Config.TraverseSprintMultiplier
 	end
 	return speed
 end
-function Traversal.snapshot_hang_pose(self)
-	local hang = State.hang(self) or {}
-	local root = self.Root
+-- A copy of the hang pose (and the root CFrame) to roll back a rejected move.
+export type HangSnapshot = {
+	CurrentClimbable: Instance,
+	Normal: Vector3,
+	HangDepthOffset: Vector3,
+	HangPosition: Vector3,
+	CornerLockPosition: Vector3?,
+	CornerLockInputDirection: number?,
+	CFrame: CFrame?,
+}
+
+local function snapshot_of(hang: HangData, root: BasePart?): HangSnapshot
 	return {
 		CurrentClimbable = hang.CurrentClimbable,
 		Normal = hang.Normal,
@@ -34,7 +54,16 @@ function Traversal.snapshot_hang_pose(self)
 		CFrame = root and root.CFrame,
 	}
 end
-function Traversal.restore_hang_pose(self, snapshot)
+
+-- Nil when not hanging (there is no pose to restore).
+function Traversal.snapshot_hang_pose(self: Controller): HangSnapshot?
+	local hang = State.hang(self)
+	if not hang then
+		return nil
+	end
+	return snapshot_of(hang, self.Root)
+end
+function Traversal.restore_hang_pose(self: Controller, snapshot: HangSnapshot?): boolean
 	if not snapshot or not snapshot.CurrentClimbable or not snapshot.Normal or not snapshot.HangPosition then
 		return false
 	end
@@ -72,8 +101,13 @@ end
 -- Confirm that a perpendicular corner face has a reachable top at the same
 -- height whose guide covers the column the body moves into after turning, and
 -- that the body fits there. Returns the corner transfer or nil.
-local function validate_corner(self, candidate, normal, active_top_y)
-	local root = self.Root
+local function validate_corner(
+	self: Controller,
+	root: BasePart,
+	candidate: CornerCandidate,
+	normal: Vector3,
+	active_top_y: number
+): Corner?
 	local corner_probe = candidate.Probe
 	local corner_normal = candidate.Normal
 	local corner_top = Queries.cast_reachable_grab_top(self, 
@@ -82,7 +116,7 @@ local function validate_corner(self, candidate, normal, active_top_y)
 		root.Position,
 		root.Position.Y + Config.HangDrop
 	)
-	local corner_guide = corner_top
+	local corner_guide: Instance? = corner_top
 		and (self.Climbables:GuideOf(corner_top.Instance) or corner_top.Instance)
 	local corner_height_ok = corner_top
 		and math.abs(corner_top.Position.Y - active_top_y) <= Config.TraverseHeightTolerance
@@ -97,7 +131,7 @@ local function validate_corner(self, candidate, normal, active_top_y)
 	-- actually covers that landing column before accepting the corner.
 	local corner_clearance = math.max(root.Size.X, root.Size.Z) * 0.5 + 0.1
 	local cleared_sample = corner_top.Position + normal * corner_clearance
-	local cleared_top = nil
+	local cleared_top: GuideTop? = nil
 	local cleared_distance = math.huge
 	-- The exact clearance column can land on a part's inclusive edge. A tiny
 	-- inward nudge avoids intermittent ray misses without weakening the
@@ -146,7 +180,15 @@ end
 -- turn_normals is ordered by preference: the travel-side face scores at
 -- least 100 lower than any opposite-side face, so the opposite side is only
 -- probed when the travel side has no valid corner.
-function Traversal.find_corner(self, turn_normals, candidate_position, normal, movement_tangent, active_top_y)
+function Traversal.find_corner(
+	self: Controller,
+	root: BasePart,
+	turn_normals: { Vector3 },
+	candidate_position: Vector3,
+	normal: Vector3,
+	movement_tangent: Vector3,
+	active_top_y: number
+): Corner?
 	local corner_longitudinal_offsets = {
 		-normal * 1.8,
 		-normal * 0.9,
@@ -156,7 +198,7 @@ function Traversal.find_corner(self, turn_normals, candidate_position, normal, m
 
 	for _, turn_normal in ipairs(turn_normals) do
 		local turn_side_penalty = turn_normal:Dot(movement_tangent) >= 0 and 0 or 100
-		local candidates = {}
+		local candidates: { CornerCandidate } = {}
 		for order, longitudinal_offset in ipairs(corner_longitudinal_offsets) do
 			local corner_origin = candidate_position
 				+ Vector3.new(0, 1.5, 0)
@@ -167,7 +209,7 @@ function Traversal.find_corner(self, turn_normals, candidate_position, normal, m
 				-turn_normal * (Config.WallGap + Config.SurfaceProbe + 2)
 			)
 			local corner_normal = corner_probe and Vector.flatten(corner_probe.Normal)
-			if corner_normal and corner_normal.Magnitude >= 0.05 then
+			if corner_probe and corner_normal and corner_normal.Magnitude >= 0.05 then
 				corner_normal = corner_normal.Unit
 				local alignment_to_old = math.abs(corner_normal:Dot(normal))
 				local alignment_to_turn = corner_normal:Dot(turn_normal)
@@ -192,14 +234,14 @@ function Traversal.find_corner(self, turn_normals, candidate_position, normal, m
 		end
 
 		-- Equal scores keep probe order, matching a strict "<" best search.
-		table.sort(candidates, function(a, b)
+		table.sort(candidates, function(a: CornerCandidate, b: CornerCandidate): boolean
 			if a.Score ~= b.Score then
 				return a.Score < b.Score
 			end
 			return a.Order < b.Order
 		end)
 		for _, candidate in ipairs(candidates) do
-			local corner = validate_corner(self, candidate, normal, active_top_y)
+			local corner = validate_corner(self, root, candidate, normal, active_top_y)
 			if corner then
 				return corner
 			end
@@ -212,9 +254,20 @@ end
 -- situation (same guide, direction and wall, and neither the hang target nor
 -- the root moved past CornerProbeRecheckDistance). A blocked traversal reuses
 -- it only within CornerProbeMissTtl.
-function Traversal.can_reuse_corner_miss(miss, climbable, direction, normal, hang_position, root_position, straight_valid, now)
-	return miss ~= nil
-		and miss.Climbable == climbable
+function Traversal.can_reuse_corner_miss(
+	miss: Types.CornerProbeMiss?,
+	climbable: Instance,
+	direction: number,
+	normal: Vector3,
+	hang_position: Vector3,
+	root_position: Vector3,
+	straight_valid: boolean,
+	now: number
+): boolean
+	if miss == nil then
+		return false
+	end
+	return miss.Climbable == climbable
 		and miss.Direction == direction
 		and miss.Normal:Dot(normal) >= 0.999
 		and (miss.HangPosition - hang_position).Magnitude < Config.CornerProbeRecheckDistance
@@ -222,7 +275,7 @@ function Traversal.can_reuse_corner_miss(miss, climbable, direction, normal, han
 		and (straight_valid or now - miss.At < Config.CornerProbeMissTtl)
 end
 
-function Traversal.traverse(self, dt)
+function Traversal.traverse(self: Controller, dt: number)
 	local hang = State.hang(self)
 	local root = self.Root
 	local climbable = hang and hang.CurrentClimbable
@@ -250,7 +303,7 @@ function Traversal.traverse(self, dt)
 	end
 
 	if direction ~= 0 then
-		local pose_snapshot = Traversal.snapshot_hang_pose(self)
+		local pose_snapshot = snapshot_of(hang, root)
 		local tangent = Vector.flatten(root.CFrame.RightVector)
 		if tangent.Magnitude < 0.05 then
 			tangent = Vector.flatten(UP:Cross(normal))
@@ -264,10 +317,12 @@ function Traversal.traverse(self, dt)
 		-- Roblox cylinders run along local X. For an upright cylinder that
 		-- axis is vertical; the previous predicate accidentally selected a
 		-- horizontal cylinder and skipped the common upright case.
-		local cylinder = climbable:IsA("BasePart")
+		local cylinder: Part? = nil
+		if climbable:IsA("Part")
 			and climbable.Shape == Enum.PartType.Cylinder
-			and math.abs(climbable.CFrame.RightVector.Y) >= 0.75
-			and climbable
+			and math.abs(climbable.CFrame.RightVector.Y) >= 0.75 then
+			cylinder = climbable
+		end
 		if cylinder then
 			local center = cylinder.Position
 			local radial = Vector.flatten(root.Position - center)
@@ -318,11 +373,11 @@ function Traversal.traverse(self, dt)
 			probe_origin,
 			-normal * (Config.WallGap + Config.SurfaceProbe)
 		)
-		local top = probe
+		local top: (RaycastResult | GuideTop)? = probe
 			and Queries.cast_reachable_grab_top(self, probe.Position, probe.Normal, candidate_position, active_top_y)
-		local next_climbable = top
+		local next_climbable: Instance? = top
 			and (self.Climbables:GuideOf(top.Instance) or top.Instance)
-		local same_height = top
+		local same_height = top ~= nil
 			and math.abs(top.Position.Y - active_top_y) <= Config.TraverseHeightTolerance
 			and top.Normal.Y >= 0.5
 		local horizontal_normal = probe and Vector.flatten(probe.Normal) or Vector3.zero
@@ -347,7 +402,7 @@ function Traversal.traverse(self, dt)
 				hang.CornerLockInputDirection = nil
 			end
 		end
-		local corner_turn_normals = {}
+		local corner_turn_normals: { Vector3 } = {}
 		if not corner_locked then
 			-- The face facing the direction of travel is preferred. The opposite
 			-- face remains a fallback for concave layouts, not an equal candidate.
@@ -369,6 +424,7 @@ function Traversal.traverse(self, dt)
 		local probed_corners = #corner_turn_normals > 0
 		local best_corner = Traversal.find_corner(
 			self,
+			root,
 			corner_turn_normals,
 			candidate_position,
 			normal,
@@ -389,7 +445,7 @@ function Traversal.traverse(self, dt)
 		end
 
 		local is_corner_transfer = best_corner ~= nil
-		if is_corner_transfer then
+		if best_corner then
 			top = best_corner.Top
 			next_climbable = best_corner.Guide
 			same_height = true

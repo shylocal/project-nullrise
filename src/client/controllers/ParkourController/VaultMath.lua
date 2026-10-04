@@ -1,14 +1,15 @@
+--!strict
 -- Pure math for the scripted vault trajectory and temporary crouch.
 -- Kept separate from the controller so these curves can be reviewed and tested independently.
 local VaultMath = {}
 
-function VaultMath.smoothstep(value)
+function VaultMath.smoothstep(value: number): number
 	value = math.clamp(value, 0, 1)
 	return value * value * (3 - 2 * value)
 end
 
 -- Shape the vertical arc so its apex aligns with the obstacle.
-function VaultMath.arc_weight(linear, peak_progress)
+function VaultMath.arc_weight(linear: number, peak_progress: number): number
 	local peak = math.clamp(peak_progress, 0.2, 0.92)
 	if linear <= peak then
 		return math.sin((linear / peak) * math.pi * 0.5)
@@ -17,7 +18,7 @@ function VaultMath.arc_weight(linear, peak_progress)
 end
 
 -- Lower quickly, hold through the middle, then restore near the end.
-function VaultMath.hip_height_weight(linear)
+function VaultMath.hip_height_weight(linear: number): number
 	local fade_in = VaultMath.smoothstep(linear / 0.18)
 	local fade_out = VaultMath.smoothstep((1 - linear) / 0.08)
 	return fade_in * fade_out

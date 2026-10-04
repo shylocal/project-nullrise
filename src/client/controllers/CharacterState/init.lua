@@ -16,6 +16,7 @@ export type Action = "Attack" | "Charge" | "Sprint" | "Vault" | "Grab"
 export type Policy = { [string]: { string } }
 export type HumanoidOverrides = HumanoidOverrides.HumanoidOverrides
 export type Handle = HumanoidOverrides.Handle
+type Signal = typeof(Signal.new())
 
 -- Fixed order used to report the first blocking activity deterministically.
 local ACTIVITIES: { string } = { "Attack", "AttackRooted", "Hang", "Mantle", "Vault", "TopHop", "Stunned" }
@@ -29,9 +30,10 @@ Lease.__index = Lease
 
 export type Lease = typeof(setmetatable(
 	{} :: {
+		-- Whoever acquired the lease (a controller); only kept for debugging.
 		Owner: any,
 		Activity: string,
-		_state: any,
+		_state: CharacterState,
 		_released: boolean,
 	},
 	Lease
@@ -39,7 +41,8 @@ export type Lease = typeof(setmetatable(
 
 export type CharacterState = typeof(setmetatable(
 	{} :: {
-		Changed: any,
+		-- Fires (activity: Activity, active: boolean) when an activity starts or ends.
+		Changed: Signal,
 		_blocks: { [string]: { [string]: boolean } },
 		_counts: { [string]: number },
 		_leases: { [Lease]: boolean },
@@ -186,7 +189,7 @@ function Lease.Release(self: Lease)
 		return
 	end
 	self._released = true
-	local state = self._state :: CharacterState
+	local state = self._state
 	state:_release(self)
 end
 

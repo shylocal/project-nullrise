@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -11,6 +12,10 @@ local Metrics = require(script.Parent.Metrics)
 local Queries = require(script.Parent.Queries)
 local Traversal = require(script.Parent.Traversal)
 local VaultMath = require(script.Parent.VaultMath)
+local Types = require(script.Parent.Types)
+
+type Controller = Types.Controller
+type GuideTop = Types.GuideTop
 
 -- World up as a local value: selene's Roblox std types Vector3.yAxis as a
 -- plain value without Vector3 methods.
@@ -18,13 +23,13 @@ local UP = Vector3.yAxis
 
 local LedgeTraversal = {}
 
-local function try_lower_ledge_impl(self)
+local function try_lower_ledge_impl(self: Controller)
 	local hang = State.hang(self)
-	if not hang or not self.Root then
+	local root = self.Root
+	if not hang or not root then
 		return
 	end
 
-	local root = self.Root
 	local normal = Vector.flatten(hang.Normal)
 	if normal.Magnitude < 0.05 then
 		return
@@ -49,12 +54,12 @@ local function try_lower_ledge_impl(self)
 	local target_normal = LedgeDetection.get_ledge_outward_normal(self, best_top, root.Position) or normal
 	LedgeTraversal.transfer_hang_to_ledge(self, best_top, target_normal)
 end
-function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_y)
+function LedgeTraversal.refresh_hang_contact(self: Controller, expected_guide: Instance, expected_top_y: number?): boolean
 	local hang = State.hang(self)
 	local root = self.Root
 	local normal = hang and hang.Normal
-	local candidate_position = root and hang.HangPosition
-	if not root or not normal or not candidate_position or not expected_guide then
+	local candidate_position = root and hang and hang.HangPosition
+	if not hang or not root or not normal or not candidate_position or not expected_guide then
 		return false
 	end
 
@@ -109,11 +114,11 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 	) + hang.HangDepthOffset
 	return true
 end
-function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
+function LedgeTraversal.transfer_hang_to_ledge(self: Controller, top: GuideTop, target_normal: Vector3?): boolean
 	local hang = State.hang(self)
 	local root = self.Root
 	local normal = hang and hang.Normal
-	if not root or not top or not normal then return false end
+	if not hang or not root or not top or not normal then return false end
 
 	local destination_normal = Vector.flatten(target_normal or normal)
 	if destination_normal.Magnitude < 0.05 then return false end
@@ -130,7 +135,7 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 		-- Without a usable (horizontal) cached offset the same stand-off applies.
 		depth_offset = destination_normal * Config.WallGap
 	end
-	local target_guide = top.Guide or self.Climbables:GuideOf(top.Instance) or top.Instance
+	local target_guide: Instance = top.Guide or self.Climbables:GuideOf(top.Instance) or top.Instance
 
 	local planned_position = top.Position
 		+ depth_offset
@@ -183,7 +188,7 @@ end
 -- Leaves the hang for a scripted mantle to `target_cframe`. Entering Mantling
 -- keeps the hang's body pose until the mantle ends and disables native
 -- jumping until Space is released.
-local function begin_mantle(self, root, target_cframe)
+local function begin_mantle(self: Controller, root: BasePart, target_cframe: CFrame): boolean
 	if not State.enter(self, {
 		kind = "Mantling",
 		data = {
@@ -199,7 +204,7 @@ local function begin_mantle(self, root, target_cframe)
 	root.AssemblyAngularVelocity = Vector3.zero
 	return true
 end
-function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
+function LedgeTraversal.try_ground_mantle(self: Controller, current_top: Vector3, normal: Vector3, tangent: Vector3): boolean
 	local hang = State.hang(self)
 	local root = self.Root
 	if not hang or not root or not current_top or not normal or not tangent then
@@ -229,7 +234,7 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 	local target_cframe = CFrame.lookAt(grounded_position, grounded_position - Vector.flatten(normal).Unit)
 	return begin_mantle(self, root, target_cframe)
 end
-function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
+function LedgeTraversal.try_tall_wall_mantle(self: Controller, current_top: Vector3, normal: Vector3): boolean
 	local hang = State.hang(self)
 	if not hang then
 		return false
@@ -271,14 +276,14 @@ function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 	return begin_mantle(self, root, target_cframe)
 end
 
-local function try_mantle_impl(self)
+local function try_mantle_impl(self: Controller)
 	local hang = State.hang(self)
-	if not hang or not self.Root
+	local root = self.Root
+	if not hang or not root
 		or not hang.CurrentClimbable:IsDescendantOf(Workspace) then
 		return
 	end
 
-	local root = self.Root
 	local normal = hang.Normal
 	local is_tagged_guide = self.Climbables:IsClimbable(hang.CurrentClimbable)
 	local depth_offset = if is_tagged_guide
@@ -316,7 +321,7 @@ end
 
 -- Advances an active mantle. Returns false when there is no valid mantle to
 -- advance (the caller releases).
-function LedgeTraversal.update_mantle(self, dt)
+function LedgeTraversal.update_mantle(self: Controller, dt: number): boolean
 	local root = self.Root
 	local mantle = State.mantle(self)
 	if not mantle or mantle.Duration <= 0 then
@@ -342,12 +347,16 @@ function LedgeTraversal.update_mantle(self, dt)
 	return true
 end
 
-function LedgeTraversal.try_lower_ledge(self)
-	return Metrics.measure_search(self, "LowerLedge", try_lower_ledge_impl)
+function LedgeTraversal.try_lower_ledge(self: Controller)
+	Metrics.measure_search(self, "LowerLedge", function()
+		try_lower_ledge_impl(self)
+	end)
 end
 
-function LedgeTraversal.try_mantle(self)
-	return Metrics.measure_search(self, "Mantle", try_mantle_impl)
+function LedgeTraversal.try_mantle(self: Controller)
+	Metrics.measure_search(self, "Mantle", function()
+		try_mantle_impl(self)
+	end)
 end
 
 return LedgeTraversal

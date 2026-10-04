@@ -1,3 +1,4 @@
+--!strict
 -- Parkour spatial queries. Every Workspace query goes through the
 -- controller's QueryContext (self.Query); Climbable membership and guide
 -- bounds come from the ClimbableIndex (self.Climbables).
@@ -9,18 +10,29 @@ local Actions = require(ReplicatedStorage.shared.input.Actions)
 local SharedConfig = require(ReplicatedStorage.shared.config)
 
 local Metrics = require(script.Parent.Metrics)
+local QueryContext = require(script.Parent.QueryContext)
+local Types = require(script.Parent.Types)
+
+type Controller = Types.Controller
+type GuideTop = Types.GuideTop
+type Verdict = QueryContext.Verdict
 
 local Config = SharedConfig.Parkour
 local CLIMBABLE_GROUP = SharedConfig.World.CollisionGroups.Climbable
 
 local Queries = {}
 
-function Queries.cast(self, origin, direction, respect_can_collide)
+function Queries.cast(
+	self: Controller,
+	origin: Vector3,
+	direction: Vector3,
+	respect_can_collide: boolean?
+): RaycastResult?
 	local params = if respect_can_collide == true then self.Query.Params.CastSolid else self.Query.Params.CastAny
 	return self.Query:Raycast(origin, direction, params)
 end
 
-local function is_grabbable_surface(self, instance)
+local function is_grabbable_surface(self: Controller, instance: Instance): boolean
 	if not instance:IsA("BasePart") then
 		return false
 	end
@@ -39,8 +51,8 @@ local function is_grabbable_surface(self, instance)
 	return not (model and model:FindFirstChildOfClass("Humanoid"))
 end
 
-function Queries.cast_grabbable_side(self, origin, direction)
-	return self.Query:Pierce(origin, direction, self.Query.Params.GrabbableSide, function(hit)
+function Queries.cast_grabbable_side(self: Controller, origin: Vector3, direction: Vector3): RaycastResult?
+	return self.Query:Pierce(origin, direction, self.Query.Params.GrabbableSide, function(hit: RaycastResult): Verdict
 		if is_grabbable_surface(self, hit.Instance) then
 			return "accept"
 		end
@@ -58,8 +70,8 @@ end
 
 -- Preserve the stable tagged-guide probe for traversal and corner following.
 -- Unlike the generic grab probe, it never adopts an untagged solid wall.
-function Queries.cast_climbable_side(self, origin, direction)
-	return self.Query:Pierce(origin, direction, self.Query.Params.ClimbableSide, function(hit)
+function Queries.cast_climbable_side(self: Controller, origin: Vector3, direction: Vector3): RaycastResult?
+	return self.Query:Pierce(origin, direction, self.Query.Params.ClimbableSide, function(hit: RaycastResult): Verdict
 		if self.Climbables:IsClimbable(hit.Instance) then
 			return "accept"
 		end
@@ -72,7 +84,7 @@ function Queries.cast_climbable_side(self, origin, direction)
 	end, Config.MaxTopSurfaceHits)
 end
 
-local function is_tall_wall_candidate(self, instance, normal)
+local function is_tall_wall_candidate(self: Controller, instance: Instance, normal: Vector3): boolean
 	if not instance:IsA("BasePart")
 		or not instance.CanCollide
 		or self.Climbables:IsClimbable(instance)
@@ -95,7 +107,12 @@ local function is_tall_wall_candidate(self, instance, normal)
 	return world_height >= Config.TallWallMinHeight
 end
 
-local function cast_tall_wall_top(self, wall, wall_position, root_position)
+local function cast_tall_wall_top(
+	self: Controller,
+	wall: RaycastResult,
+	wall_position: Vector3,
+	root_position: Vector3
+): RaycastResult?
 	local standing_height = self:_standing_height()
 	local origin = Vector3.new(
 		wall_position.X,
@@ -128,14 +145,14 @@ end
 -- that want extra local sampling around the detected wall. Existing traversal
 -- callers omit them, preserving the stable single-column behavior.
 function Queries.cast_reachable_grab_top(
-	self,
-	wall_position,
-	wall_normal,
-	root_position,
-	reference_y,
-	max_above_height,
-	wall_instance
-)
+	self: Controller,
+	wall_position: Vector3,
+	wall_normal: Vector3,
+	root_position: Vector3,
+	reference_y: number?,
+	max_above_height: number?,
+	wall_instance: Instance?
+): RaycastResult?
 	-- Several climb guides can overlap vertically. A single downward ray hits
 	-- the highest one first, even when that ledge is outside grab range. Walk
 	-- down through successive hits and choose the climbable, walkable top closest
@@ -172,11 +189,11 @@ function Queries.cast_reachable_grab_top(
 	end
 
 	local query = self.Query
-	local best = nil
+	local best: RaycastResult? = nil
 	local best_height_distance = math.huge
 	local reference_height = reference_y or root_position.Y
 
-	local function consider_candidate(candidate)
+	local function consider_candidate(candidate: RaycastResult?)
 		if not candidate then return end
 
 		local root_height_delta = root_position.Y - candidate.Position.Y
@@ -201,7 +218,7 @@ function Queries.cast_reachable_grab_top(
 		end
 	end
 
-	local function consider_and_skip(candidate)
+	local function consider_and_skip(candidate: RaycastResult): Verdict
 		consider_candidate(candidate)
 		return "skip"
 	end
@@ -222,10 +239,10 @@ function Queries.cast_reachable_grab_top(
 	return best
 end
 
-function Queries.get_guide_top(self, guide, sample_position)
-	local box_cframe
-	local box_size
-	local hit_instance
+function Queries.get_guide_top(self: Controller, guide: Instance, sample_position: Vector3?): GuideTop?
+	local box_cframe: CFrame
+	local box_size: Vector3
+	local hit_instance: BasePart?
 	if guide:IsA("BasePart") then
 		box_cframe, box_size = self.Climbables:Bounds(guide)
 		hit_instance = guide
@@ -290,12 +307,12 @@ function Queries.get_guide_top(self, guide, sample_position)
 	}
 end
 
-function Queries.get_guide_tops(self, guide, sample_position)
+function Queries.get_guide_tops(self: Controller, guide: Instance, sample_position: Vector3?): { GuideTop }
 	Metrics.record(self, "GuideTopQueries")
 	local first_top = Queries.get_guide_top(self, guide, sample_position)
 	if not first_top then return {} end
 
-	local tops = { first_top }
+	local tops: { GuideTop } = { first_top }
 	local query = self.Query
 	local params = query:Include(query.Params.GuideTop, guide)
 
@@ -332,7 +349,7 @@ function Queries.get_guide_tops(self, guide, sample_position)
 	return tops
 end
 
-function Queries.detect_surface(self)
+function Queries.detect_surface(self: Controller): (Instance?, Vector3?, Vector3?, number?)
 	local humanoid = self.Humanoid
 	if not humanoid or humanoid.Health <= 0 or humanoid.Sit then return nil end
 	local humanoid_state = humanoid:GetState()
@@ -356,7 +373,7 @@ function Queries.detect_surface(self)
 		return nil
 	end
 
-	local top = nil
+	local top: RaycastResult? = nil
 	local tall_wall = false
 	if self.Climbables:IsClimbable(wall.Instance) then
 		top = Queries.cast_reachable_grab_top(
@@ -416,7 +433,7 @@ function Queries.detect_surface(self)
 	return self.Climbables:GuideOf(top.Instance) or top.Instance, hang_normal, hang_position, edge_gap
 end
 
-function Queries.has_hang_body_clearance(self, position, normal)
+function Queries.has_hang_body_clearance(self: Controller, position: Vector3, normal: Vector3): (boolean, BasePart?)
 	local root = self.Root
 	local character = self.Character
 	if not root or not character or not position or not normal then
@@ -438,19 +455,23 @@ function Queries.has_hang_body_clearance(self, position, normal)
 	-- otherwise clear positions beside its curved surface. The probe is only
 	-- the query volume: CanQuery = false keeps it invisible to every other
 	-- raycast and overlap query, while GetPartsInPart still uses its geometry.
-	local probe = self.HangClearanceProbe
-	if not probe or not probe.Parent then
-		probe = Instance.new("Part")
-		probe.Name = "ParkourHangClearanceProbe"
-		probe.Anchored = true
-		probe.CanCollide = false
-		probe.CanTouch = false
-		probe.CanQuery = false
-		probe.CollisionGroup = CLIMBABLE_GROUP
-		probe.Transparency = 1
-		probe.CastShadow = false
-		probe.Parent = Workspace
-		self.HangClearanceProbe = probe
+	local probe: BasePart
+	local existing_probe = self.HangClearanceProbe
+	if existing_probe and existing_probe.Parent then
+		probe = existing_probe
+	else
+		local created = Instance.new("Part")
+		created.Name = "ParkourHangClearanceProbe"
+		created.Anchored = true
+		created.CanCollide = false
+		created.CanTouch = false
+		created.CanQuery = false
+		created.CollisionGroup = CLIMBABLE_GROUP
+		created.Transparency = 1
+		created.CastShadow = false
+		created.Parent = Workspace
+		self.HangClearanceProbe = created
+		probe = created
 	end
 	probe.Size = root.Size + Vector3.new(0.08, 0.08, 0.08)
 	probe.CFrame = target_cframe
@@ -467,7 +488,12 @@ function Queries.has_hang_body_clearance(self, position, normal)
 	return true
 end
 
-function Queries.has_vault_clearance(self, cframe, size, obstacle)
+function Queries.has_vault_clearance(
+	self: Controller,
+	cframe: CFrame,
+	size: Vector3,
+	obstacle: Instance
+): (boolean, BasePart?)
 	local params = self.Query.Overlap.Vault
 	params.FilterDescendantsInstances = { self.Character, obstacle }
 

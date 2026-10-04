@@ -30,6 +30,10 @@ export type Overlap = {
 	Vault: OverlapParams,
 }
 
+-- What a context needs from its controller: the character to exclude and the
+-- metrics state to count into.
+export type Owner = { Character: Model, Metrics: Metrics.State }
+
 local QueryContext = {}
 QueryContext.__index = QueryContext
 
@@ -37,13 +41,13 @@ export type QueryContext = typeof(setmetatable(
 	{} :: {
 		Params: Params,
 		Overlap: Overlap,
-		_controller: any,
+		_controller: Owner,
 		_base: { [RaycastParams]: { Instance } },
 	},
 	QueryContext
 ))
 
-function QueryContext.new(controller: any): QueryContext
+function QueryContext.new(controller: Owner): QueryContext
 	local character = controller.Character
 	assert(typeof(character) == "Instance", "QueryContext.new: controller.Character must be an Instance")
 
@@ -53,7 +57,7 @@ function QueryContext.new(controller: any): QueryContext
 		params.FilterType = filter_type
 		params.IgnoreWater = true
 		params.RespectCanCollide = respect_can_collide
-		local list = if filter_type == Enum.RaycastFilterType.Exclude then { character } else {}
+		local list: { Instance } = if filter_type == Enum.RaycastFilterType.Exclude then { character } else {}
 		params.FilterDescendantsInstances = list
 		base[params] = list
 		return params

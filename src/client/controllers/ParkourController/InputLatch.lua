@@ -8,9 +8,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 
+local CharacterStateModule = require(script.Parent.Parent.CharacterState)
+
 export type Name = "Forward" | "Jump"
-type Poppable = { Pop: (any) -> () }
-type InputLike = { IsDown: (any, string) -> boolean }
+type Handle = CharacterStateModule.Handle
+-- Method `self` is `any` so InputController and spec fakes both fit.
+type InputLike = { IsDown: (self: any, action: string) -> boolean }
 
 local ACTION_OF: { [string]: string } = {
 	Forward = Actions.Forward,
@@ -22,7 +25,7 @@ InputLatch.__index = InputLatch
 
 export type InputLatch = typeof(setmetatable(
 	{} :: {
-		_blocked: { [string]: { Poppable } },
+		_blocked: { [string]: { Handle } },
 	},
 	InputLatch
 ))
@@ -40,7 +43,7 @@ function InputLatch.new(): InputLatch
 end
 
 -- Blocks the latch (or keeps it blocked) and attaches any handles to it.
-function InputLatch.Block(self: InputLatch, name: Name, handles: { Poppable }?)
+function InputLatch.Block(self: InputLatch, name: Name, handles: { Handle }?)
 	assert_name(name)
 	local attached = self._blocked[name]
 	if not attached then

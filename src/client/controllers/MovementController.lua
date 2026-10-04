@@ -1,3 +1,4 @@
+--!strict
 -- Walk/sprint speed for the local character. Sprinting requires Sprint held,
 -- actual movement, and CharacterState allowing "Sprint" (hanging, vaulting or
 -- rooted attacks block it). This controller is the sole writer of
@@ -5,25 +6,61 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
-local Trove = require(Packages.Trove)
 local Signal = require(Packages.Signal)
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 local MovementConfig = require(ReplicatedStorage.shared.config).Movement
 
+local ClientTrove = require(script.Parent.Parent.ClientTrove)
+local CharacterStateModule = require(script.Parent.CharacterState)
+
+type Signal = typeof(Signal.new())
+type Trove = ClientTrove.Trove
+
+-- The input dependency (InputController or a spec fake). Method `self` is
+-- `any` so both metatable classes and plain fakes satisfy the shape.
+export type InputLike = {
+	ActionBegan: Signal,
+	ActionEnded: Signal,
+	IsDown: (self: any, action: string) -> boolean,
+}
+
+export type Deps = {
+	character: Model,
+	input: InputLike,
+	state: CharacterStateModule.CharacterState,
+}
+
 local MovementController = {}
 MovementController.__index = MovementController
 
--- deps.character: Model; deps.input: InputController-like (ActionBegan,
--- ActionEnded, IsDown); deps.state: CharacterState.
-function MovementController.new(deps)
+export type MovementController = typeof(setmetatable(
+	{} :: {
+		Character: Model,
+		Input: InputLike,
+		CharacterState: CharacterStateModule.CharacterState,
+		Trove: Trove,
+		Humanoid: Humanoid?,
+		HumanoidTrove: Trove?,
+		DefaultWalkSpeed: number,
+		SprintSpeed: number,
+		Sprinting: boolean,
+		-- Fires (sprinting: boolean) when the sprint state changes.
+		SprintingChanged: Signal,
+	},
+	MovementController
+))
+
+-- deps.input: InputController-like (ActionBegan, ActionEnded, IsDown);
+-- deps.state: CharacterState.
+function MovementController.new(deps: Deps): MovementController
 	Deps.check(deps, "MovementController", { "character", "input", "state" })
-	local self = setmetatable({
+	local self: MovementController = setmetatable({
 		Character = deps.character,
 		Input = deps.input,
 		CharacterState = deps.state,
-		Trove = Trove.new(),
+		Trove = ClientTrove.new(),
 
 		Humanoid = nil,
 		HumanoidTrove = nil,
@@ -35,7 +72,7 @@ function MovementController.new(deps)
 	}, MovementController)
 
 	self.Trove:Add(self.SprintingChanged)
-	local ok, err = pcall(self._start, self)
+	local ok, err = pcall(self._start :: (MovementController) -> any, self)
 	if not ok then
 		self:Destroy()
 		error(err, 0)
@@ -44,14 +81,14 @@ function MovementController.new(deps)
 	return self
 end
 
-function MovementController:_start()
+function MovementController._start(self: MovementController)
 	local humanoid = self.Character:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		self:_set_humanoid(humanoid)
 	else
 		self.Trove:Connect(
 			self.Character.ChildAdded,
-			function(child)
+			function(child: Instance)
 				if child:IsA("Humanoid") then
 					self:_set_humanoid(child)
 				end
@@ -84,18 +121,22 @@ function MovementController:_start()
 	end)
 end
 
-function MovementController:_set_humanoid(humanoid)
+function MovementController._set_humanoid(self: MovementController, humanoid: Humanoid)
 	self.Humanoid = humanoid
 
 	-- MovementConfig (or a SetSpeeds override) is authoritative for speed;
 	-- _update_sprinting writes it to the Humanoid instead of adopting the
 	-- Humanoid's existing WalkSpeed.
-	if self.HumanoidTrove then
-		self.HumanoidTrove:Clean()
+	local humanoid_trove: Trove
+	local existing = self.HumanoidTrove
+	if existing then
+		existing:Clean()
+		humanoid_trove = existing
 	else
-		self.HumanoidTrove = self.Trove:Extend()
+		humanoid_trove = self.Trove:Extend()
+		self.HumanoidTrove = humanoid_trove
 	end
-	self.HumanoidTrove:Connect(
+	humanoid_trove:Connect(
 		humanoid:GetPropertyChangedSignal("MoveDirection"),
 		function()
 			self:_update_sprinting()
@@ -105,13 +146,13 @@ function MovementController:_set_humanoid(humanoid)
 	self:_update_sprinting()
 end
 
-function MovementController:_is_moving()
+function MovementController._is_moving(self: MovementController): boolean
 	local humanoid = self.Humanoid
 	return humanoid ~= nil
 		and humanoid.MoveDirection.Magnitude >= MovementConfig.SprintMinMoveMagnitude
 end
 
-function MovementController:_update_sprinting()
+function MovementController._update_sprinting(self: MovementController)
 	-- Holding Sprint while standing still must not enter the sprint state.
 	local sprinting = self.Input:IsDown(Actions.Sprint) == true
 		and self:_is_moving()
@@ -133,8 +174,8 @@ function MovementController:_update_sprinting()
 	end
 end
 
-function MovementController:SetSpeeds(walk_speed, sprint_speed)
-	local function is_valid_speed(value)
+function MovementController.SetSpeeds(self: MovementController, walk_speed: number, sprint_speed: number): boolean
+	local function is_valid_speed(value: any): boolean
 		return typeof(value) == "number" and math.isfinite(value) and value >= 0
 	end
 
@@ -148,11 +189,11 @@ function MovementController:SetSpeeds(walk_speed, sprint_speed)
 	return true
 end
 
-function MovementController:IsSprinting()
+function MovementController.IsSprinting(self: MovementController): boolean
 	return self.Sprinting
 end
 
-function MovementController:Destroy()
+function MovementController.Destroy(self: MovementController)
 	self.Trove:Destroy()
 end
 

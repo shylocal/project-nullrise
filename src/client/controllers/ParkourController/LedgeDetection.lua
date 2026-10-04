@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Vector = require(ReplicatedStorage.shared.utility.Vector)
@@ -5,6 +6,12 @@ local SharedConfig = require(ReplicatedStorage.shared.config)
 
 local Metrics = require(script.Parent.Metrics)
 local Queries = require(script.Parent.Queries)
+local ClimbableIndex = require(script.Parent.ClimbableIndex)
+local QueryContext = require(script.Parent.QueryContext)
+local Types = require(script.Parent.Types)
+
+type Controller = Types.Controller
+type GuideTop = Types.GuideTop
 
 local Config = SharedConfig.Parkour
 local CLIMBABLE_GROUP = SharedConfig.World.CollisionGroups.Climbable
@@ -17,7 +24,13 @@ local HIGHER_INWARD_SAMPLES = { -1, 0.5, 1.5, 3, 5, 7 }
 local GROUND_INWARD_OFFSETS = { 0.5, 1, 1.75, 2.75, 4, 5.5, 7 }
 local GROUND_LATERAL_FACTORS = { 0, -1, 1 }
 
-function LedgeDetection.is_guide_within_mantle_search(self, guide, current_top, normal, tangent)
+function LedgeDetection.is_guide_within_mantle_search(
+	self: Controller,
+	guide: Instance,
+	current_top: Vector3,
+	normal: Vector3,
+	tangent: Vector3
+): boolean
 	if not guide:IsA("BasePart") and not guide:IsA("Model") then
 		return false
 	end
@@ -38,7 +51,7 @@ end
 -- +-MantleMaxLateral along `tangent`, vertical +-(MantleMaxRise + 1). Guides
 -- outside it cannot yield a valid top, so the index lookup selects the same
 -- guides as scanning every tagged guide.
-function LedgeDetection.mantle_search_box(current_top, normal, tangent)
+function LedgeDetection.mantle_search_box(current_top: Vector3, normal: Vector3, tangent: Vector3): (CFrame?, Vector3?)
 	local inward = -Vector.flatten(normal)
 	if inward.Magnitude < 0.05 then
 		return nil
@@ -53,7 +66,7 @@ function LedgeDetection.mantle_search_box(current_top, normal, tangent)
 	-- The lateral limit is measured along `tangent`, which need not be exactly
 	-- perpendicular to the normal; widen the box to cover that skew.
 	local flat_tangent = Vector.flatten(tangent)
-	local lateral_half
+	local lateral_half: number
 	local along_right = flat_tangent.Magnitude >= 0.05 and math.abs(flat_tangent.Unit:Dot(right)) or 0
 	if along_right < 0.1 then
 		lateral_half = Config.MantleMaxLateral + Config.MantleMaxInward + Config.MantleMaxOutward
@@ -66,9 +79,15 @@ function LedgeDetection.mantle_search_box(current_top, normal, tangent)
 	return cframe, Vector3.new(lateral_half * 2, vertical_half * 2, inward_half * 2)
 end
 
-local function visit_tagged_guides(self, current_top, normal, tangent, visit)
+local function visit_tagged_guides(
+	self: Controller,
+	current_top: Vector3,
+	normal: Vector3,
+	tangent: Vector3,
+	visit: (Instance) -> ()
+)
 	local box_cframe, box_size = LedgeDetection.mantle_search_box(current_top, normal, tangent)
-	if not box_cframe then
+	if not box_cframe or not box_size then
 		return
 	end
 	local candidates = self.Climbables:QueryBox(box_cframe, box_size)
@@ -89,8 +108,13 @@ local function visit_tagged_guides(self, current_top, normal, tangent, visit)
 	end
 end
 
-function LedgeDetection.select_lower_top(current_top, normal, tangent, tops)
-	local best_top = nil
+function LedgeDetection.select_lower_top(
+	current_top: Vector3,
+	normal: Vector3,
+	tangent: Vector3,
+	tops: { GuideTop }
+): GuideTop?
+	local best_top: GuideTop? = nil
 	local best_drop = math.huge
 	local best_distance = math.huge
 
@@ -120,10 +144,15 @@ function LedgeDetection.select_lower_top(current_top, normal, tangent, tops)
 	return best_top
 end
 
-function LedgeDetection.find_lower_ledge(self, current_top, normal, tangent)
-	local best_top = nil
+function LedgeDetection.find_lower_ledge(
+	self: Controller,
+	current_top: Vector3,
+	normal: Vector3,
+	tangent: Vector3
+): GuideTop?
+	local best_top: GuideTop? = nil
 
-	visit_tagged_guides(self, current_top, normal, tangent, function(guide)
+	visit_tagged_guides(self, current_top, normal, tangent, function(guide: Instance)
 		for _, lateral_offset in ipairs(LATERAL_SAMPLES) do
 			for _, inward_offset in ipairs(LOWER_INWARD_SAMPLES) do
 				Metrics.record(self, "GuideColumns")
@@ -156,16 +185,20 @@ function LedgeDetection.find_lower_ledge(self, current_top, normal, tangent)
 	return best_top
 end
 
-function LedgeDetection.get_ledge_outward_normal(self, top, reference_position)
+function LedgeDetection.get_ledge_outward_normal(
+	self: Controller,
+	top: GuideTop?,
+	reference_position: Vector3
+): Vector3?
 	if not top or not top.Instance or not top.Instance:IsA("BasePart") then
 		return nil
 	end
 
 	local part = top.Instance
 	local guide = top.Guide or self.Climbables:GuideOf(part) or part
-	local axes = {}
+	local axes: { Vector3 } = {}
 
-	local function add_axis(axis)
+	local function add_axis(axis: Vector3)
 		local horizontal = Vector.flatten(axis)
 		if horizontal.Magnitude < 0.05 then return end
 		horizontal = horizontal.Unit
@@ -186,7 +219,7 @@ function LedgeDetection.get_ledge_outward_normal(self, top, reference_position)
 
 	local probe_length = Config.WallGap + Config.SurfaceProbe + 2
 	local probe_y = top.Position.Y - Config.HangDrop + 1.5
-	local best_normal = nil
+	local best_normal: Vector3? = nil
 	local best_score = math.huge
 
 	for _, outward in ipairs(axes) do
@@ -218,8 +251,15 @@ function LedgeDetection.get_ledge_outward_normal(self, top, reference_position)
 	return best_normal
 end
 
-function LedgeDetection.select_higher_top(current_top, normal, tangent, root_y, tops, climbables)
-	local best_top = nil
+function LedgeDetection.select_higher_top(
+	current_top: Vector3,
+	normal: Vector3,
+	tangent: Vector3,
+	root_y: number,
+	tops: { GuideTop },
+	climbables: ClimbableIndex.ClimbableIndex
+): GuideTop?
+	local best_top: GuideTop? = nil
 	local best_height = math.huge
 	local best_distance = math.huge
 
@@ -260,13 +300,19 @@ function LedgeDetection.select_higher_top(current_top, normal, tangent, root_y, 
 	return best_top
 end
 
-function LedgeDetection.find_higher_ledge(self, current_top, normal, tangent, root_y)
+function LedgeDetection.find_higher_ledge(
+	self: Controller,
+	current_top: Vector3,
+	normal: Vector3,
+	tangent: Vector3,
+	root_y: number?
+): GuideTop?
 	if not root_y then
 		return nil
 	end
 
-	local best_top = nil
-	visit_tagged_guides(self, current_top, normal, tangent, function(guide)
+	local best_top: GuideTop? = nil
+	visit_tagged_guides(self, current_top, normal, tangent, function(guide: Instance)
 		for _, lateral_offset in ipairs(LATERAL_SAMPLES) do
 			for _, inward_offset in ipairs(HIGHER_INWARD_SAMPLES) do
 				Metrics.record(self, "GuideColumns")
@@ -303,13 +349,13 @@ function LedgeDetection.find_higher_ledge(self, current_top, normal, tangent, ro
 	return best_top
 end
 
-local function classify_mantle_ground(hit)
+local function classify_mantle_ground(hit: RaycastResult): QueryContext.Verdict
 	local is_climbable_group = hit.Instance:IsA("BasePart")
 		and hit.Instance.CollisionGroup == CLIMBABLE_GROUP
 	return if is_climbable_group then "skip" else "accept"
 end
 
-local function cast_mantle_ground(self, origin, direction)
+local function cast_mantle_ground(self: Controller, origin: Vector3, direction: Vector3): RaycastResult?
 	return self.Query:Pierce(
 		origin,
 		direction,
@@ -320,7 +366,16 @@ local function cast_mantle_ground(self, origin, direction)
 	)
 end
 
-function LedgeDetection.find_ground_mantle(self, current_top, normal, tangent, current_climbable, root_y, standing_height, root_size_x)
+function LedgeDetection.find_ground_mantle(
+	self: Controller,
+	current_top: Vector3,
+	normal: Vector3,
+	tangent: Vector3,
+	current_climbable: Instance,
+	root_y: number?,
+	standing_height: number?,
+	root_size_x: number?
+): RaycastResult?
 	if not root_y or not standing_height or not root_size_x then
 		return nil
 	end
@@ -337,7 +392,7 @@ function LedgeDetection.find_ground_mantle(self, current_top, normal, tangent, c
 	local lateral_step = math.max(root_size_x * 0.45, 0.4)
 	local ray_origin_y = current_top.Y + max_rise + standing_height + 2
 	local ray_length = max_rise + standing_height + 4
-	local best_ground = nil
+	local best_ground: RaycastResult? = nil
 	local best_score = math.huge
 
 	for _, inward_offset in ipairs(GROUND_INWARD_OFFSETS) do

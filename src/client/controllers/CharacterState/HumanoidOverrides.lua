@@ -27,8 +27,9 @@ local PROPERTIES: { [string]: boolean } = {
 export type Handle = typeof(setmetatable(
 	{} :: {
 		Owner: string,
+		-- Property values differ per property (boolean or number).
 		Values: { [string]: any },
-		_overrides: any,
+		_overrides: HumanoidOverrides,
 		_popped: boolean,
 	},
 	Handle
@@ -185,7 +186,7 @@ function Handle.Set(self: Handle, property: Property, value: any)
 		error(("HumanoidOverrides: handle '%s' did not push %s"):format(self.Owner, tostring(property)), 2)
 	end
 	self.Values[property] = value
-	local overrides = self._overrides :: HumanoidOverrides
+	local overrides = self._overrides
 	local stack = overrides._stacks[property]
 	if stack and stack[#stack] == self then
 		write_property(overrides.Humanoid, property, value)
@@ -201,7 +202,7 @@ function Handle.Pop(self: Handle)
 		return
 	end
 	self._popped = true
-	local overrides = self._overrides :: HumanoidOverrides
+	local overrides = self._overrides
 	for property in self.Values do
 		overrides:_pop_property(self, property)
 	end
