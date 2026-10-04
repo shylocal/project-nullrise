@@ -13,7 +13,7 @@ Last updated: 2026-10-05. Work happens directly on `main` (commit + push without
 | Phase 2 – features (data-driven moves, DamageService, lag compensation, CombatFx, items + ProfileStore persistence, asset contracts, animation manifest tool, selene, Wally) | Done, pushed (839c7b3..7466199) |
 | Phase 3 – `--!strict` everywhere + naming + dead code + early-HitStart hit buffer | Done, pushed |
 | Integrate 3 (analyzer zero, rojo build, commit, push) | Done, pushed (see plan §19) |
-| Adversarial review (server+shared lens, client lens) | **Next.** Not started |
+| Adversarial review (server+shared lens, client lens) | Done (ecdd430): 10 findings, none critical or high, in `docs/refactor/REVIEW_FINDINGS.md`. **Next:** fix them (server 1–7, client 8–10), then Finish docs |
 | Finish (fix confirmed bugs, docs/ARCHITECTURE.md from the plan, update docs, commit, push) | Not started |
 
 Nothing after Phase 2 has been run in Studio yet. The pre-refactor baseline was 151/151.
