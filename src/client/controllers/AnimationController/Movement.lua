@@ -1,8 +1,23 @@
+--!strict
 -- Locomotion layer: the weapon's Idle and Sprint tracks.
+local Types = require(script.Parent.Types)
+
+type Track = Types.Track
+
+type MovementFields = {
+	Controller: Types.Host,
+	Weapon: Types.WeaponDefinition?,
+	Sprinting: boolean,
+	IdleTrack: Track?,
+	SprintTrack: Track?,
+}
+
 local Movement = {}
 Movement.__index = Movement
 
-function Movement.new(animation_controller)
+export type Movement = typeof(setmetatable({} :: MovementFields, Movement))
+
+function Movement.new(animation_controller: Types.Host): Movement
 	local self = setmetatable({
 		Controller = animation_controller,
 		Weapon = nil,
@@ -10,17 +25,17 @@ function Movement.new(animation_controller)
 
 		IdleTrack = nil,
 		SprintTrack = nil,
-	}, Movement)
+	} :: MovementFields, Movement)
 
 	return self
 end
 
-function Movement:SetWeapon(weapon)
+function Movement.SetWeapon(self: Movement, weapon: Types.WeaponDefinition?)
 	self.Weapon = weapon
 	self:_load()
 end
 
-function Movement:SetSprinting(sprinting)
+function Movement.SetSprinting(self: Movement, sprinting: boolean)
 	if self.Sprinting == sprinting then
 		return
 	end
@@ -29,7 +44,7 @@ function Movement:SetSprinting(sprinting)
 	self:Update()
 end
 
-function Movement:_load()
+function Movement._load(self: Movement)
 	self.IdleTrack = nil
 	self.SprintTrack = nil
 
@@ -44,13 +59,12 @@ function Movement:_load()
 	self:Update()
 end
 
-function Movement:Update()
+function Movement.Update(self: Movement)
 	local idle_track = self.IdleTrack
+	local weapon = self.Weapon
 
 	if idle_track and not idle_track.IsPlaying then
-		local definition = self.Weapon
-			and self.Weapon.Animations
-			and self.Weapon.Animations.Idle
+		local definition = weapon and weapon.Animations and weapon.Animations.Idle
 
 		idle_track:Play(definition and definition.TransitionTime or 0)
 	end
@@ -65,9 +79,7 @@ function Movement:Update()
 
 	if self.Sprinting then
 		if not sprint_track.IsPlaying then
-			local definition = self.Weapon
-				and self.Weapon.Animations
-				and self.Weapon.Animations.Sprint
+			local definition = weapon and weapon.Animations and weapon.Animations.Sprint
 
 			sprint_track:Play(definition and definition.TransitionTime or 0)
 		end
@@ -80,7 +92,7 @@ function Movement:Update()
 	end
 end
 
-function Movement:Clear()
+function Movement.Clear(self: Movement)
 	local idle_track = self.IdleTrack
 	local sprint_track = self.SprintTrack
 

@@ -1,10 +1,23 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ShapecastHitbox = require(ReplicatedStorage.packages.ShapecastHitbox)
 local CharacterQuery = require(ReplicatedStorage.shared.combat.CharacterQuery)
 
+-- (hit character, raycast result, the wielded segment's instance?)
+export type OnHit = (hit_character: Model, raycast_result: RaycastResult, segment_instance: Instance?) -> ()
+
+type HitboxFields = {
+	Character: Model,
+	Shapecast: ShapecastHitbox.Hitbox,
+	-- Characters already hit during the current swing.
+	HitCharacters: { [Model]: boolean },
+}
+
 local Hitbox = {}
 Hitbox.__index = Hitbox
+
+export type Hitbox = typeof(setmetatable({} :: HitboxFields, Hitbox))
 
 -- Resolves a raw hit part to the living character it belongs to, or nil for
 -- the owner, map geometry and dead humanoids. Nested models (an enemy's
@@ -17,7 +30,7 @@ function Hitbox.resolve_target(owner: Instance, hit_part: Instance?): Model?
 	return target
 end
 
-function Hitbox.new(character, wielded, on_hit)
+function Hitbox.new(character: Model, wielded: Instance, on_hit: OnHit): Hitbox
 	local raycast_params = RaycastParams.new()
 	raycast_params.FilterType = Enum.RaycastFilterType.Exclude
 	raycast_params.FilterDescendantsInstances = { character }
@@ -28,9 +41,9 @@ function Hitbox.new(character, wielded, on_hit)
 		Character = character,
 		Shapecast = shapecast,
 		HitCharacters = {},
-	}, Hitbox)
+	} :: HitboxFields, Hitbox)
 
-	shapecast:OnHit(function(raycast_result, segment)
+	shapecast:OnHit(function(raycast_result: RaycastResult, segment: ShapecastHitbox.Segment?)
 		-- Only living characters are forwarded, so walls, props and map
 		-- container models never consume the per-target dedupe slot.
 		local hit_character = Hitbox.resolve_target(character, raycast_result.Instance)
@@ -52,18 +65,18 @@ end
 
 -- Hitboxes are reused across swings: each Start begins a fresh per-target
 -- dedupe for the new swing.
-function Hitbox:Start()
+function Hitbox.Start(self: Hitbox)
 	table.clear(self.HitCharacters)
 	self.Shapecast:HitStart()
 end
 
-function Hitbox:Stop()
+function Hitbox.Stop(self: Hitbox)
 	if self.Shapecast.Active then
 		self.Shapecast:HitStop()
 	end
 end
 
-function Hitbox:Destroy()
+function Hitbox.Destroy(self: Hitbox)
 	self:Stop()
 	table.clear(self.HitCharacters)
 	self.Shapecast:Destroy()

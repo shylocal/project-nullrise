@@ -1,24 +1,37 @@
+--!strict
 -- Equip animation layer.
+local Types = require(script.Parent.Types)
+
+type Track = Types.Track
+
+type WeaponFields = {
+	Controller: Types.Host,
+	Weapon: Types.WeaponDefinition?,
+	EquipTrack: Track?,
+}
+
 local Weapon = {}
 Weapon.__index = Weapon
 
-function Weapon.new(animation_controller)
+export type Weapon = typeof(setmetatable({} :: WeaponFields, Weapon))
+
+function Weapon.new(animation_controller: Types.Host): Weapon
 	local self = setmetatable({
 		Controller = animation_controller,
 		Weapon = nil,
 		EquipTrack = nil,
-	}, Weapon)
+	} :: WeaponFields, Weapon)
 
 	return self
 end
 
-function Weapon:SetWeapon(weapon)
+function Weapon.SetWeapon(self: Weapon, weapon: Types.WeaponDefinition?)
 	self.Weapon = weapon
 	self:_load()
 	self:PlayEquip()
 end
 
-function Weapon:_load()
+function Weapon._load(self: Weapon): Track?
 	self.EquipTrack = nil
 
 	local weapon = self.Weapon
@@ -26,28 +39,25 @@ function Weapon:_load()
 		return nil
 	end
 
-	self.EquipTrack = self.Controller:Track("Equip", weapon.Animations and weapon.Animations.Equip)
+	local track = self.Controller:Track("Equip", weapon.Animations and weapon.Animations.Equip)
+	self.EquipTrack = track
 
-	return self.EquipTrack
+	return track
 end
 
-function Weapon:PlayEquip()
+function Weapon.PlayEquip(self: Weapon): Track?
 	local track = self.EquipTrack or self:_load()
 	if not track then
 		return nil
 	end
 
-	local definition = self.Weapon
-		and self.Weapon.Animations
-		and self.Weapon.Animations.Equip
+	local weapon = self.Weapon
+	local definition = weapon and weapon.Animations and weapon.Animations.Equip
 
-	return self.Controller:PlayAction(
-		track,
-		definition and definition.TransitionTime or 0
-	)
+	return self.Controller:PlayAction(track, definition and definition.TransitionTime or 0)
 end
 
-function Weapon:Clear()
+function Weapon.Clear(self: Weapon)
 	local track = self.EquipTrack
 	self.EquipTrack = nil
 

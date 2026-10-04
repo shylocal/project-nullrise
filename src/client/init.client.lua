@@ -1,3 +1,4 @@
+--!strict
 -- Client composition root. Services are built in order and torn down in
 -- reverse by the Runtime; session clients outlive every character.
 

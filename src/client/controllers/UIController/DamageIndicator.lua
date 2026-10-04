@@ -1,7 +1,20 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Trove = require(ReplicatedStorage.packages.Trove)
+local Trove = require(script.Parent.Parent.Parent.ClientTrove)
 local Config = require(ReplicatedStorage.shared.config)
+-- Type only: UI modules are built by UIController after it has loaded.
+local UIController = require(script.Parent)
+
+type Trove = Trove.Trove
+
+type DamageIndicatorFields = {
+	Trove: Trove,
+	UIController: UIController.UIController,
+	Gui: ScreenGui?,
+	Flash: GuiObject?,
+	FlashId: number,
+}
 
 -- Flashes a screen overlay when the local character takes damage
 -- (CombatClient.Damaged). The ScreenGui template "DamageIndicator", with a
@@ -9,18 +22,20 @@ local Config = require(ReplicatedStorage.shared.config)
 local DamageIndicator = {}
 DamageIndicator.__index = DamageIndicator
 
+export type DamageIndicator = typeof(setmetatable({} :: DamageIndicatorFields, DamageIndicator))
+
 local TEMPLATE_NAME = "DamageIndicator"
 local FLASH_NAME = "Flash"
 local DISPLAY_TIME = 0.15
 
-function DamageIndicator.new(ui_controller)
+function DamageIndicator.new(ui_controller: UIController.UIController): DamageIndicator
 	local self = setmetatable({
 		Trove = Trove.new(),
 		UIController = ui_controller,
 		Gui = nil,
 		Flash = nil,
 		FlashId = 0,
-	}, DamageIndicator)
+	} :: DamageIndicatorFields, DamageIndicator)
 
 	local ok, err = pcall(self._start, self)
 	if not ok then
@@ -37,7 +52,7 @@ local function has_template(): boolean
 	return template ~= nil and template:IsA("ScreenGui")
 end
 
-function DamageIndicator:_start()
+function DamageIndicator._start(self: DamageIndicator)
 	-- The template is optional, so its absence is not reported.
 	if not has_template() then
 		return
@@ -69,7 +84,7 @@ function DamageIndicator:_start()
 	end)
 end
 
-function DamageIndicator:Show()
+function DamageIndicator.Show(self: DamageIndicator)
 	local flash = self.Flash
 	if not flash then
 		return
@@ -80,13 +95,14 @@ function DamageIndicator:Show()
 	flash.Visible = true
 
 	task.delay(DISPLAY_TIME, function()
-		if self.FlashId == flash_id and self.Flash then
-			self.Flash.Visible = false
+		local current = self.Flash
+		if self.FlashId == flash_id and current then
+			current.Visible = false
 		end
 	end)
 end
 
-function DamageIndicator:Destroy()
+function DamageIndicator.Destroy(self: DamageIndicator)
 	self.Trove:Destroy()
 	self.Flash = nil
 	self.Gui = nil

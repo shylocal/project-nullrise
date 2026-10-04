@@ -16,17 +16,29 @@ export type AnimationDef = {
 	SharedWith: string?,
 }
 
+export type Track = AnimationTrack
+
+-- An Animator, or a spec fake that loads fake tracks.
 export type AnimatorLike = {
-	LoadAnimation: (self: any, animation: Animation) -> any,
+	LoadAnimation: (self: any, animation: Animation) -> Track,
 }
 
 export type Preload = { Destroy: () -> () }
+
+type TrackCacheFields = {
+	Animator: Animator | AnimatorLike,
+	-- "role:id" -> track
+	Tracks: { [string]: Track },
+	_destroyed: boolean,
+}
 
 -- One Animation instance per id for the whole client session.
 local animations: { [string]: Animation } = {}
 
 local TrackCache = {}
 TrackCache.__index = TrackCache
+
+export type TrackCache = typeof(setmetatable({} :: TrackCacheFields, TrackCache))
 
 function TrackCache.animation(id: string): Animation
 	local existing = animations[id]
@@ -40,33 +52,37 @@ function TrackCache.animation(id: string): Animation
 	return animation
 end
 
-function TrackCache.new(animator: AnimatorLike)
+function TrackCache.new(animator: Animator | AnimatorLike): TrackCache
 	return setmetatable({
 		Animator = animator,
-		Tracks = {} :: { [string]: any },
+		Tracks = {},
 		_destroyed = false,
-	}, TrackCache)
+	} :: TrackCacheFields, TrackCache)
 end
 
 -- Priority and Looped are applied on first load only; a role keeps its track
 -- for the cache's lifetime.
-function TrackCache:Get(role: string, def: AnimationDef): any
+function TrackCache.Get(self: TrackCache, role: string, def: AnimationDef): Track
 	assert(not self._destroyed, "TrackCache:Get called after Destroy")
 
 	local key = role .. ":" .. def.Id
-	local track = self.Tracks[key]
-	if track then
-		return track
+	local cached = self.Tracks[key]
+	if cached then
+		return cached
 	end
 
-	track = self.Animator:LoadAnimation(TrackCache.animation(def.Id))
+	local animator = self.Animator
+	local animation = TrackCache.animation(def.Id)
+	local track = if typeof(animator) == "Instance"
+		then animator:LoadAnimation(animation)
+		else animator:LoadAnimation(animation)
 	track.Priority = def.Priority
 	track.Looped = def.Looped
 	self.Tracks[key] = track
 	return track
 end
 
-function TrackCache:Destroy()
+function TrackCache.Destroy(self: TrackCache)
 	if self._destroyed then
 		return
 	end

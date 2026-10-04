@@ -1,15 +1,33 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Trove = require(ReplicatedStorage.packages.Trove)
+local Trove = require(script.Parent.Parent.Parent.ClientTrove)
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local ItemCatalog = require(ReplicatedStorage.shared.items.ItemCatalog)
+local LoadoutClient = require(script.Parent.Parent.Parent.session.LoadoutClient)
+-- Type only: UI modules are built by UIController after it has loaded.
+local UIController = require(script.Parent)
+
+type Trove = Trove.Trove
+
+type WeaponMenuFields = {
+	Trove: Trove,
+	UIController: UIController.UIController,
+	Loadout: LoadoutClient.LoadoutClient,
+	Gui: ScreenGui?,
+	-- weapon id -> its button
+	Buttons: { [string]: GuiButton },
+	SelectedWeapon: string?,
+}
 
 -- Display-only mirror of the session LoadoutClient. Button presses only
 -- request a selection and never change the display directly.
 local WeaponMenu = {}
 WeaponMenu.__index = WeaponMenu
 
-function WeaponMenu.new(ui_controller)
+export type WeaponMenu = typeof(setmetatable({} :: WeaponMenuFields, WeaponMenu))
+
+function WeaponMenu.new(ui_controller: UIController.UIController): WeaponMenu
 	local self = setmetatable({
 		Trove = Trove.new(),
 		UIController = ui_controller,
@@ -17,7 +35,7 @@ function WeaponMenu.new(ui_controller)
 		Gui = nil,
 		Buttons = {},
 		SelectedWeapon = nil,
-	}, WeaponMenu)
+	} :: WeaponMenuFields, WeaponMenu)
 
 	local ok, err = pcall(self._start, self)
 	if not ok then
@@ -28,7 +46,7 @@ function WeaponMenu.new(ui_controller)
 	return self
 end
 
-function WeaponMenu:_start()
+function WeaponMenu._start(self: WeaponMenu)
 	-- A missing template leaves Buttons empty, which makes every method a no-op.
 	local gui = self.UIController:CloneTemplate("WeaponMenu")
 	if not gui then
@@ -67,10 +85,10 @@ function WeaponMenu:_start()
 		end)
 	end
 
-	self.Trove:Connect(self.Loadout.InventoryChanged, function(entries, selected_slot)
+	self.Trove:Connect(self.Loadout.InventoryChanged, function(entries: { LoadoutClient.InventoryEntry }, selected_slot: number)
 		self:_show_inventory(entries, selected_slot)
 	end)
-	self.Trove:Connect(self.Loadout.EquippedChanged, function(weapon_id)
+	self.Trove:Connect(self.Loadout.EquippedChanged, function(weapon_id: string)
 		self:_show_equipped(weapon_id)
 	end)
 
@@ -81,12 +99,12 @@ end
 
 -- The default weapon is implicit and always available; any other button is
 -- shown only while the server reports an item granting that weapon in a slot.
-function WeaponMenu:_show_inventory(entries, selected_slot)
+function WeaponMenu._show_inventory(self: WeaponMenu, entries: { LoadoutClient.InventoryEntry }, selected_slot: number)
 	if typeof(entries) ~= "table" then
 		return
 	end
 
-	local owned = { [Catalog.DefaultId] = true }
+	local owned: { [string]: boolean } = { [Catalog.DefaultId] = true }
 	local selected_weapon = Catalog.DefaultId
 
 	for _, entry in ipairs(entries) do
@@ -114,11 +132,11 @@ function WeaponMenu:_show_inventory(entries, selected_slot)
 	self:_set_selected(selected_weapon)
 end
 
-function WeaponMenu:_show_equipped(weapon_id)
+function WeaponMenu._show_equipped(self: WeaponMenu, weapon_id: string)
 	self:_set_selected(weapon_id)
 end
 
-function WeaponMenu:_set_selected(weapon_id)
+function WeaponMenu._set_selected(self: WeaponMenu, weapon_id: string)
 	if not self.Buttons[weapon_id] then
 		return
 	end
@@ -133,7 +151,7 @@ function WeaponMenu:_set_selected(weapon_id)
 	end
 end
 
-function WeaponMenu:Destroy()
+function WeaponMenu.Destroy(self: WeaponMenu)
 	self.Trove:Destroy()
 	table.clear(self.Buttons)
 	self.Gui = nil

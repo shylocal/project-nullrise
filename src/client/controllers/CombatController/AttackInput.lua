@@ -1,17 +1,26 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 local AttackLifecycle = require(script.Parent.AttackLifecycle)
+local Types = require(script.Parent.Types)
+local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
+
+type CombatController = Types.CombatController
+type Move = Types.Move
 
 local AttackInput = {}
 
 -- The weapon's Primary Hold move (a Charge move), or nil.
-function AttackInput.hold_move(weapon)
-	local name = weapon and weapon.Bindings.Primary.Hold
-	return name and weapon.Moves[name]
+function AttackInput.hold_move(weapon: Catalog.WeaponDefinition?): Move?
+	if not weapon then
+		return nil
+	end
+	local name = weapon.Bindings.Primary.Hold
+	return if name then weapon.Moves[name] else nil
 end
 
-function AttackInput.primary_began(self)
+function AttackInput.primary_began(self: CombatController)
 	self.PrimaryHeld = true
 	self.PrimaryPressId += 1
 
@@ -42,8 +51,9 @@ function AttackInput.primary_began(self)
 	self:Attack()
 end
 
-function AttackInput.buffer_hold(self, press_id, hold_move)
-	self.Scheduler.after(hold_move.Hold.HoldTime, function()
+function AttackInput.buffer_hold(self: CombatController, press_id: number, hold_move: Move)
+	local hold = assert(hold_move.Hold, "Hold moves define Hold")
+	self.Scheduler.after(hold.HoldTime, function()
 		if self.PrimaryPressId ~= press_id or not self.PrimaryHeld then
 			return
 		end
@@ -57,7 +67,7 @@ function AttackInput.buffer_hold(self, press_id, hold_move)
 	end)
 end
 
-function AttackInput.primary_ended(self)
+function AttackInput.primary_ended(self: CombatController)
 	self.PrimaryHeld = false
 	self.PrimaryPressId += 1
 
@@ -78,7 +88,7 @@ end
 -- Releases the active charge: when its HitStart marker was already reached the
 -- hit starts now, otherwise the resumed animation reaches the marker and the
 -- hit starts there. Called on input release and when MaxHoldTime is reached.
-function AttackInput.release_charge(self)
+function AttackInput.release_charge(self: CombatController)
 	if not self.Charging then
 		return
 	end
@@ -99,7 +109,7 @@ function AttackInput.release_charge(self)
 	end
 end
 
-function AttackInput.resolve_buffered_attack(self)
+function AttackInput.resolve_buffered_attack(self: CombatController)
 	if self.BufferedMove == nil then
 		return
 	end

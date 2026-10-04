@@ -1,12 +1,28 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local ContextActionService = game:GetService("ContextActionService")
 
-local Trove = require(ReplicatedStorage.packages.Trove)
+local Trove = require(script.Parent.Parent.ClientTrove)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
+
+type Trove = Trove.Trove
+
+-- (action, source family, physical source id), as InputController.Report.
+export type Report = (action: string, source: string, source_id: string | EnumItem) -> ()
+
+type PCInputFields = {
+	Trove: Trove,
+	OnBegan: Report?,
+	OnEnded: Report?,
+	SprintActive: boolean,
+	_destroyed: boolean,
+}
 
 local PCInput = {}
 PCInput.__index = PCInput
+
+export type PCInput = typeof(setmetatable({} :: PCInputFields, PCInput))
 
 local SPRINT_BINDING = "ProjectNullriseSprint_LeftShift"
 
@@ -50,7 +66,13 @@ local function source_id_of(input: InputObject): EnumItem
 	return input.UserInputType
 end
 
-function PCInput.new(on_began, on_ended)
+local function report(callback: Report?, action: string, source_id: string | EnumItem)
+	if callback then
+		callback(action, "PC", source_id)
+	end
+end
+
+function PCInput.new(on_began: Report, on_ended: Report): PCInput
 	assert(type(on_began) == "function", "PCInput requires on_began")
 	assert(type(on_ended) == "function", "PCInput requires on_ended")
 
@@ -60,7 +82,7 @@ function PCInput.new(on_began, on_ended)
 		OnEnded = on_ended,
 		SprintActive = false,
 		_destroyed = false,
-	}, PCInput)
+	} :: PCInputFields, PCInput)
 
 	local ok, err = xpcall(function()
 		self:_start()
@@ -72,19 +94,24 @@ function PCInput.new(on_began, on_ended)
 	return self
 end
 
-function PCInput:_set_sprint_active(enabled)
+function PCInput._set_sprint_active(self: PCInput, enabled: boolean)
 	if self._destroyed or self.SprintActive == enabled then
 		return
 	end
 	self.SprintActive = enabled
 	if enabled then
-		self.OnBegan(Actions.Sprint, "PC", "SprintToggle")
+		report(self.OnBegan, Actions.Sprint, "SprintToggle")
 	else
-		self.OnEnded(Actions.Sprint, "PC", "SprintToggle")
+		report(self.OnEnded, Actions.Sprint, "SprintToggle")
 	end
 end
 
-function PCInput:_on_sprint_input(_, input_state, input_object)
+function PCInput._on_sprint_input(
+	self: PCInput,
+	_action_name: string,
+	input_state: Enum.UserInputState,
+	input_object: InputObject?
+): Enum.ContextActionResult
 	-- ContextActionService can invoke this binding for other keys in some
 	-- test/adaptor paths; only LeftShift is the configured sprint control.
 	if input_object and input_object.KeyCode ~= Enum.KeyCode.LeftShift then
@@ -99,44 +126,49 @@ function PCInput:_on_sprint_input(_, input_state, input_object)
 	return Enum.ContextActionResult.Pass
 end
 
-function PCInput:_start()
+function PCInput._start(self: PCInput)
 	ContextActionService:UnbindAction(SPRINT_BINDING)
-	ContextActionService:BindAction(SPRINT_BINDING, function(...)
-		return self:_on_sprint_input(...)
-	end, false, Enum.KeyCode.LeftShift)
+	ContextActionService:BindAction(
+		SPRINT_BINDING,
+		function(action_name: string, input_state: Enum.UserInputState, input_object: InputObject)
+			return self:_on_sprint_input(action_name, input_state, input_object)
+		end,
+		false,
+		Enum.KeyCode.LeftShift
+	)
 	self.Trove:Add(function()
 		ContextActionService:UnbindAction(SPRINT_BINDING)
 	end)
 
-	self.Trove:Connect(UserInputService.InputBegan, function(input, game_processed)
+	self.Trove:Connect(UserInputService.InputBegan, function(input: InputObject, game_processed: boolean)
 		if game_processed or input.KeyCode == Enum.KeyCode.LeftShift then
 			return
 		end
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
 		if action then
-			self.OnBegan(action, "PC", source_id_of(input))
+			report(self.OnBegan, action, source_id_of(input))
 		end
 	end)
 
-	self.Trove:Connect(UserInputService.InputEnded, function(input)
+	self.Trove:Connect(UserInputService.InputEnded, function(input: InputObject)
 		if input.KeyCode == Enum.KeyCode.LeftShift then
 			return
 		end
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
 		if action then
-			self.OnEnded(action, "PC", source_id_of(input))
+			report(self.OnEnded, action, source_id_of(input))
 		end
 	end)
 end
 
-function PCInput:Destroy()
+function PCInput.Destroy(self: PCInput)
 	if self._destroyed then
 		return
 	end
 	self._destroyed = true
 	if self.SprintActive and self.OnEnded then
 		self.SprintActive = false
-		self.OnEnded(Actions.Sprint, "PC", "SprintToggle")
+		report(self.OnEnded, Actions.Sprint, "SprintToggle")
 	end
 	self.OnBegan = nil
 	self.OnEnded = nil

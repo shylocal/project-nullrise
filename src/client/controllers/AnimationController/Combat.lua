@@ -1,31 +1,43 @@
+--!strict
 -- Move animation layer. One track per weapon move, with role "Move:<Name>".
+local Types = require(script.Parent.Types)
+
+type Track = Types.Track
+
+type CombatFields = {
+	Controller: Types.Host,
+	Weapon: Types.WeaponDefinition?,
+	-- Move name -> track.
+	MoveTracks: { [string]: Track },
+}
+
 local Combat = {}
 Combat.__index = Combat
 
+export type Combat = typeof(setmetatable({} :: CombatFields, Combat))
+
 local ROLE_PREFIX = "Move:"
 
-function Combat.new(animation_controller)
+function Combat.new(animation_controller: Types.Host): Combat
 	local self = setmetatable({
 		Controller = animation_controller,
 		Weapon = nil,
-
-		-- Move name -> track.
 		MoveTracks = {},
-	}, Combat)
+	} :: CombatFields, Combat)
 
 	return self
 end
 
-function Combat.role(move_name)
+function Combat.role(move_name: string): string
 	return ROLE_PREFIX .. move_name
 end
 
-function Combat:SetWeapon(weapon)
+function Combat.SetWeapon(self: Combat, weapon: Types.WeaponDefinition?)
 	self.Weapon = weapon
 	self:_load()
 end
 
-function Combat:_load()
+function Combat._load(self: Combat)
 	table.clear(self.MoveTracks)
 
 	local weapon = self.Weapon
@@ -35,13 +47,16 @@ function Combat:_load()
 
 	-- Catalog definitions are validated, so every move has an Animation.
 	for name, move in pairs(weapon.Moves) do
-		self.MoveTracks[name] = self.Controller:Track(Combat.role(name), move.Animation)
+		local track = self.Controller:Track(Combat.role(name), move.Animation)
+		if track then
+			self.MoveTracks[name] = track
+		end
 	end
 end
 
 -- Claims the Action channel for the move's track and returns it, or nil when
 -- the move has no loaded track (no animator yet).
-function Combat:BeginMove(move_name)
+function Combat.BeginMove(self: Combat, move_name: string): Track?
 	local track = self.MoveTracks[move_name]
 	if not track then
 		return nil
@@ -52,23 +67,20 @@ function Combat:BeginMove(move_name)
 	return track
 end
 
-function Combat:Play(track, transition_time)
+function Combat.Play(self: Combat, track: Track?, transition_time: number?)
 	self.Controller:Play(track, transition_time)
 end
 
-function Combat:Pause(track)
+function Combat.Pause(self: Combat, track: Track)
 	self.Controller:Pause(track)
 end
 
-function Combat:Resume(track)
+function Combat.Resume(self: Combat, track: Track)
 	self.Controller:Resume(track)
 end
 
-function Combat:StopAction()
-	self.Controller:StopAction()
-end
 
-function Combat:Clear()
+function Combat.Clear(self: Combat)
 	for _, track in pairs(self.MoveTracks) do
 		if track.IsPlaying then
 			track:Stop(0)

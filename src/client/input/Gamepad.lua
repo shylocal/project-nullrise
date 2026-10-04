@@ -1,17 +1,37 @@
+--!strict
 local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 
+-- (action, source family, physical source id), as InputController.Report.
+export type Report = (action: string, source: string, source_id: EnumItem) -> ()
+
+export type Binding = {
+	Name: string,
+	KeyCode: Enum.KeyCode,
+	Sink: boolean,
+	UINavigation: boolean?,
+}
+
+type GamepadInputFields = {
+	-- action -> ContextActionService binding name, for Destroy.
+	Actions: { [string]: string },
+	OnBegan: Report?,
+	OnEnded: Report?,
+}
+
 local GamepadInput = {}
 GamepadInput.__index = GamepadInput
+
+export type GamepadInput = typeof(setmetatable({} :: GamepadInputFields, GamepadInput))
 
 -- Sink: whether a consumed input is hidden from lower-priority bindings.
 -- Jump and the D-pad only observe input so Roblox's default jump and gamepad
 -- UI navigation keep working. UINavigation inputs are not reported at all
 -- while a GuiObject is selected, since they then belong to the UI.
-local Bindings = {
+local Bindings: { [string]: Binding } = {
 	[Actions.Primary] = { Name = "Nullrise_GamepadPrimary", KeyCode = Enum.KeyCode.ButtonR2, Sink = true },
 	[Actions.Sprint] = { Name = "Nullrise_GamepadSprint", KeyCode = Enum.KeyCode.ButtonL3, Sink = true },
 	[Actions.Jump] = { Name = "Nullrise_GamepadJump", KeyCode = Enum.KeyCode.ButtonA, Sink = false, UINavigation = true },
@@ -25,7 +45,7 @@ local Bindings = {
 
 GamepadInput.Bindings = Bindings
 
-function GamepadInput.new(on_began, on_ended)
+function GamepadInput.new(on_began: Report, on_ended: Report): GamepadInput
 	assert(type(on_began) == "function", "GamepadInput requires on_began")
 	assert(type(on_ended) == "function", "GamepadInput requires on_ended")
 
@@ -33,7 +53,7 @@ function GamepadInput.new(on_began, on_ended)
 		Actions = {},
 		OnBegan = on_began,
 		OnEnded = on_ended,
-	}, GamepadInput)
+	} :: GamepadInputFields, GamepadInput)
 
 	local ok, err = pcall(self._start, self)
 	if not ok then
@@ -44,13 +64,13 @@ function GamepadInput.new(on_began, on_ended)
 	return self
 end
 
-function GamepadInput:_start()
+function GamepadInput._start(self: GamepadInput)
 	for action, binding in pairs(Bindings) do
 		self.Actions[action] = binding.Name
 
 		ContextActionService:BindAction(
 			binding.Name,
-			function(_, input_state, input_object)
+			function(_action_name: string, input_state: Enum.UserInputState, input_object: InputObject?)
 				return self:_on_input(action, binding, input_state, input_object)
 			end,
 			false,
@@ -59,11 +79,17 @@ function GamepadInput:_start()
 	end
 end
 
-function GamepadInput:_is_ui_navigating()
+function GamepadInput._is_ui_navigating(_self: GamepadInput): boolean
 	return GuiService.SelectedObject ~= nil
 end
 
-function GamepadInput:_on_input(action, binding, input_state, input_object)
+function GamepadInput._on_input(
+	self: GamepadInput,
+	action: string,
+	binding: Binding,
+	input_state: Enum.UserInputState,
+	input_object: InputObject?
+): Enum.ContextActionResult
 	if not input_object or input_object.UserInputType.Name:sub(1, 7) ~= "Gamepad" then
 		return Enum.ContextActionResult.Pass
 	end
@@ -73,14 +99,16 @@ function GamepadInput:_on_input(action, binding, input_state, input_object)
 		if binding.UINavigation and self:_is_ui_navigating() then
 			return Enum.ContextActionResult.Pass
 		end
-		if self.OnBegan then
-			self.OnBegan(action, "Gamepad", source_id)
+		local on_began = self.OnBegan
+		if on_began then
+			on_began(action, "Gamepad", source_id)
 		end
 	elseif input_state == Enum.UserInputState.End
 		or input_state == Enum.UserInputState.Cancel then
 		-- Always report releases; InputController ignores sources it never saw begin.
-		if self.OnEnded then
-			self.OnEnded(action, "Gamepad", source_id)
+		local on_ended = self.OnEnded
+		if on_ended then
+			on_ended(action, "Gamepad", source_id)
 		end
 	end
 
@@ -90,7 +118,7 @@ function GamepadInput:_on_input(action, binding, input_state, input_object)
 	return Enum.ContextActionResult.Pass
 end
 
-function GamepadInput:Destroy()
+function GamepadInput.Destroy(self: GamepadInput)
 	for _, binding_name in pairs(self.Actions) do
 		ContextActionService:UnbindAction(binding_name)
 	end

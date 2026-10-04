@@ -1,11 +1,28 @@
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+--!strict
+local Trove = require(script.Parent.Parent.Parent.ClientTrove)
+-- Type only: UI modules are built by UIController after it has loaded.
+local UIController = require(script.Parent)
 
-local Trove = require(ReplicatedStorage.packages.Trove)
+type Trove = Trove.Trove
+
+type Entry = { Highlight: Highlight, Token: number }
+
+type HitHighlightFields = {
+	Trove: Trove,
+	UIController: UIController.UIController,
+	-- Unparented highlights ready for reuse.
+	Free: { Highlight },
+	Active: { [Instance]: Entry },
+	ActiveCount: number,
+	_destroyed: boolean,
+}
 
 -- Briefly highlights every character the server reports as hit nearby
 -- (CombatClient.FxHit). Highlights are pooled and need no template.
 local HitHighlight = {}
 HitHighlight.__index = HitHighlight
+
+export type HitHighlight = typeof(setmetatable({} :: HitHighlightFields, HitHighlight))
 
 local DISPLAY_TIME = 0.12
 -- Roblox renders a limited number of Highlights at once; stay well below it.
@@ -14,32 +31,30 @@ local FILL_COLOR = Color3.new(1, 1, 1)
 local FILL_TRANSPARENCY = 0.6
 local OUTLINE_TRANSPARENCY = 0.2
 
-function HitHighlight.new(ui_controller)
+function HitHighlight.new(ui_controller: UIController.UIController): HitHighlight
 	local self = setmetatable({
 		Trove = Trove.new(),
 		UIController = ui_controller,
-		-- Unparented highlights ready for reuse.
 		Free = {},
-		-- victim -> { Highlight, Token }
 		Active = {},
 		ActiveCount = 0,
 		_destroyed = false,
-	}, HitHighlight)
+	} :: HitHighlightFields, HitHighlight)
 
-	self.Trove:Connect(ui_controller.Combat.FxHit, function(victim)
+	self.Trove:Connect(ui_controller.Combat.FxHit, function(victim: Model)
 		self:Show(victim)
 	end)
 
 	return self
 end
 
-function HitHighlight:_take()
-	local highlight = table.remove(self.Free)
-	if highlight then
-		return highlight
+function HitHighlight._take(self: HitHighlight): Highlight
+	local free = table.remove(self.Free)
+	if free then
+		return free
 	end
 
-	highlight = Instance.new("Highlight")
+	local highlight = Instance.new("Highlight")
 	highlight.FillColor = FILL_COLOR
 	highlight.FillTransparency = FILL_TRANSPARENCY
 	highlight.OutlineColor = FILL_COLOR
@@ -48,7 +63,7 @@ function HitHighlight:_take()
 	return highlight
 end
 
-function HitHighlight:_release(victim, entry)
+function HitHighlight._release(self: HitHighlight, victim: Instance, entry: Entry)
 	if self.Active[victim] ~= entry then
 		return
 	end
@@ -66,7 +81,7 @@ function HitHighlight:_release(victim, entry)
 	table.insert(self.Free, highlight)
 end
 
-function HitHighlight:Show(victim)
+function HitHighlight.Show(self: HitHighlight, victim: Instance?)
 	if self._destroyed or typeof(victim) ~= "Instance" or victim.Parent == nil then
 		return
 	end
@@ -85,16 +100,17 @@ function HitHighlight:Show(victim)
 		self.ActiveCount += 1
 	end
 
-	entry.Token += 1
-	local token = entry.Token
+	local shown: Entry = entry
+	shown.Token += 1
+	local token = shown.Token
 	task.delay(DISPLAY_TIME, function()
-		if entry.Token == token then
-			self:_release(victim, entry)
+		if shown.Token == token then
+			self:_release(victim, shown)
 		end
 	end)
 end
 
-function HitHighlight:Destroy()
+function HitHighlight.Destroy(self: HitHighlight)
 	if self._destroyed then
 		return
 	end

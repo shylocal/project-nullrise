@@ -1,12 +1,14 @@
+--!strict
 -- Builds and owns every per-character controller. Children are composed with a
 -- Runtime so they are torn down in reverse construction order.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Trove = require(ReplicatedStorage.packages.Trove)
+local Trove = require(script.Parent.Parent.ClientTrove)
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 local Runtime = require(ReplicatedStorage.shared.runtime.Runtime)
+local Scheduler = require(ReplicatedStorage.shared.runtime.Scheduler)
 
 local CharacterStateModule = require(script.Parent.CharacterState)
 local CharacterStatePolicy = require(script.Parent.CharacterState.Policy)
@@ -15,13 +17,45 @@ local WeaponControllerModule = require(script.Parent.WeaponController)
 local MovementControllerModule = require(script.Parent.MovementController)
 local ParkourControllerModule = require(script.Parent.ParkourController)
 local CombatControllerModule = require(script.Parent.CombatController)
+local InputController = require(script.Parent.InputController)
+
+local LoadoutClient = require(script.Parent.Parent.session.LoadoutClient)
+
+type Trove = Trove.Trove
+
+export type Deps = {
+	character: Model,
+	input: InputController.InputLike,
+	-- The session CombatClient, forwarded to the CombatController.
+	combat: CombatControllerModule.CombatLike,
+	loadout: LoadoutClient.LoadoutClient,
+	scheduler: Scheduler.Scheduler,
+}
+
+-- The child controllers are nil until the Runtime has started them in new.
+type CharacterControllerFields = {
+	Character: Model,
+	Loadout: LoadoutClient.LoadoutClient,
+	Trove: Trove,
+	Runtime: Runtime.Runtime,
+	CharacterState: CharacterStateModule.CharacterState?,
+	WeaponController: WeaponControllerModule.WeaponController?,
+	AnimationController: AnimationControllerModule.AnimationController?,
+	MovementController: MovementControllerModule.MovementController?,
+	ParkourController: ParkourControllerModule.Controller?,
+	CombatController: CombatControllerModule.CombatController?,
+	_destroyed: boolean,
+	_watched_humanoids: { [Humanoid]: boolean },
+}
 
 local R6_ERROR = "project-nullrise requires R6 character rigs"
 
 local CharacterController = {}
 CharacterController.__index = CharacterController
 
-function CharacterController.new(deps)
+export type CharacterController = typeof(setmetatable({} :: CharacterControllerFields, CharacterController))
+
+function CharacterController.new(deps: Deps): CharacterController
 	Deps.check(deps, "CharacterController", { "character", "input", "combat", "loadout", "scheduler" })
 
 	local character = deps.character
@@ -42,7 +76,7 @@ function CharacterController.new(deps)
 		CombatController = nil,
 		_destroyed = false,
 		_watched_humanoids = {},
-	}, CharacterController)
+	} :: CharacterControllerFields, CharacterController)
 
 	-- Character teardown destroys everything. Destroying is used instead of
 	-- Trove:AttachToInstance, which errors for an unparented character.
@@ -58,7 +92,7 @@ function CharacterController.new(deps)
 		if humanoid then
 			self:_watch_humanoid(humanoid)
 		end
-		trove:Connect(character.ChildAdded, function(child)
+		trove:Connect(character.ChildAdded, function(child: Instance)
 			if child:IsA("Humanoid") then
 				if child.RigType ~= Enum.HumanoidRigType.R6 then
 					error(R6_ERROR)
@@ -104,24 +138,26 @@ function CharacterController.new(deps)
 		runtime:Start()
 
 		self.CharacterState = runtime:Get("CharacterState")
+		local animation_controller: AnimationControllerModule.AnimationController = runtime:Get("AnimationController")
+		local movement_controller: MovementControllerModule.MovementController = runtime:Get("MovementController")
 		self.WeaponController = runtime:Get("WeaponController")
-		self.AnimationController = runtime:Get("AnimationController")
-		self.MovementController = runtime:Get("MovementController")
+		self.AnimationController = animation_controller
+		self.MovementController = movement_controller
 		self.ParkourController = runtime:Get("ParkourController")
 		self.CombatController = runtime:Get("CombatController")
 
-		trove:Connect(self.MovementController.SprintingChanged, function(sprinting)
-			self.AnimationController:SetSprinting(sprinting)
+		trove:Connect(movement_controller.SprintingChanged, function(sprinting: boolean)
+			animation_controller:SetSprinting(sprinting)
 		end)
 
-		trove:Connect(deps.loadout.EquippedChanged, function(weapon_id)
+		trove:Connect(deps.loadout.EquippedChanged, function(weapon_id: string)
 			self:SetWeapon(weapon_id)
 		end)
 
 		if not self:SetWeapon(deps.loadout.EquippedId) then
 			self:SetWeapon(Catalog.DefaultId)
 		end
-		self.AnimationController:SetSprinting(self.MovementController:IsSprinting())
+		animation_controller:SetSprinting(movement_controller:IsSprinting())
 	end)
 
 	if not ok then
@@ -132,7 +168,7 @@ function CharacterController.new(deps)
 	return self
 end
 
-function CharacterController:_watch_humanoid(humanoid)
+function CharacterController._watch_humanoid(self: CharacterController, humanoid: Humanoid)
 	if self._watched_humanoids[humanoid] then
 		return
 	end
@@ -145,25 +181,28 @@ function CharacterController:_watch_humanoid(humanoid)
 	end)
 end
 
-function CharacterController:SetWeapon(weapon_id)
+function CharacterController.SetWeapon(self: CharacterController, weapon_id: string): boolean
 	if self._destroyed then
 		return false
 	end
 
-	self.CombatController:Reset()
-	if not self.WeaponController:EquipById(weapon_id) then
+	local combat_controller = self.CombatController
+	local weapon_controller = self.WeaponController
+	local animation_controller = self.AnimationController
+	assert(
+		combat_controller and weapon_controller and animation_controller,
+		"CharacterController:SetWeapon called before the controllers started"
+	)
+
+	combat_controller:Reset()
+	if not weapon_controller:EquipById(weapon_id) then
 		return false
 	end
-	self.AnimationController:SetWeapon(self.WeaponController.Equipped)
+	animation_controller:SetWeapon(weapon_controller.Equipped)
 	return true
 end
 
-function CharacterController:IsAlive()
-	local humanoid = self.Character:FindFirstChildOfClass("Humanoid")
-	return self.Character.Parent ~= nil and humanoid ~= nil and humanoid.Health > 0
-end
-
-function CharacterController:Destroy()
+function CharacterController.Destroy(self: CharacterController)
 	if self._destroyed then
 		return
 	end

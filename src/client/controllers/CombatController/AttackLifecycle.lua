@@ -1,16 +1,24 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Trove = require(ReplicatedStorage.packages.Trove)
+local Trove = require(script.Parent.Parent.Parent.ClientTrove)
 local Hitbox = require(script.Parent.Hitbox)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
+local Types = require(script.Parent.Types)
+local CharacterState = require(script.Parent.Parent.CharacterState)
+
+type CombatController = Types.CombatController
+type Move = Types.Move
+type Track = Types.Track
+type Trove = Types.Trove
 
 local AttackLifecycle = {}
 
-function AttackLifecycle.is_current_attack(self, attack_trove, lifecycle_id)
+function AttackLifecycle.is_current_attack(self: CombatController, attack_trove: Trove?, lifecycle_id: number): boolean
 	return self.AttackTrove == attack_trove and self.AttackLifecycleId == lifecycle_id
 end
 
-function AttackLifecycle.release_lease(self)
+function AttackLifecycle.release_lease(self: CombatController)
 	local lease = self.AttackLease
 	self.AttackLease = nil
 
@@ -19,11 +27,11 @@ function AttackLifecycle.release_lease(self)
 	end
 end
 
-function AttackLifecycle.is_charge(move)
+function AttackLifecycle.is_charge(move: Move?): boolean
 	return move ~= nil and move.Kind == "Charge"
 end
 
-function AttackLifecycle.begin_attack(self, move, track)
+function AttackLifecycle.begin_attack(self: CombatController, move: Move, track: Track)
 	AttackLifecycle.clear_attack_lifecycle(self)
 
 	self.AttackLifecycleId += 1
@@ -39,7 +47,9 @@ function AttackLifecycle.begin_attack(self, move, track)
 
 	-- A rooted move blocks sprint through the CharacterState policy.
 	AttackLifecycle.release_lease(self)
-	local activity = if AttackLifecycle.can_sprint_while_attacking(self, move) then "Attack" else "AttackRooted"
+	local activity: CharacterState.Activity = if AttackLifecycle.can_sprint_while_attacking(self, move)
+		then "Attack"
+		else "AttackRooted"
 	self.AttackLease = self.State:Acquire(self, activity)
 
 	local attack_trove = Trove.new()
@@ -107,7 +117,8 @@ function AttackLifecycle.begin_attack(self, move, track)
 	if is_charge then
 		-- The server stops accepting the charge's HitStart after MaxHoldTime,
 		-- so release it automatically instead of letting a long hold whiff.
-		self.Scheduler.after(move.Hold.MaxHoldTime, function()
+		local hold = assert(move.Hold, "Charge moves define Hold")
+		self.Scheduler.after(hold.MaxHoldTime, function()
 			if self.AttackLifecycleId ~= lifecycle_id or not self.Charging then
 				return
 			end
@@ -127,7 +138,7 @@ function AttackLifecycle.begin_attack(self, move, track)
 	end)
 end
 
-function AttackLifecycle.clear_attack_lifecycle(self)
+function AttackLifecycle.clear_attack_lifecycle(self: CombatController)
 	local move_id = self.CurrentMoveId
 	if move_id then
 		self.CombatClient:Send(Protocol.Combat.HitStop, move_id)
@@ -149,11 +160,12 @@ function AttackLifecycle.clear_attack_lifecycle(self)
 	self.ChargeReady = false
 end
 
-function AttackLifecycle.can_sprint_while_attacking(self, move)
+function AttackLifecycle.can_sprint_while_attacking(self: CombatController, move: Move): boolean
 	local weapon = self.WeaponController.Equipped
 
-	if move.CanSprintWhileAttacking ~= nil then
-		return move.CanSprintWhileAttacking
+	local move_override = move.CanSprintWhileAttacking
+	if move_override ~= nil then
+		return move_override
 	end
 
 	return weapon ~= nil and weapon.CanSprintWhileAttacking == true
@@ -161,7 +173,13 @@ end
 
 -- Sends a hit from `hitbox` for the move it was last started for. Hits that
 -- arrive after that move ended are dropped.
-local function forward_hit(self, hitbox, hit_character, raycast_result, segment_instance)
+local function forward_hit(
+	self: CombatController,
+	hitbox: Hitbox.Hitbox,
+	hit_character: Model,
+	raycast_result: RaycastResult,
+	segment_instance: Instance?
+)
 	local owner = self.HitboxOwners[hitbox]
 	if not owner or not AttackLifecycle.is_current_attack(self, owner.AttackTrove, owner.LifecycleId) then
 		return
@@ -179,7 +197,7 @@ end
 -- The reusable hitbox for a wielded part: created on first use per equip and
 -- part, then only started and stopped. Entries whose part left the character
 -- are destroyed here; Reset destroys the rest (weapon swap, death, teardown).
-function AttackLifecycle.hitbox_for(self, wielded)
+function AttackLifecycle.hitbox_for(self: CombatController, wielded: Instance): Hitbox.Hitbox
 	local character = self.WeaponController.Character
 	for part, cached in pairs(self.Hitboxes) do
 		if part ~= wielded and not part:IsDescendantOf(character) then
@@ -189,19 +207,28 @@ function AttackLifecycle.hitbox_for(self, wielded)
 		end
 	end
 
-	local hitbox = self.Hitboxes[wielded]
-	if hitbox then
-		return hitbox
+	local existing = self.Hitboxes[wielded]
+	if existing then
+		return existing
 	end
 
-	hitbox = Hitbox.new(character, wielded, function(hit_character, raycast_result, segment_instance)
+	local hitbox: Hitbox.Hitbox
+	hitbox = Hitbox.new(character, wielded, function(hit_character: Model, raycast_result: RaycastResult, segment_instance: Instance?)
 		forward_hit(self, hitbox, hit_character, raycast_result, segment_instance)
 	end)
 	self.Hitboxes[wielded] = hitbox
 	return hitbox
 end
 
-function AttackLifecycle.start_hitbox(self, move, expected_trove, expected_lifecycle_id)
+-- Starts the move's hitbox for the current attack. The expected trove and
+-- lifecycle id are passed from the HitStart marker; a charge released after
+-- its marker passes neither and uses the current attack.
+function AttackLifecycle.start_hitbox(
+	self: CombatController,
+	move: Move,
+	expected_trove: Trove?,
+	expected_lifecycle_id: number?
+)
 	if self.ActiveHit then
 		return
 	end
@@ -215,13 +242,12 @@ function AttackLifecycle.start_hitbox(self, move, expected_trove, expected_lifec
 	local lifecycle_id = expected_lifecycle_id or self.AttackLifecycleId
 	if not attack_trove
 		or (expected_trove and attack_trove ~= expected_trove)
-		or lifecycle_id == nil
 		or not AttackLifecycle.is_current_attack(self, attack_trove, lifecycle_id) then
 		return
 	end
 
 	local hitbox = AttackLifecycle.hitbox_for(self, wielded)
-	local owner = {
+	local owner: Types.HitOwner = {
 		Hitbox = hitbox,
 		MoveId = move.Id,
 		AttackTrove = attack_trove,
@@ -232,7 +258,7 @@ function AttackLifecycle.start_hitbox(self, move, expected_trove, expected_lifec
 	hitbox:Start()
 end
 
-function AttackLifecycle.stop_hitbox(self)
+function AttackLifecycle.stop_hitbox(self: CombatController)
 	local active = self.ActiveHit
 	self.ActiveHit = nil
 
@@ -242,7 +268,7 @@ function AttackLifecycle.stop_hitbox(self)
 end
 
 -- Destroys every cached hitbox. Called on weapon swap, death and teardown.
-function AttackLifecycle.destroy_hitboxes(self)
+function AttackLifecycle.destroy_hitboxes(self: CombatController)
 	AttackLifecycle.stop_hitbox(self)
 
 	local hitboxes = self.Hitboxes

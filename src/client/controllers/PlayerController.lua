@@ -1,3 +1,4 @@
+--!strict
 -- Owns the local player's CharacterController across respawns and maps slot
 -- hotkeys to loadout requests. It does not listen to remotes: the session
 -- clients (CombatClient, LoadoutClient) do.
@@ -6,16 +7,59 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
-local Trove = require(ReplicatedStorage.packages.Trove)
+local Trove = require(script.Parent.Parent.ClientTrove)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
+local Scheduler = require(ReplicatedStorage.shared.runtime.Scheduler)
+local CharacterController = require(script.Parent.CharacterController)
+local InputController = require(script.Parent.InputController)
+local CombatController = require(script.Parent.CombatController)
+local LoadoutClient = require(script.Parent.Parent.session.LoadoutClient)
+
+type Trove = Trove.Trove
+
+-- The per-character controller as PlayerController sees it: CharacterController,
+-- or a spec fake that records construction.
+export type CharacterLike = CharacterController.CharacterController | {
+	Character: Model,
+	Destroy: (self: any) -> (),
+}
+export type CreateCharacter = (deps: CharacterController.Deps) -> CharacterLike
+
+export type Deps = {
+	player: Player,
+	input: InputController.InputLike,
+	-- The session CombatClient, forwarded to each CharacterController.
+	combat: CombatController.CombatLike,
+	loadout: LoadoutClient.LoadoutClient,
+	scheduler: Scheduler.Scheduler,
+	create_character: CreateCharacter,
+}
+
+type PlayerControllerFields = {
+	Player: Player,
+	Input: InputController.InputLike,
+	Combat: CombatController.CombatLike,
+	Loadout: LoadoutClient.LoadoutClient,
+	Scheduler: Scheduler.Scheduler,
+	CreateCharacter: CreateCharacter,
+	Trove: Trove,
+	CharacterController: CharacterLike?,
+	-- A character waiting to be parented to Workspace, and the trove that
+	-- watches it.
+	PendingCharacter: Model?,
+	PendingTrove: Trove?,
+	_destroyed: boolean,
+}
 
 local PlayerController = {}
 PlayerController.__index = PlayerController
 
+export type PlayerController = typeof(setmetatable({} :: PlayerControllerFields, PlayerController))
+
 -- deps.create_character builds the per-character controller from
 -- { character, input, combat, loadout, scheduler } (CharacterController.new).
-function PlayerController.new(deps)
+function PlayerController.new(deps: Deps): PlayerController
 	Deps.check(deps, "PlayerController", { "player", "input", "combat", "loadout", "scheduler", "create_character" })
 
 	local self = setmetatable({
@@ -30,7 +74,7 @@ function PlayerController.new(deps)
 		PendingCharacter = nil,
 		PendingTrove = nil,
 		_destroyed = false,
-	}, PlayerController)
+	} :: PlayerControllerFields, PlayerController)
 
 	local ok, err = pcall(self._start, self)
 	if not ok then
@@ -41,19 +85,19 @@ function PlayerController.new(deps)
 	return self
 end
 
-function PlayerController:_start()
+function PlayerController._start(self: PlayerController)
 	self.Trove:Connect(
 		self.Player.CharacterAdded,
-		function(character)
+		function(character: Model)
 			self:_set_character(character)
 		end
 	)
 
 	self.Trove:Connect(
 		self.Player.CharacterRemoving,
-		function(character)
-			if self.PendingCharacter == character
-				or (self.CharacterController and self.CharacterController.Character == character) then
+		function(character: Model)
+			local current = self.CharacterController
+			if self.PendingCharacter == character or (current and current.Character == character) then
 				self:_clear_character()
 			end
 		end
@@ -63,7 +107,7 @@ function PlayerController:_start()
 	-- slot limit and answers with Inventory.Changed.
 	self.Trove:Connect(
 		self.Input.ActionBegan,
-		function(action)
+		function(action: string)
 			local slot = Actions.slot_index(action)
 			if slot then
 				self.Loadout:SelectSlot(slot)
@@ -73,7 +117,7 @@ function PlayerController:_start()
 
 	self.Trove:Connect(
 		Players.PlayerRemoving,
-		function(player)
+		function(player: Player)
 			if player == self.Player then
 				self:Destroy()
 			end
@@ -86,7 +130,7 @@ function PlayerController:_start()
 	end
 end
 
-function PlayerController:_set_character(character)
+function PlayerController._set_character(self: PlayerController, character: Model)
 	if self._destroyed then
 		return
 	end
@@ -112,7 +156,7 @@ function PlayerController:_set_character(character)
 	self:_create_character_controller(character)
 end
 
-function PlayerController:_wait_for_workspace(character)
+function PlayerController._wait_for_workspace(self: PlayerController, character: Model)
 	local pending_trove = self.Trove:Extend()
 	self.PendingCharacter = character
 	self.PendingTrove = pending_trove
@@ -139,7 +183,7 @@ function PlayerController:_wait_for_workspace(character)
 	)
 end
 
-function PlayerController:_clear_pending()
+function PlayerController._clear_pending(self: PlayerController)
 	local pending_trove = self.PendingTrove
 	self.PendingCharacter = nil
 	self.PendingTrove = nil
@@ -149,7 +193,7 @@ function PlayerController:_clear_pending()
 	end
 end
 
-function PlayerController:_create_character_controller(character)
+function PlayerController._create_character_controller(self: PlayerController, character: Model)
 	if self._destroyed or self.Player.Parent ~= Players then
 		return
 	end
@@ -172,7 +216,7 @@ function PlayerController:_create_character_controller(character)
 	self.Trove:Add(result)
 end
 
-function PlayerController:_clear_character()
+function PlayerController._clear_character(self: PlayerController)
 	self:_clear_pending()
 
 	local controller = self.CharacterController
@@ -183,7 +227,7 @@ function PlayerController:_clear_character()
 	end
 end
 
-function PlayerController:Destroy()
+function PlayerController.Destroy(self: PlayerController)
 	if self._destroyed then
 		return
 	end

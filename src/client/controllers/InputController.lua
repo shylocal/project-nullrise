@@ -6,12 +6,15 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
-local Trove = require(ReplicatedStorage.packages.Trove)
+local Trove = require(script.Parent.Parent.ClientTrove)
 local Signal = require(ReplicatedStorage.packages.Signal)
 
 local PCInput = require(script.Parent.Parent.input.PC)
 local MobileInput = require(script.Parent.Parent.input.Mobile)
 local GamepadInput = require(script.Parent.Parent.input.Gamepad)
+
+type Trove = Trove.Trove
+type Signal = typeof(Signal.new())
 
 local DEFAULT_SOURCE = "Default"
 
@@ -33,16 +36,52 @@ local INPUT_SOURCES: { [Enum.UserInputType]: string } = {
 	[Enum.UserInputType.Gamepad8] = "Gamepad",
 }
 
-export type Report = (action: any, source: any, source_id: any) -> ()
+-- A physical input: a KeyCode / UserInputType, a touch button name, or an
+-- Instance (a GUI button).
+export type SourceId = string | EnumItem | Instance
+-- Adapters report (action, source family, physical source id). A missing
+-- family defaults to "Default" and a missing id to the family.
+export type Report = (action: string, source: string?, source_id: SourceId?) -> ()
+-- A device adapter, or any destroyable fake in specs.
+export type Adapter =
+	PCInput.PCInput
+	| MobileInput.MobileInput
+	| GamepadInput.GamepadInput
+	| { Destroy: (self: any) -> () }
 -- An adapter factory receives the began/ended reporters and returns the
 -- adapter, which the controller destroys with itself.
-export type AdapterFactory = (began: Report, ended: Report) -> any
+export type AdapterFactory = (began: Report, ended: Report) -> Adapter
 
 export type AdapterDeps = {
 	adapters: { AdapterFactory },
-	focus_released: any,
+	-- An RBXScriptSignal (WindowFocusReleased) or a Signal in specs.
+	focus_released: RBXScriptSignal | Signal,
 	initial_source: string?,
 }
+
+-- What consumers (PlayerController, the character controllers) need from the
+-- InputController. Method `self` is `any` so the controller and spec fakes
+-- both satisfy it.
+export type InputLike = {
+	ActionBegan: Signal,
+	ActionEnded: Signal,
+	IsDown: (self: any, action: string) -> boolean,
+}
+
+type InputControllerFields = {
+	Trove: Trove,
+	-- (action)
+	ActionBegan: Signal,
+	-- (action)
+	ActionEnded: Signal,
+	-- SourcesDown[action][physical_source_id] = source_family.
+	-- This is the sole source of truth; IsDown derives from its membership.
+	SourcesDown: { [string]: { [SourceId]: string } },
+	ActiveInputSource: string?,
+	_destroyed: boolean,
+}
+
+type Release = { action: string, source_id: SourceId }
 
 local function source_from_input_type(input_type: Enum.UserInputType): string?
 	return INPUT_SOURCES[input_type]
@@ -66,8 +105,10 @@ end
 local InputController = {}
 InputController.__index = InputController
 
+export type InputController = typeof(setmetatable({} :: InputControllerFields, InputController))
+
 -- Builds the controller over the device adapters available on this client.
-function InputController.new()
+function InputController.new(): InputController
 	local adapters: { AdapterFactory } = { PCInput.new }
 	if UserInputService.TouchEnabled then
 		table.insert(adapters, MobileInput.new)
@@ -83,7 +124,7 @@ end
 
 -- Builds the controller over explicit adapters and a focus-loss signal. Specs
 -- use this with fake adapters; `new` uses it with the real devices.
-function InputController.from_adapters(deps: AdapterDeps)
+function InputController.from_adapters(deps: AdapterDeps): InputController
 	assert(typeof(deps) == "table", "InputController.from_adapters: deps must be a table")
 	assert(typeof(deps.adapters) == "table", "InputController.from_adapters: missing dependency 'adapters'")
 	assert(deps.focus_released ~= nil, "InputController.from_adapters: missing dependency 'focus_released'")
@@ -92,12 +133,10 @@ function InputController.from_adapters(deps: AdapterDeps)
 		Trove = Trove.new(),
 		ActionBegan = Signal.new(),
 		ActionEnded = Signal.new(),
-		-- SourcesDown[action][physical_source_id] = source_family.
-		-- This is the sole source of truth; IsDown derives from its membership.
 		SourcesDown = {},
 		ActiveInputSource = deps.initial_source,
 		_destroyed = false,
-	}, InputController)
+	} :: InputControllerFields, InputController)
 
 	self.Trove:Add(self.ActionBegan)
 	self.Trove:Add(self.ActionEnded)
@@ -113,14 +152,14 @@ function InputController.from_adapters(deps: AdapterDeps)
 	return self
 end
 
-function InputController:_start(deps: AdapterDeps)
+function InputController._start(self: InputController, deps: AdapterDeps)
 	self.Trove:Connect(deps.focus_released, function()
 		self:_release_all()
 	end)
 
 	-- Device changes are committed only when an adapter reports a real bound
 	-- action. LastInputTypeChanged also fires for passive mouse movement/drift.
-	local function began(action, source, source_id)
+	local function began(action: string, source: string?, source_id: SourceId?)
 		if self._destroyed then
 			return
 		end
@@ -128,7 +167,7 @@ function InputController:_start(deps: AdapterDeps)
 		self:_began(action, source, source_id)
 	end
 
-	local function ended(action, source, source_id)
+	local function ended(action: string, source: string?, source_id: SourceId?)
 		if self._destroyed then
 			return
 		end
@@ -140,13 +179,13 @@ function InputController:_start(deps: AdapterDeps)
 	end
 end
 
-function InputController:_began(action, source, source_id)
-	source = source or DEFAULT_SOURCE
-	source_id = source_id or source
+function InputController._began(self: InputController, action: string, source: string?, source_id: SourceId?)
+	local family = source or DEFAULT_SOURCE
+	local id: SourceId = source_id or family
 
 	assert(is_valid_action(action), "InputController: action must be a non-empty string")
-	assert(is_valid_source(source), "InputController: source must be a non-empty string")
-	assert(is_valid_source_id(source_id), "InputController: source_id must be a string, EnumItem, or Instance")
+	assert(is_valid_source(family), "InputController: source must be a non-empty string")
+	assert(is_valid_source_id(id), "InputController: source_id must be a string, EnumItem, or Instance")
 
 	local sources = self.SourcesDown[action]
 	if not sources then
@@ -155,66 +194,65 @@ function InputController:_began(action, source, source_id)
 	end
 
 	-- Ignore repeat Begin events from the same physical input.
-	if sources[source_id] ~= nil then
+	if sources[id] ~= nil then
 		return
 	end
 
 	local was_down = next(sources) ~= nil
-	sources[source_id] = source
+	sources[id] = family
 	if not was_down then
 		self.ActionBegan:Fire(action)
 	end
 end
 
-function InputController:_ended(action, source, source_id)
-	source = source or DEFAULT_SOURCE
-	source_id = source_id or source
+function InputController._ended(self: InputController, action: string, source: string?, source_id: SourceId?)
+	local family = source or DEFAULT_SOURCE
+	local id: SourceId = source_id or family
 
-	if not is_valid_action(action) or not is_valid_source(source) or not is_valid_source_id(source_id) then
+	if not is_valid_action(action) or not is_valid_source(family) or not is_valid_source_id(id) then
 		return
 	end
 
 	local sources = self.SourcesDown[action]
-	if not sources or sources[source_id] ~= source then
+	if not sources or sources[id] ~= family then
 		return
 	end
 
-	sources[source_id] = nil
+	sources[id] = nil
 	if next(sources) == nil then
 		self.SourcesDown[action] = nil
 		self.ActionEnded:Fire(action)
 	end
 end
 
-function InputController:_release_source(source)
+function InputController._release_source(self: InputController, source: string?)
 	if not source then
 		return
 	end
 
-	local releases = {}
+	local releases: { Release } = {}
 	for action, sources in pairs(self.SourcesDown) do
 		for source_id, source_family in pairs(sources) do
 			if source_family == source then
-				table.insert(releases, { action, source_id })
+				table.insert(releases, { action = action, source_id = source_id })
 			end
 		end
 	end
 
 	-- Stable ordering makes simultaneous releases reproducible in tests/logs.
-	table.sort(releases, function(a, b)
-		local action_a, action_b = tostring(a[1]), tostring(b[1])
-		if action_a == action_b then
-			return tostring(a[2]) < tostring(b[2])
+	table.sort(releases, function(a: Release, b: Release): boolean
+		if a.action == b.action then
+			return tostring(a.source_id) < tostring(b.source_id)
 		end
-		return action_a < action_b
+		return a.action < b.action
 	end)
 
 	for _, release in ipairs(releases) do
-		self:_ended(release[1], source, release[2])
+		self:_ended(release.action, source, release.source_id)
 	end
 end
 
-function InputController:_set_active_source(source)
+function InputController._set_active_source(self: InputController, source: string?)
 	if not is_valid_source(source) or source == self.ActiveInputSource then
 		return
 	end
@@ -225,14 +263,12 @@ function InputController:_set_active_source(source)
 end
 
 -- InputEnded may not arrive after focus changes, app switching, or overlays.
-function InputController:_release_all()
-	local actions = {}
+function InputController._release_all(self: InputController)
+	local actions: { string } = {}
 	for action in pairs(self.SourcesDown) do
 		table.insert(actions, action)
 	end
-	table.sort(actions, function(a, b)
-		return tostring(a) < tostring(b)
-	end)
+	table.sort(actions)
 
 	table.clear(self.SourcesDown)
 	for _, action in ipairs(actions) do
@@ -240,16 +276,16 @@ function InputController:_release_all()
 	end
 end
 
-function InputController:IsDown(action)
+function InputController.IsDown(self: InputController, action: string): boolean
 	local sources = self.SourcesDown[action]
 	return sources ~= nil and next(sources) ~= nil
 end
 
-function InputController:GetActiveSource()
+function InputController.GetActiveSource(self: InputController): string?
 	return self.ActiveInputSource
 end
 
-function InputController:Destroy()
+function InputController.Destroy(self: InputController)
 	if self._destroyed then
 		return
 	end

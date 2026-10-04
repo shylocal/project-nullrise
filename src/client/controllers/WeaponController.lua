@@ -1,3 +1,4 @@
+--!strict
 -- Tracks the locally equipped weapon definition and resolves its wielded parts
 -- inside the server-attached weapon model.
 
@@ -6,30 +7,43 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 
+export type Deps = {
+	character: Model,
+}
+
+type WeaponControllerFields = {
+	Character: Model,
+	Equipped: Catalog.WeaponDefinition?,
+	-- Wield lookups for the equipped weapon's model. Valid only while
+	-- CachedModel is still parented to the character.
+	CachedModel: Instance?,
+	WieldCache: { [string]: Instance? },
+}
+
 local WeaponController = {}
 WeaponController.__index = WeaponController
 
-function WeaponController.new(deps)
+export type WeaponController = typeof(setmetatable({} :: WeaponControllerFields, WeaponController))
+
+function WeaponController.new(deps: Deps): WeaponController
 	Deps.check(deps, "WeaponController", { "character" })
 
 	return setmetatable({
 		Character = deps.character,
 		Equipped = nil,
-		-- Wield lookups for the equipped weapon's model. Valid only while
-		-- CachedModel is still parented to the character.
 		CachedModel = nil,
 		WieldCache = {},
-	}, WeaponController)
+	} :: WeaponControllerFields, WeaponController)
 end
 
-function WeaponController:_invalidate()
+function WeaponController._invalidate(self: WeaponController)
 	self.CachedModel = nil
 	table.clear(self.WieldCache)
 end
 
 -- Returns the equipped weapon's model under the character, rebuilding the
 -- wield cache when the model was replaced or left the character.
-function WeaponController:_model()
+function WeaponController._model(self: WeaponController): Instance?
 	local weapon = self.Equipped
 	if not weapon then
 		return nil
@@ -46,7 +60,7 @@ function WeaponController:_model()
 	return model
 end
 
-function WeaponController:GetWielded(wield_name)
+function WeaponController.GetWielded(self: WeaponController, wield_name: string): Instance?
 	local model = self:_model()
 	if not model then
 		return nil
@@ -63,7 +77,7 @@ function WeaponController:GetWielded(wield_name)
 	return wielded
 end
 
-function WeaponController:EquipById(weapon_id)
+function WeaponController.EquipById(self: WeaponController, weapon_id: string): boolean
 	local weapon = Catalog.Get(weapon_id)
 	if not weapon then
 		return false
@@ -72,7 +86,7 @@ function WeaponController:EquipById(weapon_id)
 	return self:Equip(weapon)
 end
 
-function WeaponController:Equip(weapon)
+function WeaponController.Equip(self: WeaponController, weapon: Catalog.WeaponDefinition): boolean
 	if not Catalog.IsEquippable(weapon) then
 		return false
 	end
@@ -82,7 +96,7 @@ function WeaponController:Equip(weapon)
 	return true
 end
 
-function WeaponController:Destroy()
+function WeaponController.Destroy(self: WeaponController)
 	self.Equipped = nil
 	self:_invalidate()
 end

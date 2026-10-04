@@ -1,12 +1,24 @@
+--!strict
 local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 
+-- (action, source family, physical source id), as InputController.Report.
+-- A touch button's physical source id is its action name.
+export type Report = (action: string, source: string, source_id: string) -> ()
+
+type MobileInputFields = {
+	-- action -> ContextActionService binding name, for Destroy.
+	Actions: { [string]: string },
+}
+
 local MobileInput = {}
 MobileInput.__index = MobileInput
 
-local Bindings = {
+export type MobileInput = typeof(setmetatable({} :: MobileInputFields, MobileInput))
+
+local Bindings: { [string]: string } = {
 	[Actions.Primary] = "Nullrise_Primary",
 	[Actions.Sprint] = "Nullrise_Sprint",
 	[Actions.Jump] = "Nullrise_Jump",
@@ -18,7 +30,7 @@ local Bindings = {
 	[Actions.Slot2] = "Nullrise_Slot2",
 }
 
-local Titles = {
+local Titles: { [string]: string } = {
 	[Actions.Primary] = "Attack",
 	[Actions.Sprint] = "Sprint",
 	[Actions.Jump] = "Jump",
@@ -30,10 +42,10 @@ local Titles = {
 	[Actions.Slot2] = "Slot 2",
 }
 
-function MobileInput.new(on_began, on_ended)
+function MobileInput.new(on_began: Report, on_ended: Report): MobileInput
 	local self = setmetatable({
 		Actions = {},
-	}, MobileInput)
+	} :: MobileInputFields, MobileInput)
 
 	local ok, err = pcall(self._start, self, on_began, on_ended)
 	if not ok then
@@ -44,13 +56,13 @@ function MobileInput.new(on_began, on_ended)
 	return self
 end
 
-function MobileInput:_start(on_began, on_ended)
+function MobileInput._start(self: MobileInput, on_began: Report, on_ended: Report)
 	for action, binding_name in pairs(Bindings) do
 		self.Actions[action] = binding_name
 
 		ContextActionService:BindAction(
 			binding_name,
-			function(_, input_state)
+			function(_action_name: string, input_state: Enum.UserInputState)
 				if input_state == Enum.UserInputState.Begin then
 					on_began(action, "Mobile", action)
 				elseif input_state == Enum.UserInputState.End
@@ -67,7 +79,7 @@ function MobileInput:_start(on_began, on_ended)
 	end
 end
 
-function MobileInput:Destroy()
+function MobileInput.Destroy(self: MobileInput)
 	for _, binding_name in pairs(self.Actions) do
 		ContextActionService:UnbindAction(binding_name)
 	end

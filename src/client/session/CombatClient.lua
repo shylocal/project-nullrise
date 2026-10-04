@@ -6,7 +6,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Trove = require(ReplicatedStorage.packages.Trove)
+local Trove = require(script.Parent.Parent.ClientTrove)
 local Signal = require(ReplicatedStorage.packages.Signal)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
@@ -21,8 +21,30 @@ export type Deps = {
 	fx_remote: ClientRemoteLike,
 }
 
+type Trove = Trove.Trove
+type Signal = typeof(Signal.new())
+
+type CombatClientFields = {
+	Remote: ClientRemoteLike,
+	FxRemote: ClientRemoteLike,
+	Trove: Trove,
+	-- (move_id, next_combo_move_id)
+	AttackAccepted: Signal,
+	-- (move_id?, next_combo_move_id?)
+	AttackRejected: Signal,
+	-- (move_id, target?)
+	HitConfirmed: Signal,
+	-- (victim, source?, weapon_id, move_id, position, amount): any nearby hit.
+	FxHit: Signal,
+	-- (amount, source?): the local character was hit.
+	Damaged: Signal,
+	_destroyed: boolean,
+}
+
 local CombatClient = {}
 CombatClient.__index = CombatClient
+
+export type CombatClient = typeof(setmetatable({} :: CombatClientFields, CombatClient))
 
 local function is_index(value: any): boolean
 	return typeof(value) == "number" and value == value and math.floor(value) == value
@@ -46,25 +68,20 @@ local function local_character(): Model?
 	return player and player.Character
 end
 
-function CombatClient.new(deps: Deps)
+function CombatClient.new(deps: Deps): CombatClient
 	Deps.check(deps, "CombatClient", { "remote", "fx_remote" })
 
 	local self = setmetatable({
 		Remote = deps.remote,
 		FxRemote = deps.fx_remote,
 		Trove = Trove.new(),
-		-- (move_id, next_combo_move_id)
 		AttackAccepted = Signal.new(),
-		-- (move_id?, next_combo_move_id?)
 		AttackRejected = Signal.new(),
-		-- (move_id, target)
 		HitConfirmed = Signal.new(),
-		-- (victim, source?, weapon_id, move_id, position, amount): any nearby hit.
 		FxHit = Signal.new(),
-		-- (amount, source?): the local character was hit.
 		Damaged = Signal.new(),
 		_destroyed = false,
-	}, CombatClient)
+	} :: CombatClientFields, CombatClient)
 
 	self.Trove:Add(self.AttackAccepted)
 	self.Trove:Add(self.AttackRejected)
@@ -81,7 +98,8 @@ function CombatClient.new(deps: Deps)
 	return self
 end
 
-function CombatClient:_on_event(action: any, move_id: any, value: any)
+-- Remote payloads are untrusted, so every argument is `any` until checked.
+function CombatClient._on_event(self: CombatClient, action: any, move_id: any, value: any)
 	if self._destroyed then
 		return
 	end
@@ -101,7 +119,8 @@ function CombatClient:_on_event(action: any, move_id: any, value: any)
 	end
 end
 
-function CombatClient:_on_fx_event(
+function CombatClient._on_fx_event(
+	self: CombatClient,
 	action: any,
 	victim: any,
 	source: any,
@@ -131,14 +150,14 @@ function CombatClient:_on_fx_event(
 	end
 end
 
-function CombatClient:Send(action: string, ...: any)
+function CombatClient.Send(self: CombatClient, action: string, ...: any)
 	if self._destroyed then
 		return
 	end
 	self.Remote:FireServer(action, ...)
 end
 
-function CombatClient:Destroy()
+function CombatClient.Destroy(self: CombatClient)
 	if self._destroyed then
 		return
 	end

@@ -5,7 +5,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Trove = require(ReplicatedStorage.packages.Trove)
+local Trove = require(script.Parent.Parent.ClientTrove)
 local Signal = require(ReplicatedStorage.packages.Signal)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
@@ -24,8 +24,28 @@ export type Deps = {
 	weapon_remote: ClientRemoteLike,
 }
 
+type Trove = Trove.Trove
+type Signal = typeof(Signal.new())
+
+type LoadoutClientFields = {
+	InventoryRemote: ClientRemoteLike,
+	WeaponRemote: ClientRemoteLike,
+	Trove: Trove,
+	EquippedId: string,
+	Entries: { InventoryEntry },
+	-- 0 = nothing selected (the default weapon).
+	SelectedSlot: number,
+	-- (weapon_id)
+	EquippedChanged: Signal,
+	-- (entries, selected_slot)
+	InventoryChanged: Signal,
+	_destroyed: boolean,
+}
+
 local LoadoutClient = {}
 LoadoutClient.__index = LoadoutClient
+
+export type LoadoutClient = typeof(setmetatable({} :: LoadoutClientFields, LoadoutClient))
 
 function LoadoutClient.is_valid_inventory(entries: any, selected_slot: any): boolean
 	if typeof(entries) ~= "table" then
@@ -55,7 +75,7 @@ local function freeze_entries(entries: { any }): { InventoryEntry }
 	return table.freeze(copy)
 end
 
-function LoadoutClient.new(deps: Deps)
+function LoadoutClient.new(deps: Deps): LoadoutClient
 	Deps.check(deps, "LoadoutClient", { "inventory_remote", "weapon_remote" })
 
 	local self = setmetatable({
@@ -63,13 +83,12 @@ function LoadoutClient.new(deps: Deps)
 		WeaponRemote = deps.weapon_remote,
 		Trove = Trove.new(),
 		EquippedId = Catalog.DefaultId,
-		Entries = table.freeze({}) :: { InventoryEntry },
-		-- 0 = nothing selected (the default weapon).
+		Entries = table.freeze({}),
 		SelectedSlot = 0,
 		EquippedChanged = Signal.new(),
 		InventoryChanged = Signal.new(),
 		_destroyed = false,
-	}, LoadoutClient)
+	} :: LoadoutClientFields, LoadoutClient)
 
 	self.Trove:Add(self.EquippedChanged)
 	self.Trove:Add(self.InventoryChanged)
@@ -104,14 +123,14 @@ function LoadoutClient.new(deps: Deps)
 	return self
 end
 
-function LoadoutClient:SelectSlot(slot: number)
+function LoadoutClient.SelectSlot(self: LoadoutClient, slot: number)
 	if self._destroyed then
 		return
 	end
 	self.InventoryRemote:FireServer(Protocol.Inventory.SelectSlot, slot)
 end
 
-function LoadoutClient:SelectUid(uid: string)
+function LoadoutClient.SelectUid(self: LoadoutClient, uid: string)
 	if self._destroyed then
 		return
 	end
@@ -126,7 +145,7 @@ end
 
 -- Selects the first entry (in slot order) whose item grants weapon_id. The
 -- default weapon is "nothing selected". Returns false when no entry matches.
-function LoadoutClient:SelectWeapon(weapon_id: string): boolean
+function LoadoutClient.SelectWeapon(self: LoadoutClient, weapon_id: string): boolean
 	if self._destroyed then
 		return false
 	end
@@ -149,7 +168,7 @@ function LoadoutClient:SelectWeapon(weapon_id: string): boolean
 	return true
 end
 
-function LoadoutClient:Destroy()
+function LoadoutClient.Destroy(self: LoadoutClient)
 	if self._destroyed then
 		return
 	end

@@ -1,8 +1,10 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Trove = require(ReplicatedStorage.packages.Trove)
+local Trove = require(script.Parent.Parent.ClientTrove)
 local AttackLifecycle = require(script.AttackLifecycle)
 local AttackInput = require(script.AttackInput)
+local Types = require(script.Types)
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
@@ -11,11 +13,17 @@ local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local Validator = require(ReplicatedStorage.shared.weapons.Validator)
 
+export type CombatController = Types.CombatController
+export type Deps = Types.Deps
+export type CombatLike = Types.CombatLike
+
+type Move = Types.Move
+
 local CombatController = {}
 CombatController.__index = CombatController
 
 -- True when `move_id` is the id of one of the weapon's combo moves.
-local function is_combo_move_id(weapon, move_id)
+local function is_combo_move_id(weapon: Catalog.WeaponDefinition?, move_id: any): boolean
 	if not weapon or typeof(move_id) ~= "number" then
 		return false
 	end
@@ -28,10 +36,11 @@ local function is_combo_move_id(weapon, move_id)
 	return false
 end
 
-function CombatController.new(deps)
+function CombatController.new(deps: Deps): CombatController
 	Deps.check(deps, "CombatController", { "weapon", "animation", "state", "input", "combat", "scheduler" })
 
-	local self = setmetatable({
+	-- The metatable supplies the methods CombatController lists.
+	local self: CombatController = setmetatable({
 		Trove = Trove.new(),
 		WeaponController = deps.weapon,
 		AnimationController = deps.animation,
@@ -42,14 +51,10 @@ function CombatController.new(deps)
 		AttackTrove = nil,
 		AttackLifecycleId = 0,
 		AttackLease = nil,
-		-- Reusable hitboxes by wielded part; the move each hitbox was last
-		-- started for ({ Hitbox, MoveId, AttackTrove, LifecycleId }); and the
-		-- currently started one.
 		Hitboxes = {},
 		HitboxOwners = {},
 		ActiveHit = nil,
 
-		-- The combo move the server expects next; nil means the first.
 		NextComboMoveId = nil,
 		PendingMoveId = nil,
 		PendingAttackId = 0,
@@ -59,7 +64,6 @@ function CombatController.new(deps)
 
 		ChargeReady = false,
 
-		-- Name of the hold move waiting for the cooldown.
 		BufferedMove = nil,
 		AttackReadyAt = 0,
 
@@ -69,9 +73,11 @@ function CombatController.new(deps)
 		PrimaryPressAttackPending = false,
 
 		_destroyed = false,
-	}, CombatController)
+	}, CombatController) :: any
 
-	local ok, err = pcall(self._start, self, deps.input)
+	local ok, err = pcall(function()
+		self:_start(deps.input)
+	end)
 	if not ok then
 		self:Destroy()
 		error(err, 0)
@@ -80,10 +86,10 @@ function CombatController.new(deps)
 	return self
 end
 
-function CombatController:_start(input_controller)
+function CombatController._start(self: CombatController, input_controller: Types.InputLike)
 	self.Trove:Connect(
 		self.CombatClient.AttackAccepted,
-		function(move_id, next_combo_move_id)
+		function(move_id: number, next_combo_move_id: number)
 			if move_id ~= self.PendingMoveId then
 				return
 			end
@@ -97,7 +103,7 @@ function CombatController:_start(input_controller)
 
 	self.Trove:Connect(
 		self.CombatClient.AttackRejected,
-		function(move_id, next_combo_move_id)
+		function(move_id: number?, next_combo_move_id: number?)
 			if self.PendingMoveId == move_id then
 				self.PendingMoveId = nil
 				if is_combo_move_id(self.WeaponController.Equipped, next_combo_move_id) then
@@ -109,7 +115,7 @@ function CombatController:_start(input_controller)
 
 	self.Trove:Connect(
 		input_controller.ActionBegan,
-		function(action)
+		function(action: string)
 			if action == Actions.Primary then
 				AttackInput.primary_began(self)
 			end
@@ -118,7 +124,7 @@ function CombatController:_start(input_controller)
 
 	self.Trove:Connect(
 		input_controller.ActionEnded,
-		function(action)
+		function(action: string)
 			if action == Actions.Primary then
 				AttackInput.primary_ended(self)
 			end
@@ -126,19 +132,19 @@ function CombatController:_start(input_controller)
 	)
 end
 
-function CombatController:_is_alive()
+function CombatController._is_alive(self: CombatController): boolean
 	local humanoid = self.WeaponController.Character:FindFirstChildOfClass("Humanoid")
 	return humanoid ~= nil and humanoid.Health > 0
 end
 
-local function has_cooldown(move)
+local function has_cooldown(move: Move): boolean
 	local cooldown = move.Cooldown
 	return typeof(cooldown) == "number" and math.isfinite(cooldown) and cooldown > 0
 end
 
 -- The Primary tap: the next combo move, or the move Tap names directly.
 -- Combo moves wait for the server's reply before the combo advances.
-function CombatController:Attack()
+function CombatController.Attack(self: CombatController)
 	if self.PendingMoveId ~= nil or not self:_can_begin_attack() then
 		return
 	end
@@ -154,7 +160,7 @@ function CombatController:Attack()
 
 	local tap = weapon.Bindings.Primary.Tap
 	local is_combo = tap == Validator.ComboTap
-	local move
+	local move: Move?
 	if is_combo then
 		local move_id = self.NextComboMoveId or Catalog.ComboMoveId(weapon, 1)
 		move = if is_combo_move_id(weapon, move_id) then Catalog.GetMove(weapon.Id, move_id) else nil
@@ -196,7 +202,7 @@ function CombatController:Attack()
 end
 
 -- The Primary hold move (a Charge move).
-function CombatController:Charge()
+function CombatController.Charge(self: CombatController)
 	if not self:_can_begin_attack() then
 		return
 	end
@@ -218,19 +224,19 @@ function CombatController:Charge()
 	AttackLifecycle.begin_attack(self, move, track)
 end
 
-function CombatController:_can_begin_attack()
+function CombatController._can_begin_attack(self: CombatController): boolean
 	return self.Scheduler.clock() >= self.AttackReadyAt
 end
 
-function CombatController:_resolve_buffered_attack()
+function CombatController._resolve_buffered_attack(self: CombatController)
 	AttackInput.resolve_buffered_attack(self)
 end
 
-function CombatController:_release_charge()
+function CombatController._release_charge(self: CombatController)
 	AttackInput.release_charge(self)
 end
 
-function CombatController:_finish_attack(move_id, attack_trove)
+function CombatController._finish_attack(self: CombatController, move_id: number, attack_trove: Types.Trove)
 	if self.AttackTrove ~= attack_trove then
 		return
 	end
@@ -257,7 +263,7 @@ function CombatController:_finish_attack(move_id, attack_trove)
 	end
 end
 
-function CombatController:Reset()
+function CombatController.Reset(self: CombatController)
 	self.AttackLifecycleId += 1
 	self.PrimaryHeld = false
 	self.PrimaryPressId += 1
@@ -284,7 +290,7 @@ function CombatController:Reset()
 	self.Charging = false
 end
 
-function CombatController:Destroy()
+function CombatController.Destroy(self: CombatController)
 	if self._destroyed then
 		return
 	end
