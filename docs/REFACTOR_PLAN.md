@@ -85,6 +85,7 @@ src/
     AssetContracts.lua          [P2-content]
     compose/                    [P1-server]
       Core.lua  Items.lua (P2-items)  Combat.lua (P2-combat)  Content.lua (P2-content, new)
+      Remotes.lua               [S-server: typed remote lookups]
     network/RemoteBudget.lua    [P1-server]
     vendor/ProfileStore.lua     [P2-items]
     services/
@@ -95,6 +96,7 @@ src/
       PlayerDataService.lua     [P2-items]
   client/
     init.client.lua             [P1-client] [P2-content]
+    ClientTrove.lua             [S-client: typed Trove front]
     UiContracts.lua             [P2-content]
     session/
       CombatClient.lua          [P1-client] [P2-combat]
@@ -107,8 +109,10 @@ src/
         init.lua  Policy.lua  HumanoidOverrides.lua
       AnimationController/      [P1-client]
         init.lua  Movement.lua  Weapon.lua  Combat.lua (P2-combat)  TrackCache.lua
+        Types.lua               [S-client: interface types]
       CombatController/         [P1-client] [P2-combat]
         init.lua  AttackInput.lua  AttackLifecycle.lua  Hitbox.lua
+        Types.lua               [S-client: interface types]
       UIController/             [P1-client]
         init.lua  Hitmarker.lua  WeaponMenu.lua (P2-items)
         DamageIndicator.lua  HitHighlight.lua   [P2-combat]
@@ -116,6 +120,7 @@ src/
         init.lua  State.lua  InputLatch.lua  ClimbableIndex.lua  QueryContext.lua
         Queries.lua  LedgeDetection.lua  LedgeTraversal.lua  Traversal.lua
         VaultTraversal.lua  VaultMath.lua  Metrics.lua
+        Types.lua               [S-parkour: controller and state types]
         ClimbableQuery.lua (del)  Config.lua (del)
 tests/
   RunTests.lua                  [P2-content]
@@ -682,6 +687,21 @@ TrackCache.preload(defs: { AnimationDef }): { Destroy: () -> () }
 - `PC.lua`: bind `One`..`Nine` to `Actions.Slots[i]`. Replace the `Enum.KeyCode.Unknown` comparison (an analyzer false positive) with `if input.UserInputType == Enum.UserInputType.Keyboard then input.KeyCode else input.UserInputType`.
 - Mobile and Gamepad keep only Slot1 and Slot2.
 
+### 5.10 Dependency interface types (Phase 3)
+
+Client classes take their collaborators as structural `*Like` types rather than as the concrete class types. A `*Like` type lists only the fields and methods the consumer reads, and its methods take `self: any`, so the real class (a metatable-backed type) and a plain-table spec fake both satisfy it. The checker does not match metatable classes against table types otherwise.
+
+| Type | Defined in | Shape | Used by |
+| --- | --- | --- | --- |
+| `InputLike` | `InputController`; narrower copies in `MovementController`, `ParkourController/Types` and `CombatController/Types` | `ActionBegan`, `ActionEnded`, `IsDown(action)` (CombatController needs only the two signals) | MovementController, ParkourController, CombatController |
+| `MovementLike` | `ParkourController/Types` | `IsSprinting()` | ParkourController |
+| `CombatLike` | `CombatController/Types` | the session CombatClient: `AttackAccepted`, `AttackRejected`, `Send(action, ...)` | CombatController, CharacterController and PlayerController deps |
+| `AnimationLike` | `CombatController/Types` | `Combat` (`CombatLayerLike`: `BeginMove`, `Play`, `Pause`, `Resume`) and `StopAction()` | CombatController |
+| `CharacterLike` | `PlayerController` | `CharacterController`, or `{ Character, Destroy }` | PlayerController's `create_character` factory |
+| `AnimatorLike` | `AnimationController/TrackCache` | the `LoadAnimation` surface of an `Animator` | `TrackCache.new(animator: Animator \| AnimatorLike)` |
+
+Every client module types its troves with `ClientTrove.Trove` (`src/client/ClientTrove.lua`), a non-generic view of Trove 1.8. `typeof(Trove.new())` carries generic methods that do not unify across modules, so two modules' class types then compare unequal. Server modules keep troves as `any` (`PlayerSession.Trove`). `AnimationController/Types` and `CombatController/Types` hold the class interface types that the controller's submodules share, with one constructor `:: any` each.
+
 ---
 
 ## 6. Parkour (Phase 1, P1-parkour; R6, R9, R10, R13)
@@ -1200,6 +1220,8 @@ Baseline diagnostics:
 10. Inventory persists across sessions. Studio uses the mock store by default (Phase 2).
 11. Damage policies (Invulnerable attribute, spawn protection = 0, friendly fire off) are no-ops with today's content. Untagged Humanoid models stay valid targets through `AllowUntaggedHumanoidTargets = true`.
 12. Remote budget state is not reset on respawn (previously `RemoteAt` was).
+13. Hanging on a MeshPart, WedgePart or UnionOperation climb guide and pressing A/D no longer errors every frame (Phase 3). The cylinder check in `Traversal.traverse` now uses `IsA("Part")` instead of `IsA("BasePart")`, because only a `Part` has a `Shape`. Cylinder guides behave as before.
+14. Hit packets that arrive while an early HitStart is armed (before `HitStartOpensAt`) are buffered and validated when the window opens, instead of being dropped as `NotActive` (Phase 3). The client reports each target once per swing, so such a target could not land for the rest of the swing before.
 
 ---
 
@@ -1287,6 +1309,25 @@ Phase 2 (recorded by INTEGRATE-2):
 - (INTEGRATE-2) `Config.Telemetry.Weights` adds `Rewound = 0`, `Blocked = 0` and `EarlyHitStart = 0.25`, so lag-compensated hits, policy-blocked damage and armed early HitStarts do not build suspicion like cheating reasons.
 - (INTEGRATE-2) In Studio the ProfileStore `Mock` table gets a metatable that exposes the module's `IsClosing`, so a Studio shutdown is not reported as a session steal.
 
+Phase 3 (recorded by INTEGRATE-3):
+
+- (S-server) Session component state is typed `unknown`: `PlayerSession:Get` returns `unknown` and each component casts it back to the type it stored. `PlayerService:Register(component: unknown, name)`; hooks are looked up by name, and `PlayerService.Component` documents their signatures.
+- (S-server) Server troves are typed `any` (`PlayerSession.Trove`), because Trove's generic methods do not compare across modules. Vendored GoodSignal fields are `any`.
+- (S-server) Remote payload arguments are typed `unknown` and cast only after the runtime checks. The new `src/server/compose/Remotes.lua` holds typed remote lookups.
+- (S-server) `CombatValidation.ValidateHit` is generic over the attacker key (`WieldLookup<P>`); `CombatService` passes `self._weapons :: any` because the checker does not match a metatable class against a table type. `CombatValidation.IsHitPayload` was added (the payload shape check shared by `ValidateHit` and the hit buffer).
+- (S-server) Telemetry `Count` / `GetSuspicion` / `Forget` take a `Player`; the flush prunes players whose `Parent == nil`. `WeaponService.GetWielded` returns `Instance?`.
+- (S-server) Early-HitStart hit buffer (§14.14): Hits for an active move whose HitStart is armed are payload-checked and stored in `active.PendingHits`, at most one per target (a repeat counts `Duplicate`) and at most `MaxHitRequestsPerAttack` (the excess counts `RejectLimit`). `_activate_pending` validates them in arrival order through the normal path, including rewind, and stops if a buffered hit clears the move. `clear_attack` empties the buffer, so a HitStop, expiry, respawn or attacker change drops it. Its specs are in a new file, `CombatHitBuffer.spec.lua`.
+- (S-server) Dead code removed: `PlayerSession:IsDestroyed`, `PlayerService:GetPlayers`, the unused Trove in PlayerDataService, `DamageService._players`. `Validator.validate` is kept (specs use it).
+- (S-parkour) The new `ParkourController/Types.lua` is a type-only module (`Controller`, the state records, `Resources`, `GuideTop`, `CornerProbeMiss`, `InputLike`, `MovementLike`, `Signal`, `Trove`). It avoids a require cycle between init and the traversal modules; `State` re-exports the state records. `init` exports `Controller` and `Deps`, with one documented `:: any` at `setmetatable`.
+- (S-parkour) Behaviour fix (§14.13): the cylinder check in `Traversal.traverse` uses `IsA("Part")`.
+- (S-parkour) `Traversal.find_corner` takes an extra `root: BasePart` argument. `Metrics.measure_search(host, name, fn)` takes a no-argument callback and returns nothing, so `try_mantle` and `try_lower_ledge` return nothing (no caller used the value). `snapshot_hang_pose` returns `HangSnapshot?` (nil when not hanging; `restore_hang_pose` already rejected the old empty snapshot). `GuideTop.Instance` is typed `BasePart`.
+- (S-parkour) Dead code removed: the `_grab` `edge_gap` fallback (`detect_surface` always returns it with the guide) and the leftover `ModelBoundsQueries` report entry.
+- (S-client) `src/client/ClientTrove.lua` is a typed front for Trove 1.8 with a non-generic `Trove` type; client modules require it instead of `packages.Trove`. INTEGRATE-3 moved `ParkourController` and `MovementController` onto it too, which let `ParkourLifecycle.spec` and `VaultTopHop.spec` declare their fixture types explicitly instead of `typeof(make_fixture())`.
+- (S-client) `AnimationController/Types.lua` and `CombatController/Types.lua` hold interface types shared with their submodules (one constructor `:: any` each). Collaborators are structural `*Like` types (§5.10). `TrackCache.new` accepts `Animator | AnimatorLike`. `InputController` exports `InputLike`, `Report`, `SourceId`, `Adapter` and `AdapterFactory`.
+- (S-client) Runtime differences: PC and Gamepad call a nil-checked `OnBegan` / `OnEnded`, so a report after `Destroy` is silent; charge moves `assert(move.Hold)`; specs call `Destroy` again in `afterEach` (it is idempotent). Spec factories passed to `Runtime:Add` take `get: (string) -> any`.
+- (S-client) Dead code removed: `CharacterController:IsAlive`, `AnimationController:PlayEquip` (the Weapon layer's `PlayEquip` stays), `AnimationController.Combat:StopAction`, and a never-nil `lifecycle_id` check in `AttackLifecycle.start_hitbox`. `WeaponService.spec` no longer accepts the v1 definition shape.
+- (INTEGRATE-3) `CharacterState.spec` and `MovementController.spec` were still missing `--!strict`; INTEGRATE-3 typed them (fake input type, typed `beforeEach` locals, and a commented `:: any` for the instance `_is_moving` override and for the deliberately unknown `"Fly"` activity).
+
 ## 17. Phase 1 status
 
 Recorded by INTEGRATE-1 after reconciling the four Phase 1 agents.
@@ -1336,3 +1377,23 @@ Recorded by INTEGRATE-2 after reconciling P2-combat, P2-items and P2-content.
 - Re-keying the active attack by Combatant waits for the first NPC attacker.
 - `WeaponService.spec` still accepts both definition shapes; drop the v1 branch in Phase 3.
 - The Phase 2 smoke tests in `docs/TESTING.md` have not been run.
+
+## 19. Phase 3 status
+
+Recorded by INTEGRATE-3 after reconciling S-server, S-parkour and S-client.
+
+**Done**
+
+- §10: every module under `src/**` and `tests/**` starts with `--!strict`, except `src/packages/**` and `src/server/vendor/**` (checked with a header grep). Services and controllers export class types (`typeof(setmetatable({} :: Fields, Class))`) and typed `Deps`. The remaining `any` casts are at engine, vendor, remote and spec-fake boundaries, each with a comment.
+- The confirmed early-HitStart bug is fixed (§14.14) and covered by `CombatHitBuffer.spec.lua`.
+- Dead code and leftovers are removed (see the Phase 3 block in §16), including the v1 branch in `WeaponService.spec`.
+- INTEGRATE-3 moved `ParkourController/Types` and `MovementController` from `typeof(Trove.new())` to `ClientTrove.Trove`, removed the `typeof(make_fixture())` spec workaround, and made the last two specs strict. It spot-diffed CombatService, CombatValidation, PlayerService, PlayerSession, the parkour State / Traversal / VaultTraversal / LedgeTraversal / init, CombatController / AttackLifecycle / AttackInput, InputController and the PC / Mobile / Gamepad adapters against `e1198f7`: apart from the changes listed in §14 and §16, the edits only add types and narrow nil checks. Fists and Katana definitions differ from `e1198f7` only by the `--!strict` header.
+- `sh scripts/analyze.sh` reports zero luau-lsp diagnostics and zero selene errors or warnings, and `rojo build` succeeds.
+
+**Deviations:** see the Phase 3 block in §16.
+
+**Deferred / to verify in Studio**
+
+- Nothing from Phase 1, 2 or 3 has been run in Studio yet; the pre-refactor baseline was 151/151. The new `CombatHitBuffer.spec` and the strict spec rewrites are checked only by inspection and the analyzer.
+- The Phase 3 smoke tests in `docs/TESTING.md` (early-HitStart hit, MeshPart/Union climb guide A/D) have not been run.
+- Next: the adversarial review (server + shared lens, client lens), then Finish.

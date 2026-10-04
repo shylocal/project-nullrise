@@ -134,3 +134,10 @@ Lifecycle:
 
 - Respawn mid-swing, then attack again: combo, Heavy, hitmarker, highlight and weapon menu all still work, and the equipped weapon is kept.
 - Leave the game (and leave while still loading): the server shows no component errors, and on a live server the profile is released (rejoining immediately does not wait on a session lock).
+
+## Refactor (Phase 3) smoke tests
+
+Phase 3 only adds types, with two behaviour fixes (`docs/REFACTOR_PLAN.md` §14.13 and §14.14). Run the Phase 1 and Phase 2 smoke tests as well, because every module changed.
+
+- Early-HitStart hit (§14.14): set Network > Incoming Replication Lag to about 0.2s and stand right next to a dummy, so the weapon touches it as the swing starts. Fast combo taps and Heavy releases land on the first frame of contact, and each target is damaged once per swing. In the Telemetry summary, `Combat/EarlyHitStart` still counts, but `Combat/NotActive` does not rise during these swings. A HitStop or a respawn before the window opens drops the buffered hits (no damage).
+- MeshPart/Union climb-guide A/D (§14.13): tag a MeshPart, a WedgePart and a UnionOperation as `Climbable`. Hang on each and hold A, then D. The character shimmies (or stops at the edge) with no error in the output. A cylinder `Part` guide still traverses as before.
