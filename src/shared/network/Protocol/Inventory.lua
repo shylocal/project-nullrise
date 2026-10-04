@@ -2,6 +2,6 @@
 -- Actions on the Inventory RemoteEvent (both directions).
 return table.freeze({
 	SelectSlot = "SelectSlot",
-	SelectItem = "SelectItem",
+	SelectUid = "SelectUid",
 	Changed = "Changed",
 })

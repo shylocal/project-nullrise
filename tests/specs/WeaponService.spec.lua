@@ -5,12 +5,17 @@ local TestService = game:GetService("TestService")
 
 local Config = require(ReplicatedStorage.shared.config)
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
+local ItemCatalog = require(ReplicatedStorage.shared.items.ItemCatalog)
+local DataSchema = require(ReplicatedStorage.shared.data.Schema)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
+local PlayerDataService = require(ServerScriptService.server.services.PlayerDataService)
 local InventoryService = require(ServerScriptService.server.services.InventoryService)
 local WeaponService = require(ServerScriptService.server.services.WeaponService)
 local ServerHarness = require(TestService.support.ServerHarness)
+local FakeProfileStore = require(TestService.support.FakeProfileStore)
 
 local DEFAULT_ID = Catalog.DefaultId
+local WINDOW = Config.Inventory.EquipCoalesceWindow
 
 local function item_id(): string
 	for _, id in Catalog.Ids() do
@@ -23,8 +28,20 @@ end
 
 local ITEM = item_id()
 
+-- Every hitbox part name a definition uses, whichever move shape it has.
+local function hitbox_names(def: any, names: { [string]: boolean })
+	for _, list in { def.Attacks, def.Moves } do
+		for _, move in pairs(list) do
+			names[move.Hitbox] = true
+		end
+	end
+	if def.Charge then
+		names[def.Charge.Hitbox] = true
+	end
+end
+
 -- One template per catalog weapon: a Model with a Part for every wield key
--- and every attack hitbox, each carrying a hitpoint attachment.
+-- and every hitbox, each carrying a hitpoint attachment.
 local function make_models(): Folder
 	local folder = Instance.new("Folder")
 	folder.Name = "SpecWeaponModels"
@@ -39,9 +56,7 @@ local function make_models(): Folder
 		for wield_name in def.Wield do
 			names[wield_name] = true
 		end
-		for _, attack in def.Attacks do
-			names[attack.Hitbox] = true
-		end
+		hitbox_names(def, names)
 
 		for name in names do
 			local part = Instance.new("Part")
@@ -83,10 +98,21 @@ local function setup(): Fixture
 	local h = ServerHarness.new()
 	local models = make_models()
 	h:Track(models)
+	local store = FakeProfileStore.new(DataSchema.Template())
 
+	h.Runtime:Add("PlayerDataService", function(get)
+		return PlayerDataService.new({
+			players = get("PlayerService"),
+			store = store,
+			is_studio = false,
+			config = Config.Data,
+			telemetry = get("Telemetry"),
+		})
+	end)
 	h.Runtime:Add("InventoryService", function(get)
 		return InventoryService.new({
 			players = get("PlayerService"),
+			data = get("PlayerDataService"),
 			remote = h.Remotes.Inventory,
 			budget = get("RemoteBudget"),
 			telemetry = get("Telemetry"),
@@ -98,6 +124,7 @@ local function setup(): Fixture
 			inventory = get("InventoryService"),
 			remote = h.Remotes.Weapon,
 			weapon_models = models,
+			scheduler = h.Clock:scheduler(),
 		})
 	end)
 	h:Start()
@@ -124,6 +151,23 @@ local function wield_name(weapon_id: string): string
 	error("weapon has no wield parts")
 end
 
+local function model_of(f: Fixture, player: any, weapon_id: string): Instance
+	local part = f.weapons:GetWielded(player, wield_name(weapon_id))
+	assert(part, "no wielded part")
+	local model = part:FindFirstAncestorOfClass("Model")
+	assert(model, "wielded part has no model")
+	return model
+end
+
+local function announced(f: Fixture): { string }
+	local ids = {}
+	for _, packet in f.h.Remotes.Weapon.Sent do
+		expect(packet[2]).to.equal(Protocol.Weapon.Equipped)
+		table.insert(ids, packet[3])
+	end
+	return ids
+end
+
 return function()
 	describe("WeaponService", function()
 		local f: Fixture
@@ -134,6 +178,12 @@ return function()
 
 		afterEach(function()
 			f.h:Destroy()
+		end)
+
+		it("requires a scheduler", function()
+			expect(function()
+				WeaponService.new({ players = {}, inventory = {}, remote = {} })
+			end).to.throw()
 		end)
 
 		it("starts every player on the default weapon without announcing it", function()
@@ -157,7 +207,7 @@ return function()
 		it("swaps the attached model and announces the equip", function()
 			local player = f.h.Players:Add()
 			local character = spawn_character(f, player)
-			local old_part = f.weapons:GetWielded(player, wield_name(DEFAULT_ID))
+			local old_model = model_of(f, player, DEFAULT_ID)
 
 			local changed = nil
 			f.weapons.EquippedChanged:Connect(function(_player, weapon)
@@ -167,43 +217,111 @@ return function()
 			expect(f.weapons:Equip(player, ITEM)).to.equal(true)
 
 			expect(changed).to.equal(Catalog.Get(ITEM))
-			expect(old_part.Parent).to.equal(nil)
+			expect(old_model.Parent).to.equal(nil)
 			local new_part = f.weapons:GetWielded(player, wield_name(ITEM))
 			expect(new_part).to.be.ok()
 			expect(new_part:IsDescendantOf(character)).to.equal(true)
 
 			local packet = f.h.Remotes.Weapon.Sent[#f.h.Remotes.Weapon.Sent]
 			expect(packet[1]).to.equal(player)
-			expect(packet[2]).to.equal(Protocol.Weapon.Equipped)
 			expect(packet[3]).to.equal(ITEM)
 
 			-- Equipping the same weapon again is a no-op.
+			f.h.Clock:advance(WINDOW)
 			expect(f.weapons:Equip(player, ITEM)).to.equal(true)
 			expect(f.weapons:GetWielded(player, wield_name(ITEM))).to.equal(new_part)
+			expect(#announced(f)).to.equal(1)
+		end)
+
+		it("re-equips by reparenting the cached model", function()
+			local player = f.h.Players:Add()
+			local character = spawn_character(f, player)
+			local default_model = model_of(f, player, DEFAULT_ID)
+
+			f.weapons:Equip(player, ITEM)
+			local item_model = model_of(f, player, ITEM)
+			f.h.Clock:advance(WINDOW)
+
+			f.weapons:Equip(player, DEFAULT_ID)
+			expect(default_model.Parent).to.equal(character)
+			expect(model_of(f, player, DEFAULT_ID)).to.equal(default_model)
+			expect(item_model.Parent).to.equal(nil)
+			f.h.Clock:advance(WINDOW)
+
+			f.weapons:Equip(player, ITEM)
+			expect(model_of(f, player, ITEM)).to.equal(item_model)
+			expect(item_model.Parent).to.equal(character)
+		end)
+
+		it("coalesces equips inside the window into the latest request", function()
+			local player = f.h.Players:Add()
+			spawn_character(f, player)
+
+			expect(f.weapons:Equip(player, ITEM)).to.equal(true)
+			expect(f.weapons:Equip(player, DEFAULT_ID)).to.equal(true)
+			expect(f.weapons:Equip(player, ITEM)).to.equal(true)
+			expect(f.weapons:Equip(player, DEFAULT_ID)).to.equal(true)
+
+			-- Leading edge only so far.
+			expect(f.weapons:GetEquipped(player)).to.equal(Catalog.Get(ITEM))
+			expect(#announced(f)).to.equal(1)
+
+			f.h.Clock:advance(WINDOW)
+			local ids = announced(f)
+			expect(#ids).to.equal(2)
+			expect(ids[2]).to.equal(DEFAULT_ID)
+			expect(f.weapons:GetEquipped(player)).to.equal(Catalog.Get(DEFAULT_ID))
+
+			-- The trailing equip opened a new window.
+			f.weapons:Equip(player, ITEM)
+			expect(#announced(f)).to.equal(2)
+			f.h.Clock:advance(WINDOW)
+			expect(#announced(f)).to.equal(3)
+		end)
+
+		it("drops a trailing request that matches the equipped weapon", function()
+			local player = f.h.Players:Add()
+
+			f.weapons:Equip(player, ITEM)
+			f.weapons:Equip(player, DEFAULT_ID)
+			f.weapons:Equip(player, ITEM)
+			f.h.Clock:advance(WINDOW)
+
+			expect(#announced(f)).to.equal(1)
+			expect(f.weapons:GetEquipped(player)).to.equal(Catalog.Get(ITEM))
+
+			-- The window is closed again: the next request applies at once.
+			f.weapons:Equip(player, DEFAULT_ID)
+			expect(#announced(f)).to.equal(2)
 		end)
 
 		it("follows the inventory selection", function()
 			local player = f.h.Players:Add()
 			spawn_character(f, player)
+			local uid = f.inventory:Grant(player, (ItemCatalog.ForWeapon(ITEM) :: any).Id)
 
-			f.inventory:SelectItem(player, ITEM)
+			f.inventory:SelectUid(player, uid)
 			expect(f.weapons:GetEquipped(player)).to.equal(Catalog.Get(ITEM))
+			f.h.Clock:advance(WINDOW)
 
-			f.inventory:SelectItem(player, DEFAULT_ID)
+			f.inventory:SelectSlot(player, 0)
 			expect(f.weapons:GetEquipped(player)).to.equal(Catalog.Get(DEFAULT_ID))
 		end)
 
-		it("re-attaches the equipped weapon on respawn and drops the old model", function()
+		it("re-attaches the equipped weapon on respawn and drops the old models", function()
 			local player = f.h.Players:Add()
 			spawn_character(f, player)
+			local default_model = model_of(f, player, DEFAULT_ID)
 			f.weapons:Equip(player, ITEM)
 			local old_part = f.weapons:GetWielded(player, wield_name(ITEM))
 
 			local second = spawn_character(f, player)
 
 			expect(old_part.Parent).to.equal(nil)
+			expect(default_model.Parent).to.equal(nil)
 			local part = f.weapons:GetWielded(player, wield_name(ITEM))
 			expect(part).to.be.ok()
+			expect(part).never.to.equal(old_part)
 			expect(part:IsDescendantOf(second)).to.equal(true)
 		end)
 
@@ -213,6 +331,7 @@ return function()
 			assert(template, "template missing")
 			template.Parent = nil
 
+			expect(f.weapons:Equip(player, ITEM)).to.equal(false)
 			expect(f.weapons:Equip(player, ITEM)).to.equal(false)
 			expect(f.weapons:GetEquipped(player)).to.equal(Catalog.Get(DEFAULT_ID))
 			template:Destroy()
@@ -233,15 +352,19 @@ return function()
 			expect(f.weapons:GetWielded(player, wield_name(DEFAULT_ID))).to.equal(nil)
 		end)
 
-		it("forgets the player and their models when they leave", function()
+		it("forgets the player, their models and any pending equip when they leave", function()
 			local player = f.h.Players:Add()
 			spawn_character(f, player)
 			local part = f.weapons:GetWielded(player, wield_name(DEFAULT_ID))
+			f.weapons:Equip(player, ITEM)
+			f.weapons:Equip(player, DEFAULT_ID)
 
 			f.h.Players:Remove(player)
+			f.h.Clock:advance(WINDOW)
 
 			expect(f.weapons:GetEquipped(player)).to.equal(nil)
 			expect(part.Parent).to.equal(nil)
+			expect(#announced(f)).to.equal(1)
 		end)
 	end)
 end

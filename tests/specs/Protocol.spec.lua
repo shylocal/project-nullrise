@@ -54,9 +54,8 @@ return function()
 			end
 		end)
 
-		it("keeps the Phase 1 wire names", function()
+		it("keeps the Phase 2 wire names", function()
 			expect(Protocol.Combat.Attack).to.equal("Attack")
-			expect(Protocol.Combat.Charge).to.equal("Charge")
 			expect(Protocol.Combat.HitStart).to.equal("HitStart")
 			expect(Protocol.Combat.HitStop).to.equal("HitStop")
 			expect(Protocol.Combat.Hit).to.equal("Hit")
@@ -64,10 +63,15 @@ return function()
 			expect(Protocol.Combat.AttackRejected).to.equal("AttackRejected")
 			expect(Protocol.Combat.HitConfirmed).to.equal("HitConfirmed")
 			expect(Protocol.Inventory.SelectSlot).to.equal("SelectSlot")
-			expect(Protocol.Inventory.SelectItem).to.equal("SelectItem")
+			expect(Protocol.Inventory.SelectUid).to.equal("SelectUid")
 			expect(Protocol.Inventory.Changed).to.equal("Changed")
 			expect(Protocol.Weapon.Equipped).to.equal("Equipped")
 			expect(Protocol.CombatFx.Hit).to.equal("Hit")
+		end)
+
+		it("has no separate Charge action (charges are moves)", function()
+			expect((Protocol.Combat :: any).Charge).to.equal(nil)
+			expect(Config.Network.RemoteBudget.Actions["Combat.Charge"]).to.equal(nil)
 		end)
 
 		it("is frozen", function()
@@ -79,10 +83,10 @@ return function()
 
 		it("has a budget for every client-to-server action", function()
 			local actions = Config.Network.RemoteBudget.Actions
-			for _, name in ipairs({ "Attack", "Charge", "HitStart", "HitStop", "Hit" }) do
+			for _, name in ipairs({ "Attack", "HitStart", "HitStop", "Hit" }) do
 				expect(actions["Combat." .. Protocol.Combat[name]]).to.be.ok()
 			end
-			for _, name in ipairs({ "SelectSlot", "SelectItem" }) do
+			for _, name in ipairs({ "SelectSlot", "SelectUid" }) do
 				expect(actions["Inventory." .. Protocol.Inventory[name]]).to.be.ok()
 			end
 		end)

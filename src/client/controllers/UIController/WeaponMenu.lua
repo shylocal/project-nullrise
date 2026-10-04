@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Trove = require(ReplicatedStorage.packages.Trove)
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
+local ItemCatalog = require(ReplicatedStorage.shared.items.ItemCatalog)
 
 -- Display-only mirror of the session LoadoutClient. Button presses only
 -- request a selection and never change the display directly.
@@ -59,13 +60,11 @@ function WeaponMenu:_start()
 
 		self.Buttons[weapon_id] = descendant
 
-		-- The server maps the default weapon to "no slot selected".
-		self.Trove:Connect(
-			descendant.Activated,
-			function()
-				self.Loadout:SelectItem(weapon_id)
-			end
-		)
+		-- The default weapon selects no slot; any other weapon selects the
+		-- first slot whose item grants it.
+		self.Trove:Connect(descendant.Activated, function()
+			self.Loadout:SelectWeapon(weapon_id)
+		end)
 	end
 
 	self.Trove:Connect(self.Loadout.InventoryChanged, function(entries, selected_slot)
@@ -81,7 +80,7 @@ function WeaponMenu:_start()
 end
 
 -- The default weapon is implicit and always available; any other button is
--- shown only while the server reports that weapon in a slot.
+-- shown only while the server reports an item granting that weapon in a slot.
 function WeaponMenu:_show_inventory(entries, selected_slot)
 	if typeof(entries) ~= "table" then
 		return
@@ -93,13 +92,18 @@ function WeaponMenu:_show_inventory(entries, selected_slot)
 	for _, entry in ipairs(entries) do
 		if typeof(entry) ~= "table"
 			or typeof(entry.Slot) ~= "number"
-			or typeof(entry.WeaponId) ~= "string" then
+			or typeof(entry.ItemId) ~= "string" then
 			continue
 		end
 
-		owned[entry.WeaponId] = true
+		local item = ItemCatalog.Get(entry.ItemId)
+		if not item then
+			continue
+		end
+
+		owned[item.WeaponId] = true
 		if entry.Slot == selected_slot then
-			selected_weapon = entry.WeaponId
+			selected_weapon = item.WeaponId
 		end
 	end
 

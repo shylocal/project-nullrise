@@ -10,13 +10,14 @@ local Signal = require(ReplicatedStorage.packages.Signal)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
+local ItemCatalog = require(ReplicatedStorage.shared.items.ItemCatalog)
 
 export type ClientRemoteLike = {
 	OnClientEvent: any,
 	FireServer: (self: any, ...any) -> (),
 }
 
-export type InventoryEntry = { Slot: number, WeaponId: string }
+export type InventoryEntry = { Slot: number, Uid: string, ItemId: string }
 
 export type Deps = {
 	inventory_remote: ClientRemoteLike,
@@ -37,7 +38,8 @@ function LoadoutClient.is_valid_inventory(entries: any, selected_slot: any): boo
 	for _, entry in ipairs(entries) do
 		if typeof(entry) ~= "table"
 			or typeof(entry.Slot) ~= "number"
-			or typeof(entry.WeaponId) ~= "string" then
+			or typeof(entry.Uid) ~= "string"
+			or typeof(entry.ItemId) ~= "string" then
 			return false
 		end
 	end
@@ -48,7 +50,7 @@ end
 local function freeze_entries(entries: { any }): { InventoryEntry }
 	local copy = table.create(#entries)
 	for index, entry in ipairs(entries) do
-		copy[index] = table.freeze({ Slot = entry.Slot, WeaponId = entry.WeaponId })
+		copy[index] = table.freeze({ Slot = entry.Slot, Uid = entry.Uid, ItemId = entry.ItemId })
 	end
 	return table.freeze(copy)
 end
@@ -109,12 +111,42 @@ function LoadoutClient:SelectSlot(slot: number)
 	self.InventoryRemote:FireServer(Protocol.Inventory.SelectSlot, slot)
 end
 
--- Phase 1 only; Phase 2 replaces this with SelectUid / SelectWeapon.
-function LoadoutClient:SelectItem(weapon_id: string)
+function LoadoutClient:SelectUid(uid: string)
 	if self._destroyed then
 		return
 	end
-	self.InventoryRemote:FireServer(Protocol.Inventory.SelectItem, weapon_id)
+	self.InventoryRemote:FireServer(Protocol.Inventory.SelectUid, uid)
+end
+
+-- The weapon an inventory entry grants, or nil for an unknown item.
+function LoadoutClient.weapon_id_of(entry: InventoryEntry): string?
+	local item = ItemCatalog.Get(entry.ItemId)
+	return item and item.WeaponId
+end
+
+-- Selects the first entry (in slot order) whose item grants weapon_id. The
+-- default weapon is "nothing selected". Returns false when no entry matches.
+function LoadoutClient:SelectWeapon(weapon_id: string): boolean
+	if self._destroyed then
+		return false
+	end
+	if weapon_id == Catalog.DefaultId then
+		self:SelectSlot(0)
+		return true
+	end
+
+	local best: InventoryEntry? = nil
+	for _, entry in self.Entries do
+		if LoadoutClient.weapon_id_of(entry) == weapon_id and (best == nil or entry.Slot < best.Slot) then
+			best = entry
+		end
+	end
+	if best == nil then
+		return false
+	end
+
+	self:SelectUid(best.Uid)
+	return true
 end
 
 function LoadoutClient:Destroy()

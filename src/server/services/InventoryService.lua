@@ -1,7 +1,9 @@
--- Server-owned hotbar. Each session's inventory is PlayerService component
--- state: seeded from the Starter loadout when the player joins, replicated to
--- the owner on every change, and gone when the session ends. The default
--- weapon (Catalog.DefaultId) is implicit and never occupies a slot.
+-- Server-owned hotbar backed by the player's profile. Slot records live in
+-- the profile data (PlayerDataService), keyed "1".."MaxSlots", each with a
+-- unique Uid; the selected slot is session state and resets on join. Every
+-- change is replicated to the owner as a dense, slot-ordered entry list. The
+-- default weapon (Catalog.DefaultId) is implicit and never occupies a slot.
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
@@ -10,7 +12,9 @@ local Signal = require(Packages.Signal)
 
 local Config = require(ReplicatedStorage.shared.config)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
+local Freeze = require(ReplicatedStorage.shared.utility.Freeze)
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
+local ItemCatalog = require(ReplicatedStorage.shared.items.ItemCatalog)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
 local DEFAULT_ID = Catalog.DefaultId
@@ -28,23 +32,34 @@ local function is_valid_slot(slot)
 		and slot <= MAX_SLOTS
 end
 
-local function is_valid_item_id(weapon_id)
-	return typeof(weapon_id) == "string"
-		and weapon_id ~= ""
-		and #weapon_id <= MAX_ITEM_ID_LENGTH
+-- Item ids and uids share the same bounded string check.
+local function is_valid_id(value)
+	return typeof(value) == "string"
+		and value ~= ""
+		and #value <= MAX_ITEM_ID_LENGTH
 end
 
--- Slots is stored sparsely by slot index. RemoteEvents drop or mangle sparse
--- arrays, so replication always uses this dense, slot-ordered entry list.
+local function slot_key(slot)
+	return tostring(slot)
+end
+
+local function weapon_id_of(record)
+	local item = record and ItemCatalog.Get(record.ItemId)
+	return item and item.WeaponId or DEFAULT_ID
+end
+
+-- Profile slots are keyed by string; RemoteEvents need a dense array, so
+-- replication always uses this slot-ordered list of primitive-only entries.
 local function build_entries(slots)
 	local entries = {}
 
 	for slot = 1, MAX_SLOTS do
-		local weapon_id = slots[slot]
-		if weapon_id ~= nil then
+		local record = slots[slot_key(slot)]
+		if record ~= nil then
 			table.insert(entries, {
 				Slot = slot,
-				WeaponId = weapon_id,
+				Uid = record.Uid,
+				ItemId = record.ItemId,
 			})
 		end
 	end
@@ -58,13 +73,14 @@ InventoryService.MAX_SLOTS = MAX_SLOTS
 InventoryService.NO_SELECTION = NO_SELECTION
 
 function InventoryService.new(deps)
-	Deps.check(deps, "InventoryService", { "players", "remote", "budget", "telemetry" })
+	Deps.check(deps, "InventoryService", { "players", "data", "remote", "budget", "telemetry" })
 
 	local self = setmetatable({
 		Trove = Trove.new(),
 		Changed = Signal.new(),
 
 		_players = deps.players,
+		_data = deps.data,
 		_remote = deps.remote,
 		_budget = deps.budget,
 		_telemetry = deps.telemetry,
@@ -97,19 +113,19 @@ function InventoryService:_on_remote(player, action, value)
 
 	if action == Protocol.Inventory.SelectSlot then
 		self:SelectSlot(player, value)
-	elseif action == Protocol.Inventory.SelectItem then
-		self:SelectItem(player, value)
+	elseif action == Protocol.Inventory.SelectUid then
+		self:SelectUid(player, value)
 	end
 end
 
+-- A player without loaded data (kicked on a live server) gets no inventory
+-- state, so every query answers as for a player who is not in game.
 function InventoryService:OnPlayerAdded(session)
-	local slots = {}
-	for slot, weapon_id in pairs(Catalog.Loadout("Starter")) do
-		slots[slot] = weapon_id
+	if not self._data:GetData(session.Player) then
+		return
 	end
 
 	session:Set(self, {
-		Slots = slots,
 		SelectedSlot = nil,
 	})
 
@@ -120,40 +136,43 @@ function InventoryService:OnPlayerRemoving(session)
 	session:Clear(self)
 end
 
+-- Returns (slots, selection state, session) for a present player.
 function InventoryService:_get(player)
 	local session = self._players:Get(player)
 	if not session or session.Phase == "Leaving" then
-		return nil, nil
+		return nil, nil, nil
 	end
-	return session:Get(self), session
+
+	local state = session:Get(self)
+	local data = state and self._data:GetData(player)
+	if not data then
+		return nil, nil, nil
+	end
+
+	return data.Inventory.Slots, state, session
 end
 
-function InventoryService:_get_replication_snapshot(player)
-	local inventory = self:_get(player)
-	if not inventory then
+function InventoryService:_snapshot(player)
+	local slots, state = self:_get(player)
+	if not slots then
 		return nil
 	end
 
 	-- Entries are freshly built tables of primitive values, so the payload
-	-- is detached from server-owned inventory state.
+	-- is detached from the profile data.
 	return {
-		Entries = build_entries(inventory.Slots),
-		SelectedSlot = inventory.SelectedSlot or NO_SELECTION,
+		Entries = build_entries(slots),
+		SelectedSlot = state.SelectedSlot or NO_SELECTION,
 	}
 end
 
 function InventoryService:_replicate(player)
-	local snapshot = self:_get_replication_snapshot(player)
+	local snapshot = self:_snapshot(player)
 	if not snapshot then
 		return false
 	end
 
-	self._remote:FireClient(
-		player,
-		Protocol.Inventory.Changed,
-		snapshot.Entries,
-		snapshot.SelectedSlot
-	)
+	self._remote:FireClient(player, Protocol.Inventory.Changed, snapshot.Entries, snapshot.SelectedSlot)
 
 	return true
 end
@@ -161,108 +180,135 @@ end
 -- Changed is a gameplay signal and only fires for Ready sessions. While a
 -- session is loading, components read the selection directly instead.
 function InventoryService:_sync(player)
-	local inventory, session = self:_get(player)
-	if not inventory then
+	local slots, state, session = self:_get(player)
+	if not slots then
 		return
 	end
 
 	if session.Phase == "Ready" then
-		self.Changed:Fire(player, self:GetSelectedId(player), inventory.SelectedSlot)
+		self.Changed:Fire(player, self:GetEquippedWeaponId(player), state.SelectedSlot or NO_SELECTION)
 	end
 
 	self:_replicate(player)
 end
 
--- Return a detached view so callers cannot bypass inventory validation,
--- replication, or Changed notifications by mutating server-owned state.
-function InventoryService:Get(player)
-	return self:_get_replication_snapshot(player)
-end
-
-function InventoryService:GetSlot(player, slot)
-	if not is_valid_slot(slot) then
-		return nil
-	end
-
-	local inventory = self:_get(player)
-	if not inventory then
-		return nil
-	end
-
-	return inventory.Slots[slot]
-end
-
-function InventoryService:GetSelectedSlot(player)
-	local inventory = self:_get(player)
-	return inventory and inventory.SelectedSlot
-end
-
-function InventoryService:GetSelectedId(player)
-	local inventory = self:_get(player)
-
-	if not inventory or not inventory.SelectedSlot then
-		return DEFAULT_ID
-	end
-
-	return inventory.Slots[inventory.SelectedSlot] or DEFAULT_ID
-end
-
-function InventoryService:Has(player, weapon_id)
-	if weapon_id == DEFAULT_ID then
-		return true
-	end
-
-	local inventory = self:_get(player)
-	if not inventory then
-		return false
-	end
-
-	for _, item_id in pairs(inventory.Slots) do
-		if item_id == weapon_id then
-			return true
-		end
-	end
-
-	return false
-end
-
-function InventoryService:SetSlot(player, slot, weapon_id)
-	if not is_valid_slot(slot) then
-		return false
-	end
-
-	if weapon_id == DEFAULT_ID then
-		weapon_id = nil
-	end
-
-	if weapon_id ~= nil then
-		if not is_valid_item_id(weapon_id) then
-			return false
-		end
-
-		if not Catalog.IsEquippable(Catalog.Get(weapon_id)) then
-			return false
-		end
-	end
-
-	local inventory = self:_get(player)
-	if not inventory then
-		return false
-	end
-
-	inventory.Slots[slot] = weapon_id
-
-	if inventory.SelectedSlot == slot then
+-- Re-announces after a slot write: a change to the selected slot can change
+-- the equipped weapon, any other change only needs replicating.
+function InventoryService:_after_write(player, state, slot)
+	if state.SelectedSlot == slot then
 		self:_sync(player)
 	else
 		self:_replicate(player)
 	end
+end
+
+-- A detached view, so callers cannot bypass validation, replication or
+-- Changed by mutating it.
+function InventoryService:Get(player)
+	return self:_snapshot(player)
+end
+
+function InventoryService:GetSelectedSlot(player)
+	local _, state = self:_get(player)
+	return state and state.SelectedSlot
+end
+
+-- A detached copy of the selected slot's record, or nil.
+function InventoryService:GetSelected(player)
+	local slots, state = self:_get(player)
+	if not slots or not state.SelectedSlot then
+		return nil
+	end
+
+	local record = slots[slot_key(state.SelectedSlot)]
+	return record and Freeze.clone_deep(record)
+end
+
+function InventoryService:GetEquippedWeaponId(player)
+	local slots, state = self:_get(player)
+	if not slots or not state.SelectedSlot then
+		return DEFAULT_ID
+	end
+
+	return weapon_id_of(slots[slot_key(state.SelectedSlot)])
+end
+
+function InventoryService:_find_empty_slot(slots)
+	for slot = 1, MAX_SLOTS do
+		if slots[slot_key(slot)] == nil then
+			return slot
+		end
+	end
+	return nil
+end
+
+-- Adds a new item to the given empty slot, or the first empty slot. Returns
+-- the new uid, or nil when the item is unknown or there is no room.
+function InventoryService:Grant(player, item_id, slot)
+	if not is_valid_id(item_id) or ItemCatalog.Get(item_id) == nil then
+		return nil
+	end
+
+	local slots, state = self:_get(player)
+	if not slots then
+		return nil
+	end
+
+	if slot == nil then
+		slot = self:_find_empty_slot(slots)
+		if slot == nil then
+			return nil
+		end
+	elseif not is_valid_slot(slot) or slots[slot_key(slot)] ~= nil then
+		return nil
+	end
+
+	local uid = HttpService:GenerateGUID(false)
+	slots[slot_key(slot)] = {
+		Uid = uid,
+		ItemId = item_id,
+		Data = {},
+	}
+
+	self:_after_write(player, state, slot)
+
+	return uid
+end
+
+function InventoryService:_find_uid(slots, uid)
+	for slot = 1, MAX_SLOTS do
+		local record = slots[slot_key(slot)]
+		if record and record.Uid == uid then
+			return slot
+		end
+	end
+	return nil
+end
+
+function InventoryService:RemoveUid(player, uid)
+	if not is_valid_id(uid) then
+		return false
+	end
+
+	local slots, state = self:_get(player)
+	if not slots then
+		return false
+	end
+
+	local slot = self:_find_uid(slots, uid)
+	if not slot then
+		return false
+	end
+
+	slots[slot_key(slot)] = nil
+	self:_after_write(player, state, slot)
 
 	return true
 end
 
 -- nil or NO_SELECTION selects nothing (the default weapon). Selecting the
--- selected slot toggles back to nothing.
+-- selected slot toggles back to nothing. An empty slot can be selected; it
+-- holds the default weapon.
 function InventoryService:SelectSlot(player, slot)
 	if slot == NO_SELECTION then
 		slot = nil
@@ -272,93 +318,39 @@ function InventoryService:SelectSlot(player, slot)
 		return false
 	end
 
-	local inventory = self:_get(player)
-	if not inventory then
+	local slots, state = self:_get(player)
+	if not slots then
 		return false
 	end
 
-	if inventory.SelectedSlot == slot then
+	if state.SelectedSlot == slot then
 		slot = nil
 	end
 
-	inventory.SelectedSlot = slot
+	state.SelectedSlot = slot
 	self:_sync(player)
 
 	return true
 end
 
-function InventoryService:SelectItem(player, weapon_id)
-	if not is_valid_item_id(weapon_id) then
+-- Selects the slot holding uid (toggling it off if it is already selected).
+-- Unknown uids are ignored.
+function InventoryService:SelectUid(player, uid)
+	if not is_valid_id(uid) then
 		return false
 	end
 
-	if weapon_id == DEFAULT_ID then
-		return self:SelectSlot(player, nil)
-	end
-
-	local inventory = self:_get(player)
-	if not inventory then
+	local slots = self:_get(player)
+	if not slots then
 		return false
 	end
 
-	for slot = 1, MAX_SLOTS do
-		if inventory.Slots[slot] == weapon_id then
-			return self:SelectSlot(player, slot)
-		end
-	end
-
-	return false
-end
-
-function InventoryService:Give(player, weapon_id, slot)
-	if slot == nil then
-		slot = self:_find_empty_slot(player)
-	end
-
-	return slot ~= nil and self:SetSlot(player, slot, weapon_id)
-end
-
-function InventoryService:_find_empty_slot(player)
-	local inventory = self:_get(player)
-	if not inventory then
-		return nil
-	end
-
-	for slot = 1, MAX_SLOTS do
-		if inventory.Slots[slot] == nil then
-			return slot
-		end
-	end
-
-	return nil
-end
-
-function InventoryService:Remove(player, weapon_id)
-	-- A nil ID would otherwise match the first empty slot.
-	if not is_valid_item_id(weapon_id) then
+	local slot = self:_find_uid(slots, uid)
+	if not slot then
 		return false
 	end
 
-	local inventory = self:_get(player)
-	if not inventory then
-		return false
-	end
-
-	for slot = 1, MAX_SLOTS do
-		if inventory.Slots[slot] == weapon_id then
-			inventory.Slots[slot] = nil
-
-			if inventory.SelectedSlot == slot then
-				self:_sync(player)
-			else
-				self:_replicate(player)
-			end
-
-			return true
-		end
-	end
-
-	return false
+	return self:SelectSlot(player, slot)
 end
 
 function InventoryService:Destroy()
