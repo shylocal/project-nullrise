@@ -1,13 +1,13 @@
-local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
 
 local Vector = require(ReplicatedStorage.shared.utility.Vector)
+local SharedConfig = require(ReplicatedStorage.shared.config)
 
-local Config = require(script.Parent.Config)
-local ClimbableQuery = require(script.Parent.ClimbableQuery)
 local Metrics = require(script.Parent.Metrics)
 local Queries = require(script.Parent.Queries)
+
+local Config = SharedConfig.Parkour
+local CLIMBABLE_GROUP = SharedConfig.World.CollisionGroups.Climbable
 
 local LedgeDetection = {}
 
@@ -18,18 +18,10 @@ local GROUND_INWARD_OFFSETS = { 0.5, 1, 1.75, 2.75, 4, 5.5, 7 }
 local GROUND_LATERAL_FACTORS = { 0, -1, 1 }
 
 function LedgeDetection.is_guide_within_mantle_search(self, guide, current_top, normal, tangent)
-	local bounds_cframe
-	local bounds_size
-
-	if guide:IsA("BasePart") then
-		bounds_cframe = guide.CFrame
-		bounds_size = guide.Size
-	elseif guide:IsA("Model") then
-		Metrics.record(self, "ModelBoundsQueries")
-		bounds_cframe, bounds_size = guide:GetBoundingBox()
-	else
+	if not guide:IsA("BasePart") and not guide:IsA("Model") then
 		return false
 	end
+	local bounds_cframe, bounds_size = self.Climbables:Bounds(guide)
 
 	local radius = bounds_size.Magnitude * 0.5
 	local relative = Vector.flatten(bounds_cframe.Position - current_top)
@@ -41,23 +33,58 @@ function LedgeDetection.is_guide_within_mantle_search(self, guide, current_top, 
 		and lateral - radius <= Config.MantleMaxLateral
 end
 
+-- Oriented box around current_top that contains every point a mantle search
+-- can accept: inward [-MantleMaxOutward, MantleMaxInward], lateral
+-- +-MantleMaxLateral along `tangent`, vertical +-(MantleMaxRise + 1). Guides
+-- outside it cannot yield a valid top, so the index lookup selects the same
+-- guides as scanning every tagged guide.
+function LedgeDetection.mantle_search_box(current_top, normal, tangent)
+	local inward = -Vector.flatten(normal)
+	if inward.Magnitude < 0.05 then
+		return nil
+	end
+	inward = inward.Unit
+	local right = inward:Cross(Vector3.yAxis).Unit
+	local inward_center = (Config.MantleMaxInward - Config.MantleMaxOutward) * 0.5
+	local inward_half = (Config.MantleMaxInward + Config.MantleMaxOutward) * 0.5
+	local center = current_top + inward * inward_center
+	local cframe = CFrame.fromMatrix(center, right, Vector3.yAxis, -inward)
+
+	-- The lateral limit is measured along `tangent`, which need not be exactly
+	-- perpendicular to the normal; widen the box to cover that skew.
+	local flat_tangent = Vector.flatten(tangent)
+	local lateral_half
+	local along_right = flat_tangent.Magnitude >= 0.05 and math.abs(flat_tangent.Unit:Dot(right)) or 0
+	if along_right < 0.1 then
+		lateral_half = Config.MantleMaxLateral + Config.MantleMaxInward + Config.MantleMaxOutward
+	else
+		local along_inward = math.abs(flat_tangent.Unit:Dot(inward))
+		local max_inward = math.max(Config.MantleMaxInward, Config.MantleMaxOutward)
+		lateral_half = (Config.MantleMaxLateral + max_inward * along_inward) / along_right
+	end
+	local vertical_half = Config.MantleMaxRise + 1
+	return cframe, Vector3.new(lateral_half * 2, vertical_half * 2, inward_half * 2)
+end
+
 local function visit_tagged_guides(self, current_top, normal, tangent, visit)
-	local tagged_guides = CollectionService:GetTagged(Config.ClimbableTag)
-	Metrics.record(self, "TaggedGuides", #tagged_guides)
-	for _, guide in ipairs(tagged_guides) do
+	local box_cframe, box_size = LedgeDetection.mantle_search_box(current_top, normal, tangent)
+	if not box_cframe then
+		return
+	end
+	local candidates = self.Climbables:QueryBox(box_cframe, box_size)
+	Metrics.record(self, "TaggedGuides", #candidates)
+	for _, guide in ipairs(candidates) do
 		Metrics.record(self, "GuidesVisited")
-		if guide:IsDescendantOf(Workspace) then
-			local in_bounds = LedgeDetection.is_guide_within_mantle_search(
-				self,
-				guide,
-				current_top,
-				normal,
-				tangent
-			)
-			Metrics.record(self, in_bounds and "GuidesInSearchBounds" or "GuidesOutsideSearchBounds")
-			if in_bounds then
-				visit(guide)
-			end
+		local in_bounds = LedgeDetection.is_guide_within_mantle_search(
+			self,
+			guide,
+			current_top,
+			normal,
+			tangent
+		)
+		Metrics.record(self, in_bounds and "GuidesInSearchBounds" or "GuidesOutsideSearchBounds")
+		if in_bounds then
+			visit(guide)
 		end
 	end
 end
@@ -135,7 +162,7 @@ function LedgeDetection.get_ledge_outward_normal(self, top, reference_position)
 	end
 
 	local part = top.Instance
-	local guide = top.Guide or ClimbableQuery.get_guide(part) or part
+	local guide = top.Guide or self.Climbables:GuideOf(part) or part
 	local axes = {}
 
 	local function add_axis(axis)
@@ -166,7 +193,7 @@ function LedgeDetection.get_ledge_outward_normal(self, top, reference_position)
 		local origin = Vector3.new(top.Position.X, probe_y, top.Position.Z)
 			+ outward * probe_length
 		local hit = Queries.cast_climbable_side(self, origin, -outward * probe_length)
-		if hit and (ClimbableQuery.get_guide(hit.Instance) or hit.Instance) == guide then
+		if hit and (self.Climbables:GuideOf(hit.Instance) or hit.Instance) == guide then
 			local face_normal = Vector.flatten(hit.Normal)
 			if face_normal.Magnitude >= 0.05 then
 				face_normal = face_normal.Unit
@@ -191,7 +218,7 @@ function LedgeDetection.get_ledge_outward_normal(self, top, reference_position)
 	return best_normal
 end
 
-function LedgeDetection.select_higher_top(current_top, normal, tangent, root_y, tops)
+function LedgeDetection.select_higher_top(current_top, normal, tangent, root_y, tops, climbables)
 	local best_top = nil
 	local best_height = math.huge
 	local best_distance = math.huge
@@ -201,8 +228,8 @@ function LedgeDetection.select_higher_top(current_top, normal, tangent, root_y, 
 			if not (
 				top.Instance
 				and top.Instance:IsA("BasePart")
-				and top.Instance.CollisionGroup == Config.ClimbableCollisionGroup
-				and not ClimbableQuery.is_climbable(top.Instance)
+				and top.Instance.CollisionGroup == CLIMBABLE_GROUP
+				and not climbables:IsClimbable(top.Instance)
 			) then
 				local relative = top.Position - current_top
 				local inward = relative:Dot(-normal)
@@ -252,7 +279,8 @@ function LedgeDetection.find_higher_ledge(self, current_top, normal, tangent, ro
 					normal,
 					tangent,
 					root_y,
-					tops
+					tops,
+					self.Climbables
 				)
 				if selected then
 					if best_top then
@@ -261,7 +289,8 @@ function LedgeDetection.find_higher_ledge(self, current_top, normal, tangent, ro
 							normal,
 							tangent,
 							root_y,
-							{ best_top, selected }
+							{ best_top, selected },
+							self.Climbables
 						)
 					else
 						best_top = selected
@@ -274,33 +303,21 @@ function LedgeDetection.find_higher_ledge(self, current_top, normal, tangent, ro
 	return best_top
 end
 
+local function classify_mantle_ground(hit)
+	local is_climbable_group = hit.Instance:IsA("BasePart")
+		and hit.Instance.CollisionGroup == CLIMBABLE_GROUP
+	return if is_climbable_group then "skip" else "accept"
+end
+
 local function cast_mantle_ground(self, origin, direction)
-	local params = self._mantleGroundParams or RaycastParams.new()
-	self._mantleGroundParams = params
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.IgnoreWater = true
-	params.RespectCanCollide = true
-
-	local exclusions = { self.Character }
-	for _ = 1, Config.MaxTopSurfaceHits do
-		params.FilterDescendantsInstances = exclusions
-		Metrics.record(self, "Raycasts")
-		Metrics.record(self, "MantleGroundRaycasts")
-		local hit = Workspace:Raycast(origin, direction, params)
-		if not hit then
-			return nil
-		end
-
-		local is_climbable_group = hit.Instance:IsA("BasePart")
-			and hit.Instance.CollisionGroup == Config.ClimbableCollisionGroup
-		if not is_climbable_group then
-			return hit
-		end
-
-		table.insert(exclusions, hit.Instance)
-	end
-
-	return nil
+	return self.Query:Pierce(
+		origin,
+		direction,
+		self.Query.Params.MantleGround,
+		classify_mantle_ground,
+		Config.MaxTopSurfaceHits,
+		"MantleGroundRaycasts"
+	)
 end
 
 function LedgeDetection.find_ground_mantle(self, current_top, normal, tangent, current_climbable, root_y, standing_height, root_size_x)
@@ -334,7 +351,7 @@ function LedgeDetection.find_ground_mantle(self, current_top, normal, tangent, c
 				Vector3.new(0, -ray_length, 0)
 			)
 			if ground and ground.Normal.Y >= 0.5 then
-				local ground_guide = ClimbableQuery.get_guide(ground.Instance)
+				local ground_guide = self.Climbables:GuideOf(ground.Instance)
 				local is_current_surface = ground.Instance == current_climbable
 					or (ground_guide ~= nil and ground_guide == current_climbable)
 				local rise = ground.Position.Y - current_top.Y

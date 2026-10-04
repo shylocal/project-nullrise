@@ -1,5 +1,5 @@
 local StarterPlayer = game:GetService("StarterPlayer")
-local Client = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("client")
+local Client = StarterPlayer.StarterPlayerScripts.client
 local VaultMath = require(Client.controllers.ParkourController.VaultMath)
 
 local function is_near(actual, expected, tolerance)

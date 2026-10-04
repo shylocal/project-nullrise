@@ -3,36 +3,35 @@ local Workspace = game:GetService("Workspace")
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Vector = require(ReplicatedStorage.shared.utility.Vector)
+local SharedConfig = require(ReplicatedStorage.shared.config)
 
-local MovementConfig = require(ReplicatedStorage.shared.movement.Config)
-
-local Config = require(script.Parent.Config)
-local ClimbableQuery = require(script.Parent.ClimbableQuery)
 local VaultMath = require(script.Parent.VaultMath)
-local ParkourState = require(script.Parent.State)
+local State = require(script.Parent.State)
 local Queries = require(script.Parent.Queries)
+
+local Config = SharedConfig.Parkour
+local MovementConfig = SharedConfig.Movement
 
 local VaultTraversal = {}
 
 function VaultTraversal.try_vault(self)
-	if ParkourState.get_data(self, "TopHop") then return false end
-	local sprinting = self.MovementController and self.MovementController:IsSprinting() or false
+	if State.top_hop(self) then return false end
 	if not Config.VaultEnabled then
 		return false
 	end
-	if self.State ~= "Grounded" then
+	if State.kind(self) ~= "Grounded" then
 		return false
 	end
-	if self.GrabBlockedUntilJumpReleased then
+	if self.Latch:IsBlocked("Jump") then
 		return false
 	end
 	if os.clock() < self.NextVaultAt then
 		return false
 	end
-	if not self.MovementController then
+	if not self.CharacterState:CanStart("Vault") then
 		return false
 	end
-	if not sprinting then
+	if not self.Movement:IsSprinting() then
 		return false
 	end
 
@@ -129,8 +128,8 @@ function VaultTraversal.try_vault(self)
 
 	local obstacle = obstacle_hit.Instance
 	if not obstacle:IsA("BasePart") or not obstacle.CanCollide
-		or obstacle.CollisionGroup == Config.ClimbableCollisionGroup
-		or ClimbableQuery.is_climbable(obstacle) then
+		or obstacle.CollisionGroup == SharedConfig.World.CollisionGroups.Climbable
+		or self.Climbables:IsClimbable(obstacle) then
 		return false
 	end
 
@@ -165,12 +164,7 @@ function VaultTraversal.try_vault(self)
 	local lateral_offset = hit_relative - forward * hit_relative:Dot(forward)
 	local projected_top_sample = root.Position + forward * top_sample_distance + lateral_offset
 
-	local top_params = self._vaultTopParams or RaycastParams.new()
-	self._vaultTopParams = top_params
-	top_params.FilterType = Enum.RaycastFilterType.Include
-	top_params.FilterDescendantsInstances = { obstacle }
-	top_params.IgnoreWater = true
-	top_params.RespectCanCollide = true
+	local top_params = self.Query:Include(self.Query.Params.VaultTop, obstacle)
 
 	-- At oblique approaches, a wall-face hit can be near a side edge. Try
 	-- vertical samples progressively inside from that exact impact point before
@@ -188,7 +182,7 @@ function VaultTraversal.try_vault(self)
 			obstacle.Position.Y + obstacle.Size.Magnitude + 4,
 			sample.Z
 		)
-		local candidate = Workspace:Raycast(
+		local candidate = self.Query:Raycast(
 			top_origin,
 			Vector3.new(0, -(obstacle.Size.Magnitude * 2 + 8), 0),
 			top_params
@@ -230,12 +224,7 @@ function VaultTraversal.try_vault(self)
 	) * 0.5
 	local obstacle_bottom_y = obstacle.Position.Y - obstacle_vertical_half
 	local support_tolerance = math.max(0, Config.VaultGroundSupportTolerance)
-	local support_params = self._vaultSupportParams or RaycastParams.new()
-	self._vaultSupportParams = support_params
-	support_params.FilterType = Enum.RaycastFilterType.Exclude
-	support_params.FilterDescendantsInstances = { self.Character, obstacle }
-	support_params.IgnoreWater = true
-	support_params.RespectCanCollide = true
+	local support_params = self.Query:Exclude(self.Query.Params.VaultSupport, { obstacle })
 	local support_origin_y = top.Position.Y + standing_height + 2
 	local support_ray = Vector3.new(
 		0,
@@ -252,7 +241,7 @@ function VaultTraversal.try_vault(self)
 				+ forward * (half_depth * forward_factor)
 				+ obstacle_lateral * (lateral_half_depth * lateral_factor)
 			local support_origin = Vector3.new(sample_position.X, support_origin_y, sample_position.Z)
-			local support_hit = Workspace:Raycast(
+			local support_hit = self.Query:Raycast(
 				support_origin,
 				support_ray,
 				support_params
@@ -332,42 +321,15 @@ function VaultTraversal.try_vault(self)
 		)
 
 		self.NextVaultAt = now + Config.VaultCooldown
-		self.GrabBlockedUntilJumpReleased = self.InputController:IsDown(Actions.Jump)
-		local launch_use_jump_power = humanoid.UseJumpPower
-		local launch_jump_power = humanoid.JumpPower
-		local launch_jump_height = humanoid.JumpHeight
+		if self.Input:IsDown(Actions.Jump) then
+			self.Latch:Block("Jump")
+		end
 		local requested_velocity = Vector3.new(
 			hop_horizontal_velocity.X,
 			hop_vertical_speed,
 			hop_horizontal_velocity.Z
 		)
-		local top_hop = {
-			StartedAt = os.clock(),
-			SawAir = false,
-			UseJumpPower = launch_use_jump_power,
-			JumpPowerBefore = launch_jump_power,
-			JumpHeightBefore = launch_jump_height,
-		}
-		ParkourState.set_data(self, "TopHop", top_hop)
-		-- The default Humanoid jump impulse was overshooting the calculated
-		-- obstacle-relative launch speed. Temporarily zero the active native
-		-- jump setting while preserving the Jumping state transition/animation;
-		-- the manually calculated velocity supplies the actual lift.
-		if launch_use_jump_power then
-			humanoid.JumpPower = 0
-		else
-			humanoid.JumpHeight = 0
-		end
-		-- The zeroed setting only needs to cover the launch's Jumping state.
-		-- Restore it as soon as the Humanoid leaves that state; waiting for a
-		-- landing left jumping disabled until the timeout whenever a short hop
-		-- never reported FloorMaterial == Air.
-		top_hop.StateConnection = humanoid.StateChanged:Connect(function(old_state, new_state)
-			if old_state == Enum.HumanoidStateType.Jumping
-				and new_state ~= Enum.HumanoidStateType.Jumping then
-				VaultTraversal.restore_top_hop_jump(self)
-			end
-		end)
+		VaultTraversal.start_top_hop(self)
 		humanoid.Jump = true
 		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 		-- Apply calculated vertical and forward velocity. The Humanoid physics
@@ -414,7 +376,6 @@ function VaultTraversal.try_vault(self)
 		table.insert(landing_extra_distances, next_landing_extra)
 		next_landing_extra += 0.75
 	end
-	local has_limit_probe = false
 	for _, extra_distance in ipairs(landing_extra_distances) do
 		local landing_distance = hop_distance + extra_distance
 		if landing_distance <= max_vault_distance then
@@ -538,46 +499,41 @@ function VaultTraversal.try_vault(self)
 		* math.max(0, Config.VaultTallDurationPerStud)
 	vault_duration *= math.clamp(Config.VaultDurationMultiplier, 0.5, 1.5)
 
-	if not ParkourState.transition(self, "Vaulting") then
+	-- Entering Vaulting takes the Vault lease (blocking sprint) and pushes the
+	-- pose and disabled-jump overrides; read sprint speed before this point.
+	if not State.enter(self, {
+		kind = "Vaulting",
+		data = {
+			ExitVelocity = horizontal_velocity,
+			Start = start_cframe,
+			Target = target_cframe,
+			Elapsed = 0,
+			Duration = vault_duration,
+			ArcHeight = arc_height,
+			ArcPeakProgress = arc_peak_progress,
+			Obstacle = obstacle,
+		},
+	}) then
 		return false
 	end
 	self.NextVaultAt = now + Config.VaultCooldown
-	ParkourState.set_data(self, "Vault", {
-		ExitVelocity = horizontal_velocity,
-		Start = start_cframe,
-		Target = target_cframe,
-		Elapsed = 0,
-		Duration = vault_duration,
-		ArcHeight = arc_height,
-		ArcPeakProgress = arc_peak_progress,
-		Obstacle = obstacle,
-	})
-	ParkourState.capture_humanoid(self, "Vault", {
-		"AutoRotate",
-		"PlatformStand",
-		"HipHeight",
-		"JumpingEnabled",
-	})
-	self.GrabBlockedUntilJumpReleased = self.InputController:IsDown(Actions.Jump)
-
-	humanoid.AutoRotate = false
-	humanoid.PlatformStand = true
-	humanoid.Jump = false
-	humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-	self.MovementController:SetSprintBlocked(true, self)
+	if self.Input:IsDown(Actions.Jump) then
+		self.Latch:Block("Jump")
+	end
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 	return true
 end
+
 function VaultTraversal.update_vault(self, dt)
 	local root = self.Root
-	local vault = ParkourState.get_data(self, "Vault")
-	local duration = vault and vault.Duration
-	if not root or not vault or not duration or not vault.Start or not vault.Target then
+	local vault = State.vault(self)
+	if not root or not vault then
 		VaultTraversal.finish_vault(self, false)
 		return false
 	end
 
+	local duration = vault.Duration
 	vault.Elapsed = math.min(vault.Elapsed + math.max(dt, 0), duration)
 	local linear = vault.Elapsed / duration
 	local eased = VaultMath.smoothstep(linear)
@@ -586,35 +542,32 @@ function VaultTraversal.update_vault(self, dt)
 	local arc = VaultMath.arc_weight(linear, vault.ArcPeakProgress) * vault.ArcHeight
 	local position = Vector3.new(horizontal.X, base.Position.Y, horizontal.Z)
 	local physical_exit_progress = math.clamp(Config.VaultPhysicalExitProgress, 0.05, 0.95)
+	local body = State.resources(self).Body
 	if linear < physical_exit_progress then
 		root.CFrame = CFrame.new(position + Vector3.new(0, arc, 0)) * base.Rotation
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 	else
 		-- Re-enable normal Humanoid control for the physical exit phase. The
-		-- Vault snapshot retains the original value for cleanup/finish.
-		local vault_humanoid = self.Humanoid
-		if vault_humanoid and vault_humanoid.Parent then
-			vault_humanoid.PlatformStand = false
+		-- Vault override keeps the original value for cleanup/finish.
+		if body then
+			body:Set("PlatformStand", false)
 		end
 		-- Hand the final approach back to Roblox physics before reaching the
 		-- authored endpoint. This preserves the forward impulse through the
 		-- landing instead of pinning the root to the last curve samples.
 		local exit_velocity = vault.ExitVelocity
-		if exit_velocity then
-			local current_velocity = root.AssemblyLinearVelocity
-			root.AssemblyLinearVelocity = Vector3.new(
-				exit_velocity.X,
-				current_velocity.Y,
-				exit_velocity.Z
-			)
-		end
+		local current_velocity = root.AssemblyLinearVelocity
+		root.AssemblyLinearVelocity = Vector3.new(
+			exit_velocity.X,
+			current_velocity.Y,
+			exit_velocity.Z
+		)
 	end
 
-	local vault_snapshot = ParkourState.get_humanoid_snapshot(self, "Vault")
-	local vault_humanoid = vault_snapshot and vault_snapshot.Humanoid
-	local original_hip_height = ParkourState.get_humanoid_value(self, "Vault", "HipHeight")
-	if vault_humanoid and vault_humanoid.Parent and original_hip_height ~= nil then
+	local vault_humanoid = self.Humanoid
+	if body and vault_humanoid and vault_humanoid.Parent then
+		local original_hip_height = self.CharacterState:Overrides(vault_humanoid):Base("HipHeight")
 		local reduction = math.max(0, Config.VaultHipHeightReduction)
 		local weight = VaultMath.hip_height_weight(linear)
 		local minimum_hip_height = 0
@@ -623,10 +576,10 @@ function VaultTraversal.update_vault(self, dt)
 			-- relative offset to make the temporary crouch effective.
 			minimum_hip_height = -reduction
 		end
-		vault_humanoid.HipHeight = math.max(
+		body:Set("HipHeight", math.max(
 			minimum_hip_height,
 			original_hip_height - reduction * weight
-		)
+		))
 	end
 
 	if linear >= 1 then
@@ -635,76 +588,73 @@ function VaultTraversal.update_vault(self, dt)
 
 	return true
 end
+
+-- Starts tracking a top-hop launch: the Grounded state carries the TopHop
+-- record, which holds the TopHop lease (blocking re-vaults) until landing or
+-- timeout, and zeroes the native jump impulse until the Humanoid leaves the
+-- launch's Jumping state.
+function VaultTraversal.start_top_hop(self)
+	return State.enter(self, {
+		kind = "Grounded",
+		TopHop = {
+			StartedAt = os.clock(),
+			SawAir = false,
+		},
+	})
+end
+
 -- Restores the native jump setting zeroed for the top-hop launch. The TopHop
 -- record itself stays until landing so it keeps guarding against re-vaults.
 function VaultTraversal.restore_top_hop_jump(self)
-	local top_hop = ParkourState.get_data(self, "TopHop")
-	if not top_hop or top_hop.JumpRestored then
+	State.restore_top_hop_jump(self)
+end
+
+function VaultTraversal.finish_top_hop(self, _landed)
+	if not State.top_hop(self) then
 		return
 	end
-	top_hop.JumpRestored = true
-	if top_hop.StateConnection then
-		top_hop.StateConnection:Disconnect()
-		top_hop.StateConnection = nil
-	end
+	State.enter(self, { kind = "Grounded" })
+end
 
-	local humanoid = self.Humanoid
-	if humanoid and humanoid.Parent then
-		if top_hop.UseJumpPower then
-			humanoid.JumpPower = top_hop.JumpPowerBefore
-		else
-			humanoid.JumpHeight = top_hop.JumpHeightBefore
+function VaultTraversal.finish_vault(self, completed)
+	local vault = State.vault(self)
+	if not vault then
+		return
+	end
+	local exit_velocity = vault.ExitVelocity
+
+	-- Take the disabled-jump handle before leaving Vaulting so it can outlive
+	-- the state when Space is still held after a completed vault.
+	local resources = State.resources(self)
+	local jump_handle = resources.Jump
+	resources.Jump = nil
+	State.enter(self, { kind = "Grounded" })
+
+	local jump_held = completed and self.Input:IsDown(Actions.Jump)
+	if jump_held then
+		self.Latch:Block("Jump", if jump_handle then { jump_handle } else nil)
+	else
+		if not completed then
+			self.Latch:Release("Jump")
+		end
+		if jump_handle then
+			jump_handle:Pop()
 		end
 	end
-end
-
-function VaultTraversal.finish_top_hop(self, landed)
-	if not ParkourState.get_data(self, "TopHop") then
-		return
-	end
-	VaultTraversal.restore_top_hop_jump(self)
-	ParkourState.clear_data(self, "TopHop")
-end
-function VaultTraversal.finish_vault(self, completed)
-	if self.State ~= "Vaulting" then
-		return
-	end
-
-	ParkourState.transition(self, "Grounded")
-	local vault = ParkourState.get_data(self, "Vault")
-	local exit_velocity = vault and vault.ExitVelocity
-	ParkourState.clear_data(self, "Vault")
 
 	local humanoid = self.Humanoid
-	ParkourState.restore_humanoid(self, "Vault", { "HipHeight", "AutoRotate", "PlatformStand" })
-
-	if completed and self.InputController:IsDown(Actions.Jump) then
-		self.GrabBlockedUntilJumpReleased = true
-	end
-	if not completed then
-		self.GrabBlockedUntilJumpReleased = false
-	end
-
 	if humanoid and humanoid.Parent then
 		humanoid.Jump = false
-		if not self.GrabBlockedUntilJumpReleased then
-			ParkourState.restore_humanoid(self, "Vault", { "JumpingEnabled" })
-		end
-
 		if completed and humanoid.Health > 0 then
 			humanoid:ChangeState(Enum.HumanoidStateType.Running)
 		end
-	end
-
-	if self.MovementController then
-		self.MovementController:SetSprintBlocked(false, self)
 	end
 
 	-- The scripted CFrame path zeroes physics velocity while airborne. Restore
 	-- horizontal sprint momentum at the landing handoff so the vault does not
 	-- leave the character stationary; preserve any vertical landing velocity.
 	local root = self.Root
-	if completed and root and root.Parent and exit_velocity then
+	if completed and root and root.Parent then
 		local vertical_velocity = root.AssemblyLinearVelocity.Y
 		root.AssemblyLinearVelocity = Vector3.new(
 			exit_velocity.X,

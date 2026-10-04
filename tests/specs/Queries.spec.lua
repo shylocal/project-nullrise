@@ -1,12 +1,34 @@
-local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 local Workspace = game:GetService("Workspace")
 
-local Client = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("client")
-local Queries = require(Client.controllers.ParkourController.Queries)
-local Config = require(Client.controllers.ParkourController.Config)
+local Signal = require(ReplicatedStorage.packages.Signal)
+local Config = require(ReplicatedStorage.shared.config)
+local Parkour = StarterPlayer.StarterPlayerScripts.client.controllers.ParkourController
+local ClimbableIndex = require(Parkour.ClimbableIndex)
+local Metrics = require(Parkour.Metrics)
+local Queries = require(Parkour.Queries)
+local QueryContext = require(Parkour.QueryContext)
 
-local function make_fixture()
+-- A CollectionService stand-in with a fixed tagged list, so specs do not
+-- depend on (possibly deferred) tag signals.
+local function make_collection(tagged)
+	local added = Signal.new()
+	local removed = Signal.new()
+	return {
+		GetTagged = function()
+			return tagged
+		end,
+		GetInstanceAddedSignal = function()
+			return added
+		end,
+		GetInstanceRemovedSignal = function()
+			return removed
+		end,
+	}
+end
+
+local function make_fixture(tagged)
 	local character = Instance.new("Model")
 	character.Name = "ParkourQueriesSpecCharacter"
 	character.Parent = Workspace
@@ -24,34 +46,42 @@ local function make_fixture()
 		Character = character,
 		Root = root,
 		Humanoid = humanoid,
-		_queryMetricsEnabled = true,
-		_queryMetrics = {},
+		Metrics = Metrics.new(true),
+		Climbables = ClimbableIndex.new({
+			collection = make_collection(tagged or {}),
+			tag = Config.World.Tags.Climbable,
+			cell_size = 16,
+			root = Workspace,
+		}),
 	}
+	controller.Query = QueryContext.new(controller)
 	function controller:_standing_height()
 		return 3
 	end
 
-	return controller, character
+	return controller
 end
 
 local function destroy_fixture(controller, instances)
 	for _, instance in ipairs(instances) do
-		CollectionService:RemoveTag(instance, Config.ClimbableTag)
 		instance:Destroy()
 	end
+	if controller.HangClearanceProbe then
+		controller.HangClearanceProbe:Destroy()
+	end
+	controller.Climbables:Destroy()
 	controller.Character:Destroy()
 end
 
 return function()
 	describe("Parkour spatial query contracts", function()
 		it("uses the explicit optional wall context without nil globals", function()
-			local controller, character = make_fixture()
 			local ledge = Instance.new("Part")
 			ledge.Name = "TaggedLedge"
 			ledge.Size = Vector3.new(5, 1, 2)
 			ledge.CFrame = CFrame.new(0, 4, 0)
 			ledge.Parent = Workspace
-			CollectionService:AddTag(ledge, Config.ClimbableTag)
+			local controller = make_fixture({ ledge })
 
 			local top = Queries.cast_reachable_grab_top(
 				controller,
@@ -59,7 +89,7 @@ return function()
 				Vector3.new(0, 0, 1),
 				controller.Root.Position,
 				controller.Root.Position.Y,
-				Config.MaxGrabHeight,
+				Config.Parkour.MaxGrabHeight,
 				ledge
 			)
 
@@ -71,7 +101,7 @@ return function()
 		end)
 
 		it("counts each decorative side-raycast once", function()
-			local controller, character = make_fixture()
+			local controller = make_fixture()
 			local blocker = Instance.new("Part")
 			blocker.Name = "NonCollidableDecoration"
 			blocker.Size = Vector3.new(2, 2, 0.5)
@@ -85,7 +115,8 @@ return function()
 				Vector3.new(0, 0, -3)
 			)
 			expect(result).to.equal(nil)
-			expect(controller._queryMetrics.Raycasts).to.equal(2)
+			expect(Metrics.snapshot(controller).Raycasts).to.equal(2)
+			expect(Metrics.snapshot(controller).RaysThisFrame).to.equal(2)
 
 			destroy_fixture(controller, { blocker })
 		end)
@@ -123,7 +154,6 @@ return function()
 			expect(blocked).to.equal(false)
 			expect(blocking_part).to.equal(blocker)
 
-			probe:Destroy()
 			destroy_fixture(controller, { blocker })
 		end)
 	end)

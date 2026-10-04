@@ -1,6 +1,5 @@
 local StarterPlayer = game:GetService("StarterPlayer")
-local Client = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("client")
-local Metrics = require(Client.controllers.ParkourController.Metrics)
+local Metrics = require(StarterPlayer.StarterPlayerScripts.client.controllers.ParkourController.Metrics)
 
 return function()
 	describe("Parkour query metrics", function()
@@ -8,8 +7,7 @@ return function()
 
 	beforeEach(function()
 		controller = {
-			_queryMetricsEnabled = false,
-			_queryMetrics = {},
+			Metrics = Metrics.new(false),
 		}
 	end)
 
@@ -19,7 +17,7 @@ return function()
 	end)
 
 	it("collects, snapshots, and resets opt-in counters", function()
-		controller._queryMetricsEnabled = true
+		Metrics.set_enabled(controller, true)
 		Metrics.record(controller, "Raycasts")
 		Metrics.record(controller, "Raycasts", 4)
 		Metrics.record(controller, "GuideColumns", 42)
@@ -36,6 +34,25 @@ return function()
 		expect(Metrics.snapshot(controller).Raycasts).to.equal(nil)
 		expect(Metrics.snapshot(controller).GuideColumns).to.equal(nil)
 		expect(Metrics.snapshot(controller).ModelBoundsQueries).to.equal(nil)
+	end)
+
+	it("counts rays per frame even when profiling is disabled", function()
+		Metrics.begin_frame(controller)
+		Metrics.count_ray(controller)
+		Metrics.count_ray(controller)
+		Metrics.count_ray(controller)
+		expect(Metrics.snapshot(controller).RaysThisFrame).to.equal(3)
+		expect(Metrics.snapshot(controller).MaxRaysPerFrame).to.equal(3)
+
+		Metrics.begin_frame(controller)
+		Metrics.count_ray(controller)
+		local snapshot = Metrics.snapshot(controller)
+		expect(snapshot.RaysThisFrame).to.equal(1)
+		-- The session maximum survives new frames and counter resets.
+		expect(snapshot.MaxRaysPerFrame).to.equal(3)
+		Metrics.reset(controller)
+		expect(Metrics.snapshot(controller).MaxRaysPerFrame).to.equal(3)
+		expect(Metrics.snapshot(controller).Raycasts).to.equal(nil)
 	end)
 	end)
 end

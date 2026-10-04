@@ -1,3 +1,7 @@
+-- Walk/sprint speed for the local character. Sprinting requires Sprint held,
+-- actual movement, and CharacterState allowing "Sprint" (hanging, vaulting or
+-- rooted attacks block it). This controller is the sole writer of
+-- Humanoid.WalkSpeed.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
@@ -5,23 +9,26 @@ local Trove = require(Packages.Trove)
 local Signal = require(Packages.Signal)
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
-local MovementConfig = require(ReplicatedStorage.shared.movement.Config)
+local Deps = require(ReplicatedStorage.shared.runtime.Deps)
+local MovementConfig = require(ReplicatedStorage.shared.config).Movement
 
 local MovementController = {}
 MovementController.__index = MovementController
 
-function MovementController.new(character, input_controller)
+-- deps.character: Model; deps.input: InputController-like (ActionBegan,
+-- ActionEnded, IsDown); deps.state: CharacterState.
+function MovementController.new(deps)
+	Deps.check(deps, "MovementController", { "character", "input", "state" })
 	local self = setmetatable({
-		Character = character,
-		InputController = input_controller,
+		Character = deps.character,
+		Input = deps.input,
+		CharacterState = deps.state,
 		Trove = Trove.new(),
 
 		Humanoid = nil,
 		HumanoidTrove = nil,
 		DefaultWalkSpeed = MovementConfig.WalkSpeed,
 		SprintSpeed = MovementConfig.SprintSpeed,
-		SprintBlocked = false,
-		SprintBlockers = {},
 		Sprinting = false,
 
 		SprintingChanged = Signal.new(),
@@ -53,7 +60,7 @@ function MovementController:_start()
 	end
 
 	self.Trove:Connect(
-		self.InputController.ActionBegan,
+		self.Input.ActionBegan,
 		function(action)
 			if action == Actions.Sprint then
 				self:_update_sprinting()
@@ -62,13 +69,19 @@ function MovementController:_start()
 	)
 
 	self.Trove:Connect(
-		self.InputController.ActionEnded,
+		self.Input.ActionEnded,
 		function(action)
 			if action == Actions.Sprint then
 				self:_update_sprinting()
 			end
 		end
 	)
+
+	-- Activities starting or ending (hang, vault, rooted attack) can change
+	-- whether sprinting is allowed.
+	self.Trove:Connect(self.CharacterState.Changed, function()
+		self:_update_sprinting()
+	end)
 end
 
 function MovementController:_set_humanoid(humanoid)
@@ -100,16 +113,19 @@ end
 
 function MovementController:_update_sprinting()
 	-- Holding Sprint while standing still must not enter the sprint state.
-	local sprinting = not self.SprintBlocked
-		and self.InputController:IsDown(Actions.Sprint)
+	local sprinting = self.Input:IsDown(Actions.Sprint) == true
 		and self:_is_moving()
+		and self.CharacterState:CanStart("Sprint")
 	local changed = self.Sprinting ~= sprinting
 
 	self.Sprinting = sprinting
 
 	local humanoid = self.Humanoid
 	if humanoid and humanoid.Parent ~= nil then
-		humanoid.WalkSpeed = sprinting and self.SprintSpeed or self.DefaultWalkSpeed
+		local target = sprinting and self.SprintSpeed or self.DefaultWalkSpeed
+		if humanoid.WalkSpeed ~= target then
+			humanoid.WalkSpeed = target
+		end
 	end
 
 	if changed then
@@ -132,30 +148,11 @@ function MovementController:SetSpeeds(walk_speed, sprint_speed)
 	return true
 end
 
-function MovementController:SetSprintBlocked(blocked, reason)
-	reason = reason or self
-	if blocked then
-		self.SprintBlockers[reason] = true
-	else
-		self.SprintBlockers[reason] = nil
-	end
-
-	local sprint_blocked = next(self.SprintBlockers) ~= nil
-	if self.SprintBlocked == sprint_blocked then
-		return
-	end
-
-	self.SprintBlocked = sprint_blocked
-	self:_update_sprinting()
-end
-
 function MovementController:IsSprinting()
 	return self.Sprinting
 end
 
 function MovementController:Destroy()
-	table.clear(self.SprintBlockers)
-	self.SprintBlocked = false
 	self.Trove:Destroy()
 end
 

@@ -4,22 +4,21 @@ local Workspace = game:GetService("Workspace")
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Vector = require(ReplicatedStorage.shared.utility.Vector)
 
-local Config = require(script.Parent.Config)
-local ClimbableQuery = require(script.Parent.ClimbableQuery)
-local ParkourState = require(script.Parent.State)
+local Config = require(ReplicatedStorage.shared.config).Parkour
+local State = require(script.Parent.State)
 local Queries = require(script.Parent.Queries)
 
 local Traversal = {}
 
 function Traversal.get_traverse_speed(self)
 	local speed = Config.TraverseSpeed
-	if self.InputController:IsDown(Actions.Sprint) then
+	if self.Input:IsDown(Actions.Sprint) then
 		speed *= Config.TraverseSprintMultiplier
 	end
 	return speed
 end
 function Traversal.snapshot_hang_pose(self)
-	local hang = ParkourState.get_data(self, "Hanging") or {}
+	local hang = State.hang(self) or {}
 	local root = self.Root
 	return {
 		CurrentClimbable = hang.CurrentClimbable,
@@ -35,19 +34,29 @@ function Traversal.restore_hang_pose(self, snapshot)
 	if not snapshot or not snapshot.CurrentClimbable or not snapshot.Normal or not snapshot.HangPosition then
 		return false
 	end
-	if self.State ~= "Hanging" then
-		if not ParkourState.transition(self, "Hanging") then
-			return false
-		end
+	local hang = State.hang(self)
+	if hang then
+		-- Restore in place so callers holding the current record see the
+		-- restored pose.
+		hang.CurrentClimbable = snapshot.CurrentClimbable
+		hang.Normal = snapshot.Normal
+		hang.HangDepthOffset = snapshot.HangDepthOffset
+		hang.HangPosition = snapshot.HangPosition
+		hang.CornerLockPosition = snapshot.CornerLockPosition
+		hang.CornerLockInputDirection = snapshot.CornerLockInputDirection
+	elseif not State.enter(self, {
+		kind = "Hanging",
+		data = {
+			CurrentClimbable = snapshot.CurrentClimbable,
+			Normal = snapshot.Normal,
+			HangDepthOffset = snapshot.HangDepthOffset,
+			HangPosition = snapshot.HangPosition,
+			CornerLockPosition = snapshot.CornerLockPosition,
+			CornerLockInputDirection = snapshot.CornerLockInputDirection,
+		},
+	}) then
+		return false
 	end
-	ParkourState.set_data(self, "Hanging", {
-		CurrentClimbable = snapshot.CurrentClimbable,
-		Normal = snapshot.Normal,
-		HangDepthOffset = snapshot.HangDepthOffset,
-		HangPosition = snapshot.HangPosition,
-		CornerLockPosition = snapshot.CornerLockPosition,
-		CornerLockInputDirection = snapshot.CornerLockInputDirection,
-	})
 	local root = self.Root
 	if root and snapshot.CFrame then
 		root.CFrame = snapshot.CFrame
@@ -70,7 +79,7 @@ local function validate_corner(self, candidate, normal, active_top_y)
 		root.Position.Y + Config.HangDrop
 	)
 	local corner_guide = corner_top
-		and (ClimbableQuery.get_guide(corner_top.Instance) or corner_top.Instance)
+		and (self.Climbables:GuideOf(corner_top.Instance) or corner_top.Instance)
 	local corner_height_ok = corner_top
 		and math.abs(corner_top.Position.Y - active_top_y) <= Config.TraverseHeightTolerance
 		and corner_top.Normal.Y >= 0.5
@@ -195,8 +204,22 @@ function Traversal.find_corner(self, turn_normals, candidate_position, normal, m
 
 	return nil
 end
+-- Whether a recorded empty corner-fan result still describes the current
+-- situation (same guide, direction and wall, and neither the hang target nor
+-- the root moved past CornerProbeRecheckDistance). A blocked traversal reuses
+-- it only within CornerProbeMissTtl.
+function Traversal.can_reuse_corner_miss(miss, climbable, direction, normal, hang_position, root_position, straight_valid, now)
+	return miss ~= nil
+		and miss.Climbable == climbable
+		and miss.Direction == direction
+		and miss.Normal:Dot(normal) >= 0.999
+		and (miss.HangPosition - hang_position).Magnitude < Config.CornerProbeRecheckDistance
+		and (miss.RootPosition - root_position).Magnitude < Config.CornerProbeRecheckDistance
+		and (straight_valid or now - miss.At < Config.CornerProbeMissTtl)
+end
+
 function Traversal.traverse(self, dt)
-	local hang = ParkourState.get_data(self, "Hanging")
+	local hang = State.hang(self)
 	local root = self.Root
 	local climbable = hang and hang.CurrentClimbable
 	local normal = hang and hang.Normal
@@ -207,16 +230,16 @@ function Traversal.traverse(self, dt)
 
 	-- Generic tall-wall catches are a one-way mantle interaction, not a
 	-- tagged ledge route. W invokes the tall-wall mantle; A/D stays disabled.
-	if not ClimbableQuery.is_climbable(climbable) then
-		self:_position_hanging()
+	if not self.Climbables:IsClimbable(climbable) then
+		self:_position_hanging(dt)
 		return
 	end
 
 	local active_top_y = hang.HangPosition.Y + Config.HangDrop
 
 	local direction = 0
-	if self.InputController:IsDown(Actions.Right) then direction += 1 end
-	if self.InputController:IsDown(Actions.Left) then direction -= 1 end
+	if self.Input:IsDown(Actions.Right) then direction += 1 end
+	if self.Input:IsDown(Actions.Left) then direction -= 1 end
 
 	if direction ~= 0 then
 		local pose_snapshot = Traversal.snapshot_hang_pose(self)
@@ -225,7 +248,7 @@ function Traversal.traverse(self, dt)
 			tangent = Vector.flatten(Vector3.yAxis:Cross(normal))
 		end
 		if tangent.Magnitude < 0.05 then
-			self:_position_hanging()
+			self:_position_hanging(dt)
 			return
 		end
 		tangent = tangent.Unit
@@ -271,7 +294,7 @@ function Traversal.traverse(self, dt)
 					end
 				end
 			end
-			self:_position_hanging()
+			self:_position_hanging(dt)
 			return
 		end
 
@@ -290,7 +313,7 @@ function Traversal.traverse(self, dt)
 		local top = probe
 			and Queries.cast_reachable_grab_top(self, probe.Position, probe.Normal, candidate_position, active_top_y)
 		local next_climbable = top
-			and (ClimbableQuery.get_guide(top.Instance) or top.Instance)
+			and (self.Climbables:GuideOf(top.Instance) or top.Instance)
 		local same_height = top
 			and math.abs(top.Position.Y - active_top_y) <= Config.TraverseHeightTolerance
 			and top.Normal.Y >= 0.5
@@ -322,20 +345,17 @@ function Traversal.traverse(self, dt)
 			-- face remains a fallback for concave layouts, not an equal candidate.
 			corner_turn_normals = { movement_tangent, -movement_tangent }
 		end
-		-- While straight traversal is still valid and neither the hang target nor
-		-- the root has moved meaningfully since the fan last found nothing, the
-		-- fan would repeat the same empty search. Skip it until movement exceeds
-		-- CornerProbeRecheckDistance; a blocked traversal always re-probes.
+		-- If neither the hang target nor the root has moved meaningfully since
+		-- the fan last found nothing, the fan would repeat the same empty
+		-- search. While straight traversal is valid, skip it until movement
+		-- exceeds CornerProbeRecheckDistance; while traversal is blocked (the
+		-- character cannot move), reuse the miss for CornerProbeMissTtl only.
 		local straight_valid = top ~= nil and same_height
 			and horizontal_normal.Magnitude >= 0.05
 			and horizontal_normal.Unit:Dot(normal) >= 0.65
-		local last_miss = self.CornerProbeMiss
-		if straight_valid and last_miss
-			and last_miss.Climbable == climbable
-			and last_miss.Direction == direction
-			and last_miss.Normal:Dot(normal) >= 0.999
-			and (last_miss.HangPosition - hang.HangPosition).Magnitude < Config.CornerProbeRecheckDistance
-			and (last_miss.RootPosition - root.Position).Magnitude < Config.CornerProbeRecheckDistance then
+		local now = os.clock()
+		if Traversal.can_reuse_corner_miss(self.CornerProbeMiss, climbable, direction, normal,
+			hang.HangPosition, root.Position, straight_valid, now) then
 			corner_turn_normals = {}
 		end
 		local probed_corners = #corner_turn_normals > 0
@@ -347,7 +367,7 @@ function Traversal.traverse(self, dt)
 			movement_tangent,
 			active_top_y
 		)
-		if best_corner or not straight_valid then
+		if best_corner then
 			self.CornerProbeMiss = nil
 		elseif probed_corners then
 			self.CornerProbeMiss = {
@@ -356,6 +376,7 @@ function Traversal.traverse(self, dt)
 				Normal = normal,
 				HangPosition = hang.HangPosition,
 				RootPosition = root.Position,
+				At = now,
 			}
 		end
 
@@ -417,7 +438,7 @@ function Traversal.traverse(self, dt)
 		end
 	end
 
-	self:_position_hanging()
+	self:_position_hanging(dt)
 end
 
 return Traversal

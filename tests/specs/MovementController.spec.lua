@@ -3,26 +3,34 @@ local StarterPlayer = game:GetService("StarterPlayer")
 
 local Signal = require(ReplicatedStorage.packages.Signal)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
-local MovementConfig = require(ReplicatedStorage.shared.movement.Config)
-local Client = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("client")
-local InputController = require(Client.controllers.InputController)
-local MovementController = require(Client.controllers.MovementController)
+local MovementConfig = require(ReplicatedStorage.shared.config).Movement
+local Controllers = StarterPlayer.StarterPlayerScripts.client.controllers
+local MovementController = require(Controllers.MovementController)
+local CharacterState = require(Controllers.CharacterState)
+local Policy = require(Controllers.CharacterState.Policy)
 
 local function make_input()
-	return setmetatable({
+	local input = {
 		ActionBegan = Signal.new(),
 		ActionEnded = Signal.new(),
 		Down = {},
-		SourcesDown = {},
-		ActiveInputSource = nil,
-	}, InputController)
-end
-
-local function destroy_input(input)
-	input.ActionBegan:Destroy()
-	input.ActionEnded:Destroy()
-	table.clear(input.Down)
-	table.clear(input.SourcesDown)
+	}
+	function input:IsDown(action)
+		return self.Down[action] == true
+	end
+	function input:Press(action)
+		self.Down[action] = true
+		self.ActionBegan:Fire(action)
+	end
+	function input:Release(action)
+		self.Down[action] = nil
+		self.ActionEnded:Fire(action)
+	end
+	function input:Destroy()
+		self.ActionBegan:Destroy()
+		self.ActionEnded:Destroy()
+	end
+	return input
 end
 
 return function()
@@ -30,6 +38,7 @@ return function()
 	local character
 	local humanoid
 	local input
+	local state
 	local movement
 	local moving
 
@@ -48,7 +57,8 @@ return function()
 		humanoid.Parent = character
 
 		input = make_input()
-		movement = MovementController.new(character, input)
+		state = CharacterState.new({ policy = Policy })
+		movement = MovementController.new({ character = character, input = input, state = state })
 		moving = true
 		movement._is_moving = function()
 			return moving
@@ -60,8 +70,12 @@ return function()
 			movement:Destroy()
 			movement = nil
 		end
+		if state then
+			state:Destroy()
+			state = nil
+		end
 		if input then
-			destroy_input(input)
+			input:Destroy()
 			input = nil
 		end
 		if character then
@@ -69,6 +83,12 @@ return function()
 			character = nil
 		end
 		humanoid = nil
+	end)
+
+	it("requires every constructor dependency", function()
+		expect(function()
+			MovementController.new({ character = character, input = input })
+		end).to.throw()
 	end)
 
 	it("starts at the configured walk speed", function()
@@ -82,13 +102,19 @@ return function()
 		other_humanoid.WalkSpeed = MovementConfig.WalkSpeed + 7
 		other_humanoid.Parent = other_character
 		local other_input = make_input()
-		local other_movement = MovementController.new(other_character, other_input)
+		local other_state = CharacterState.new({ policy = Policy })
+		local other_movement = MovementController.new({
+			character = other_character,
+			input = other_input,
+			state = other_state,
+		})
 
 		expect(other_movement.DefaultWalkSpeed).to.equal(MovementConfig.WalkSpeed)
 		expect(other_humanoid.WalkSpeed).to.equal(MovementConfig.WalkSpeed)
 
 		other_movement:Destroy()
-		destroy_input(other_input)
+		other_state:Destroy()
+		other_input:Destroy()
 		other_character:Destroy()
 	end)
 
@@ -100,7 +126,7 @@ return function()
 
 	it("does not sprint while Sprint is held without movement", function()
 		set_moving(false)
-		input:_began(Actions.Sprint)
+		input:Press(Actions.Sprint)
 		expect(movement:IsSprinting()).to.equal(false)
 		expect(humanoid.WalkSpeed).to.equal(MovementConfig.WalkSpeed)
 
@@ -119,43 +145,50 @@ return function()
 	end)
 
 	it("switches between walk and sprint speeds from input transitions", function()
-		input:_began(Actions.Sprint)
+		input:Press(Actions.Sprint)
 		expect(movement:IsSprinting()).to.equal(true)
 		expect(humanoid.WalkSpeed).to.equal(MovementConfig.SprintSpeed)
 
-		input:_ended(Actions.Sprint)
+		input:Release(Actions.Sprint)
 		expect(movement:IsSprinting()).to.equal(false)
 		expect(humanoid.WalkSpeed).to.equal(MovementConfig.WalkSpeed)
 	end)
 
 	it("keeps sprint blocked until every independent blocker is cleared", function()
-		local parkour_blocker = {}
-		local combat_blocker = {}
+		local parkour_owner = {}
+		local combat_owner = {}
 
-		input:_began(Actions.Sprint)
-		movement:SetSprintBlocked(true, parkour_blocker)
-		movement:SetSprintBlocked(true, combat_blocker)
+		input:Press(Actions.Sprint)
+		local parkour_lease = state:Acquire(parkour_owner, "Hang")
+		local combat_lease = state:Acquire(combat_owner, "AttackRooted")
 		expect(movement:IsSprinting()).to.equal(false)
 		expect(humanoid.WalkSpeed).to.equal(MovementConfig.WalkSpeed)
 
-		movement:SetSprintBlocked(false, parkour_blocker)
+		parkour_lease:Release()
 		expect(movement:IsSprinting()).to.equal(false)
 
-		movement:SetSprintBlocked(false, combat_blocker)
+		combat_lease:Release()
 		expect(movement:IsSprinting()).to.equal(true)
 		expect(humanoid.WalkSpeed).to.equal(MovementConfig.SprintSpeed)
 	end)
 
+	it("does not block sprint for activities whose policy allows it", function()
+		input:Press(Actions.Sprint)
+		local lease = state:Acquire({}, "TopHop")
+		expect(movement:IsSprinting()).to.equal(true)
+		lease:Release()
+	end)
+
 	it("applies valid speed overrides and rejects invalid values without changing them", function()
 		expect(movement:SetSpeeds(12, 28)).to.equal(true)
-		input:_began(Actions.Sprint)
+		input:Press(Actions.Sprint)
 		expect(humanoid.WalkSpeed).to.equal(28)
 
 		expect(movement:SetSpeeds(-1, 40)).to.equal(false)
 		expect(movement:SetSpeeds(10, math.huge)).to.equal(false)
 		expect(humanoid.WalkSpeed).to.equal(28)
 
-		input:_ended(Actions.Sprint)
+		input:Release(Actions.Sprint)
 		expect(humanoid.WalkSpeed).to.equal(12)
 	end)
 
@@ -165,11 +198,11 @@ return function()
 			table.insert(changes, sprinting)
 		end)
 
-		input:_began(Actions.Sprint)
-		movement:SetSprintBlocked(true, "test")
-		movement:SetSprintBlocked(true, "test")
-		movement:SetSprintBlocked(false, "test")
-		input:_ended(Actions.Sprint)
+		input:Press(Actions.Sprint)
+		local lease = state:Acquire("test", "Hang")
+		lease:Release()
+		lease:Release()
+		input:Release(Actions.Sprint)
 
 		expect(#changes).to.equal(4)
 		expect(changes[1]).to.equal(true)

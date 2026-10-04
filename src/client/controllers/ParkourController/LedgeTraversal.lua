@@ -3,11 +3,10 @@ local Workspace = game:GetService("Workspace")
 
 local Vector = require(ReplicatedStorage.shared.utility.Vector)
 
-local Config = require(script.Parent.Config)
+local Config = require(ReplicatedStorage.shared.config).Parkour
 local LedgeDetection = require(script.Parent.LedgeDetection)
 
-local ClimbableQuery = require(script.Parent.ClimbableQuery)
-local ParkourState = require(script.Parent.State)
+local State = require(script.Parent.State)
 local Metrics = require(script.Parent.Metrics)
 local Queries = require(script.Parent.Queries)
 local Traversal = require(script.Parent.Traversal)
@@ -16,9 +15,8 @@ local VaultMath = require(script.Parent.VaultMath)
 local LedgeTraversal = {}
 
 local function try_lower_ledge_impl(self)
-	local hang = ParkourState.get_data(self, "Hanging")
-	if self.State ~= "Hanging" or not self.Root or not hang.CurrentClimbable
-		or not hang.HangPosition or not hang.Normal then
+	local hang = State.hang(self)
+	if not hang or not self.Root then
 		return
 	end
 
@@ -48,7 +46,7 @@ local function try_lower_ledge_impl(self)
 	LedgeTraversal.transfer_hang_to_ledge(self, best_top, target_normal)
 end
 function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_y)
-	local hang = ParkourState.get_data(self, "Hanging")
+	local hang = State.hang(self)
 	local root = self.Root
 	local normal = hang and hang.Normal
 	local candidate_position = root and hang.HangPosition
@@ -80,7 +78,7 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 	if not top then
 		return false
 	end
-	local actual_guide = ClimbableQuery.get_guide(top.Instance) or top.Instance
+	local actual_guide = self.Climbables:GuideOf(top.Instance) or top.Instance
 	if actual_guide ~= expected_guide then
 		return false
 	end
@@ -108,7 +106,7 @@ function LedgeTraversal.refresh_hang_contact(self, expected_guide, expected_top_
 	return true
 end
 function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
-	local hang = ParkourState.get_data(self, "Hanging")
+	local hang = State.hang(self)
 	local root = self.Root
 	local normal = hang and hang.Normal
 	if not root or not top or not normal then return false end
@@ -129,7 +127,7 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 	elseif not depth_offset or Vector.flatten(depth_offset).Magnitude < 0.05 then
 		depth_offset = destination_normal * Config.WallGap
 	end
-	local target_guide = top.Guide or ClimbableQuery.get_guide(top.Instance) or top.Instance
+	local target_guide = top.Guide or self.Climbables:GuideOf(top.Instance) or top.Instance
 
 	local planned_position = top.Position
 		+ depth_offset
@@ -143,17 +141,17 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 	end
 
 	local pose_snapshot = Traversal.snapshot_hang_pose(self)
-	if not ParkourState.transition(self, "Hanging") then
-		return false
-	end
-	hang = ParkourState.set_data(self, "Hanging", {
+	hang = {
 		CurrentClimbable = target_guide,
 		Normal = destination_normal,
 		HangDepthOffset = depth_offset,
 		HangPosition = top.Position + depth_offset - Vector3.new(0, Config.HangDrop, 0),
 		CornerLockPosition = nil,
 		CornerLockInputDirection = nil,
-	})
+	}
+	if not State.enter(self, { kind = "Hanging", data = hang }) then
+		return false
+	end
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 
@@ -174,11 +172,32 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 		Traversal.restore_hang_pose(self, pose_snapshot)
 		return false
 	end
-	self:_position_hanging()
+	-- An input-driven snap: no frame time has elapsed.
+	self:_position_hanging(0)
+	return true
+end
+
+-- Leaves the hang for a scripted mantle to `target_cframe`. Entering Mantling
+-- keeps the hang's body pose until the mantle ends and disables native
+-- jumping until Space is released.
+local function begin_mantle(self, root, target_cframe)
+	if not State.enter(self, {
+		kind = "Mantling",
+		data = {
+			Start = root.CFrame,
+			Target = target_cframe,
+			Elapsed = 0,
+			Duration = Config.MantleDuration,
+		},
+	}) then
+		return false
+	end
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
 	return true
 end
 function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
-	local hang = ParkourState.get_data(self, "Hanging")
+	local hang = State.hang(self)
 	local root = self.Root
 	if not hang or not root or not current_top or not normal or not tangent then
 		return false
@@ -204,37 +223,18 @@ function LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 		ground.Position.Y + standing_height - 0.05,
 		ground.Position.Z
 	)
-	if not ParkourState.transition(self, "Mantling") then
-		return false
-	end
-	self.GrabBlockedUntilJumpReleased = true
-	if self.Humanoid then
-		ParkourState.capture_humanoid(self, "Mantle", { "JumpingEnabled" })
-		self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-		self.Humanoid.Jump = false
-	end
-	local start_cframe = root.CFrame
 	local target_cframe = CFrame.lookAt(grounded_position, grounded_position - Vector.flatten(normal).Unit)
-	ParkourState.clear_data(self, "Hanging")
-	ParkourState.set_data(self, "Mantling", {
-		Start = start_cframe,
-		Target = target_cframe,
-		Elapsed = 0,
-		Duration = Config.MantleDuration,
-	})
-	root.AssemblyLinearVelocity = Vector3.zero
-	root.AssemblyAngularVelocity = Vector3.zero
-	return true
+	return begin_mantle(self, root, target_cframe)
 end
 function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
-	local hang = ParkourState.get_data(self, "Hanging")
+	local hang = State.hang(self)
 	if not hang then
 		return false
 	end
 	local root = self.Root
 	local wall = hang.CurrentClimbable
 	if not root or not wall or not wall:IsA("BasePart")
-		or not wall.CanCollide or ClimbableQuery.is_climbable(wall) then
+		or not wall.CanCollide or self.Climbables:IsClimbable(wall) then
 		return false
 	end
 
@@ -244,7 +244,7 @@ function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 	if not top or top.Instance ~= wall or top.Normal.Y < 0.5 then
 		return false
 	end
-	local support = Queries.cast(self, 
+	local support = Queries.cast(self,
 		top.Position + Vector3.new(0, 1, 0),
 		Vector3.new(0, -2, 0),
 		true
@@ -264,40 +264,20 @@ function LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
 		return false
 	end
 
-	if not ParkourState.transition(self, "Mantling") then
-		return false
-	end
-	self.GrabBlockedUntilJumpReleased = true
-	if self.Humanoid then
-		ParkourState.capture_humanoid(self, "Mantle", { "JumpingEnabled" })
-		self.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-		self.Humanoid.Jump = false
-	end
-
 	local target_cframe = CFrame.lookAt(standing_position, standing_position - normal)
-	ParkourState.clear_data(self, "Hanging")
-	ParkourState.set_data(self, "Mantling", {
-		Start = root.CFrame,
-		Target = target_cframe,
-		Elapsed = 0,
-		Duration = Config.MantleDuration,
-	})
-	root.AssemblyLinearVelocity = Vector3.zero
-	root.AssemblyAngularVelocity = Vector3.zero
-	return true
+	return begin_mantle(self, root, target_cframe)
 end
 
 local function try_mantle_impl(self)
-	local hang = ParkourState.get_data(self, "Hanging")
-	if self.State ~= "Hanging" or not self.Root or not hang.CurrentClimbable
-		or not hang.HangPosition or not hang.Normal
+	local hang = State.hang(self)
+	if not hang or not self.Root
 		or not hang.CurrentClimbable:IsDescendantOf(Workspace) then
 		return
 	end
 
 	local root = self.Root
 	local normal = hang.Normal
-	local is_tagged_guide = ClimbableQuery.is_climbable(hang.CurrentClimbable)
+	local is_tagged_guide = self.Climbables:IsClimbable(hang.CurrentClimbable)
 	local depth_offset = if is_tagged_guide
 		then normal * Config.WallGap
 		else (hang.HangDepthOffset or normal * Config.WallGap)
@@ -306,7 +286,8 @@ local function try_mantle_impl(self)
 		+ Vector3.new(0, Config.HangDrop, 0)
 
 	if not is_tagged_guide then
-		return LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
+		LedgeTraversal.try_tall_wall_mantle(self, current_top, normal)
+		return
 	end
 
 	local tangent = Vector.flatten(root.CFrame.RightVector)
@@ -330,20 +311,17 @@ local function try_mantle_impl(self)
 	LedgeTraversal.try_ground_mantle(self, current_top, normal, tangent)
 end
 
+-- Advances an active mantle. Returns false when there is no valid mantle to
+-- advance (the caller releases).
 function LedgeTraversal.update_mantle(self, dt)
-	if self.State ~= "Mantling" then
-		return false
-	end
-
 	local root = self.Root
-	local mantle = ParkourState.get_data(self, "Mantling")
-	local duration = mantle and mantle.Duration
-	if not duration or duration <= 0 or not mantle.Start or not mantle.Target then
+	local mantle = State.mantle(self)
+	if not mantle or mantle.Duration <= 0 then
 		return false
 	end
 
-	mantle.Elapsed = math.min(mantle.Elapsed + math.max(dt, 0), duration)
-	local linear = mantle.Elapsed / duration
+	mantle.Elapsed = math.min(mantle.Elapsed + math.max(dt, 0), mantle.Duration)
+	local linear = mantle.Elapsed / mantle.Duration
 	local alpha = VaultMath.smoothstep(linear)
 	if root then
 		root.CFrame = mantle.Start:Lerp(mantle.Target, alpha)
@@ -351,14 +329,11 @@ function LedgeTraversal.update_mantle(self, dt)
 		root.AssemblyAngularVelocity = Vector3.zero
 	end
 	if linear >= 1 then
-		ParkourState.transition(self, "Grounded")
-		ParkourState.clear_data(self, "Mantling")
-		ParkourState.restore_humanoid(self, "Hang", { "AutoRotate", "PlatformStand" })
+		-- Leaving Mantling restores the hang body pose and releases the
+		-- Mantle lease; the disabled jump stays with the Jump latch.
+		State.enter(self, { kind = "Grounded" })
 		if self.Humanoid then
 			self.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
-		end
-		if self.MovementController then
-			self.MovementController:SetSprintBlocked(false, self)
 		end
 	end
 	return true

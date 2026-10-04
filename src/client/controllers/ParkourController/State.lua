@@ -1,188 +1,293 @@
--- Owns parkour state transitions and the Humanoid properties temporarily
--- changed by traversal. Spatial queries and movement remain in their modules.
-local State = {}
+--!strict
+-- The parkour state machine. A state is one tagged record, so per-state data
+-- cannot outlive its state. Each state also owns resources: its CharacterState
+-- lease and its Humanoid override handles. Entering a state acquires them and
+-- leaving it releases them, except what is handed over to the next state
+-- (Hang -> Mantle keeps the Hang body pose until the mantle ends; a
+-- same-kind transition keeps everything).
+local CharacterStateModule = require(script.Parent.Parent.CharacterState)
 
-local TRANSITIONS = {
-	Grounded = {
-		Hanging = true,
-		Vaulting = true,
-	},
-	Hanging = {
-		Grounded = true,
-		Mantling = true,
-	},
-	Mantling = {
-		Grounded = true,
-		Hanging = true,
-	},
-	Vaulting = {
-		Grounded = true,
-	},
+type Lease = CharacterStateModule.Lease
+type Handle = CharacterStateModule.Handle
+
+export type HangData = {
+	CurrentClimbable: Instance,
+	Normal: Vector3,
+	HangDepthOffset: Vector3,
+	HangPosition: Vector3,
+	CornerLockPosition: Vector3?,
+	CornerLockInputDirection: number?,
+}
+export type MantleData = { Start: CFrame, Target: CFrame, Elapsed: number, Duration: number }
+export type VaultData = {
+	ExitVelocity: Vector3,
+	Start: CFrame,
+	Target: CFrame,
+	Elapsed: number,
+	Duration: number,
+	ArcHeight: number,
+	ArcPeakProgress: number,
+	Obstacle: BasePart,
+}
+export type TopHopData = { StartedAt: number, SawAir: boolean }
+export type ParkourState =
+	{ kind: "Grounded", TopHop: TopHopData? }
+	| { kind: "Hanging", data: HangData }
+	| { kind: "Mantling", data: MantleData }
+	| { kind: "Vaulting", data: VaultData }
+
+-- Body: pose overrides (AutoRotate/PlatformStand[/HipHeight]).
+-- Jump: the disabled-jump (Vault) or zeroed jump impulse (TopHop) override.
+export type Resources = {
+	Lease: Lease?,
+	Body: Handle?,
+	Jump: Handle?,
+	Connection: RBXScriptConnection?,
 }
 
-local function read_humanoid_value(humanoid, property)
-	if property == "JumpingEnabled" then
-		return humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping)
-	end
-	return humanoid[property]
-end
+local State = {}
 
-function State.get_data(controller, key)
-	local state_data = controller._stateData
-	return state_data and state_data[key] or nil
-end
+local TRANSITIONS: { [string]: { [string]: boolean } } = {
+	Grounded = { Grounded = true, Hanging = true, Vaulting = true },
+	Hanging = { Hanging = true, Grounded = true, Mantling = true },
+	Mantling = { Mantling = true, Grounded = true, Hanging = true },
+	Vaulting = { Vaulting = true, Grounded = true },
+}
 
-function State.set_data(controller, key, data)
-	local state_data = controller._stateData
-	if not state_data then
-		state_data = {}
-		controller._stateData = state_data
-	end
-
-	local record = state_data[key]
-	if not record then
-		record = {}
-		state_data[key] = record
-	else
-		table.clear(record)
-	end
-
-	for field, value in pairs(data or {}) do
-		record[field] = value
-	end
-
-	return record
-end
-
-function State.clear_data(controller, key)
-	local state_data = controller._stateData
-	if not state_data then
-		return
-	end
-
-	local record = state_data[key]
-	if record then
-		table.clear(record)
-		state_data[key] = nil
-	end
-end
-
-function State.clear_all_data(controller)
-	local state_data = controller._stateData
-	if not state_data then
-		return
-	end
-
-	for _, record in pairs(state_data) do
-		table.clear(record)
-	end
-	table.clear(state_data)
-end
-
-local function write_humanoid_value(humanoid, property, value)
-	if property == "JumpingEnabled" then
-		humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, value)
-	else
-		humanoid[property] = value
-	end
-end
-
-function State.transition(controller, next_state)
-	local current_state = controller.State
-	if current_state == next_state then
-		return true
-	end
-
-	local allowed = TRANSITIONS[current_state]
-	if not allowed or not allowed[next_state] then
-		return false
-	end
-
-	controller.State = next_state
-	return true
-end
-
-function State.capture_humanoid(controller, key, properties)
-	local humanoid = controller.Humanoid
+local function overrides_of(ctrl: any)
+	local humanoid = ctrl.Humanoid
 	if not humanoid then
-		return nil
+		return nil, nil
 	end
+	return ctrl.CharacterState:Overrides(humanoid), humanoid
+end
 
-	local snapshots = controller._humanoidSnapshots
-	if not snapshots then
-		snapshots = {}
-		controller._humanoidSnapshots = snapshots
+local function release(resources: Resources)
+	local connection = resources.Connection
+	if connection then
+		resources.Connection = nil
+		connection:Disconnect()
 	end
-
-	local snapshot = snapshots[key]
-	if not snapshot or snapshot.Humanoid ~= humanoid then
-		snapshot = { Humanoid = humanoid }
-		snapshots[key] = snapshot
+	local jump = resources.Jump
+	if jump then
+		resources.Jump = nil
+		jump:Pop()
 	end
+	local body = resources.Body
+	if body then
+		resources.Body = nil
+		body:Pop()
+	end
+	local lease = resources.Lease
+	if lease then
+		resources.Lease = nil
+		lease:Release()
+	end
+end
 
-	for _, property in ipairs(properties) do
-		if snapshot[property] == nil then
-			snapshot[property] = read_humanoid_value(humanoid, property)
+-- Which of the outgoing state's resources the incoming state keeps.
+local function handover(current: ParkourState, next_state: ParkourState): { [string]: boolean }
+	if current.kind == next_state.kind then
+		if current.kind ~= "Grounded" then
+			return { Lease = true, Body = true, Jump = true, Connection = true }
+		end
+		-- A grounded top-hop keeps its resources only while it is the same record.
+		local current_hop = (current :: any).TopHop
+		if current_hop ~= nil and current_hop == (next_state :: any).TopHop then
+			return { Lease = true, Body = true, Jump = true, Connection = true }
+		end
+		return {}
+	end
+	if (current.kind == "Hanging" and next_state.kind == "Mantling")
+		or (current.kind == "Mantling" and next_state.kind == "Hanging") then
+		return { Body = true }
+	end
+	return {}
+end
+
+local function enter_grounded(ctrl: any, next_state: any, kept: Resources): Resources
+	if next_state.TopHop == nil or kept.Lease ~= nil then
+		return kept
+	end
+	kept.Lease = ctrl.CharacterState:Acquire(ctrl, "TopHop")
+	local overrides, humanoid = overrides_of(ctrl)
+	if overrides and humanoid then
+		-- The native jump impulse overshoots the computed launch velocity, so
+		-- it is zeroed only for the launch's Jumping state; the Jumping
+		-- transition and animation still play.
+		kept.Jump = if humanoid.UseJumpPower
+			then overrides:Push("TopHop", { JumpPower = 0 })
+			else overrides:Push("TopHop", { JumpHeight = 0 })
+		kept.Connection = humanoid.StateChanged:Connect(function(old_state, new_state)
+			if old_state == Enum.HumanoidStateType.Jumping and new_state ~= Enum.HumanoidStateType.Jumping then
+				State.restore_top_hop_jump(ctrl)
+			end
+		end)
+	end
+	return kept
+end
+
+local function enter_hanging(ctrl: any, _next_state: any, kept: Resources): Resources
+	if not kept.Lease then
+		kept.Lease = ctrl.CharacterState:Acquire(ctrl, "Hang")
+	end
+	if not kept.Body then
+		local overrides = overrides_of(ctrl)
+		if overrides then
+			kept.Body = overrides:Push("Hang", { AutoRotate = false, PlatformStand = true })
 		end
 	end
-
-	return snapshot
+	return kept
 end
 
-function State.get_humanoid_snapshot(controller, key)
-	local snapshots = controller._humanoidSnapshots
-	return snapshots and snapshots[key] or nil
-end
-
-function State.get_humanoid_value(controller, key, property)
-	local snapshot = State.get_humanoid_snapshot(controller, key)
-	if not snapshot then
-		return nil
+local function enter_mantling(ctrl: any, _next_state: any, kept: Resources): Resources
+	if kept.Lease then
+		return kept
 	end
-	return snapshot[property]
+	kept.Lease = ctrl.CharacterState:Acquire(ctrl, "Mantle")
+	local overrides, humanoid = overrides_of(ctrl)
+	if overrides and humanoid then
+		if not kept.Body then
+			kept.Body = overrides:Push("Hang", { AutoRotate = false, PlatformStand = true })
+		end
+		-- Native jumping stays disabled until Space is released, even after
+		-- the mantle completes: the Jump latch owns this handle.
+		ctrl.Latch:Block("Jump", { overrides:Push("Mantle", { JumpingEnabled = false }) })
+		humanoid.Jump = false
+	else
+		ctrl.Latch:Block("Jump")
+	end
+	return kept
 end
 
-function State.restore_humanoid(controller, key, properties)
-	local snapshot = State.get_humanoid_snapshot(controller, key)
-	if not snapshot then
+local function enter_vaulting(ctrl: any, _next_state: any, kept: Resources): Resources
+	if kept.Lease then
+		return kept
+	end
+	kept.Lease = ctrl.CharacterState:Acquire(ctrl, "Vault")
+	local overrides, humanoid = overrides_of(ctrl)
+	if overrides and humanoid then
+		kept.Body = overrides:Push("Vault", {
+			AutoRotate = false,
+			PlatformStand = true,
+			HipHeight = humanoid.HipHeight,
+		})
+		humanoid.Jump = false
+		kept.Jump = overrides:Push("Vault", { JumpingEnabled = false })
+	end
+	return kept
+end
+
+local ENTER: { [string]: (any, any, Resources) -> Resources } = {
+	Grounded = enter_grounded,
+	Hanging = enter_hanging,
+	Mantling = enter_mantling,
+	Vaulting = enter_vaulting,
+}
+
+-- Puts a controller in the initial Grounded state.
+function State.init(ctrl: any)
+	ctrl._state = { kind = "Grounded" } :: ParkourState
+	ctrl._resources = {} :: Resources
+end
+
+-- Transitions to `next_state` if TRANSITIONS allows it. The incoming state's
+-- resources are acquired before the outgoing state's are released, so a lease
+-- hand-off (Hang -> Mantle) never briefly unblocks an action.
+function State.enter(ctrl: any, next_state: ParkourState): boolean
+	local current: ParkourState = ctrl._state
+	local allowed = TRANSITIONS[current.kind]
+	if not allowed or not allowed[(next_state :: any).kind] then
 		return false
 	end
 
-	local fields = properties
-	if fields == nil then
-		fields = {}
-		for property in pairs(snapshot) do
-			if property ~= "Humanoid" then
-				table.insert(fields, property)
-			end
-		end
+	local outgoing: Resources = ctrl._resources
+	local kept: Resources = {}
+	for key in handover(current, next_state) do
+		(kept :: any)[key] = (outgoing :: any)[key];
+		(outgoing :: any)[key] = nil
 	end
 
-	local humanoid = snapshot.Humanoid
-	for _, property in ipairs(fields) do
-		local value = snapshot[property]
-		if humanoid and humanoid.Parent and value ~= nil then
-			write_humanoid_value(humanoid, property, value)
-		end
-		snapshot[property] = nil
-	end
+	local incoming = ENTER[next_state.kind](ctrl, next_state, kept)
+	ctrl._state = next_state
+	ctrl._resources = incoming
+	release(outgoing)
 
-	if properties == nil then
-		controller._humanoidSnapshots[key] = nil
-	else
-		local has_saved_values = false
-		for property in pairs(snapshot) do
-			if property ~= "Humanoid" then
-				has_saved_values = true
-				break
-			end
-		end
-		if not has_saved_values then
-			controller._humanoidSnapshots[key] = nil
-		end
+	if current.kind == "Hanging" and next_state.kind ~= "Hanging" then
+		ctrl.CornerProbeMiss = nil
 	end
-
 	return true
+end
+
+-- Releases every resource of the current state and returns to Grounded
+-- without a TopHop. Used by Destroy.
+function State.reset(ctrl: any)
+	local outgoing: Resources = ctrl._resources
+	ctrl._state = { kind = "Grounded" } :: ParkourState
+	ctrl._resources = {} :: Resources
+	release(outgoing)
+	ctrl.CornerProbeMiss = nil
+end
+
+function State.kind(ctrl: any): string
+	return ctrl._state.kind
+end
+
+function State.hang(ctrl: any): HangData?
+	local state: ParkourState = ctrl._state
+	if state.kind == "Hanging" then
+		return state.data
+	end
+	return nil
+end
+
+function State.mantle(ctrl: any): MantleData?
+	local state: ParkourState = ctrl._state
+	if state.kind == "Mantling" then
+		return state.data
+	end
+	return nil
+end
+
+function State.vault(ctrl: any): VaultData?
+	local state: ParkourState = ctrl._state
+	if state.kind == "Vaulting" then
+		return state.data
+	end
+	return nil
+end
+
+function State.top_hop(ctrl: any): TopHopData?
+	local state: ParkourState = ctrl._state
+	if state.kind == "Grounded" then
+		return state.TopHop
+	end
+	return nil
+end
+
+-- The current state's resources (read by traversal code that adjusts its
+-- own override handles, e.g. the vault crouch).
+function State.resources(ctrl: any): Resources
+	return ctrl._resources
+end
+
+-- Restores the native jump setting zeroed for a top-hop launch. The TopHop
+-- record and lease stay until landing so they keep guarding against re-vaults.
+function State.restore_top_hop_jump(ctrl: any)
+	if State.top_hop(ctrl) == nil then
+		return
+	end
+	local resources: Resources = ctrl._resources
+	local connection = resources.Connection
+	if connection then
+		resources.Connection = nil
+		connection:Disconnect()
+	end
+	local jump = resources.Jump
+	if jump then
+		resources.Jump = nil
+		jump:Pop()
+	end
 end
 
 return State
