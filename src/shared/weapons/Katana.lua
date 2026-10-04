@@ -1,7 +1,6 @@
 local Katana = {}
 
 Katana.Type = "Melee"
-Katana.MeleeType = "Sharp"
 Katana.Model = "Katana"
 Katana.CanSprintWhileAttacking = true
 
@@ -26,6 +25,8 @@ Katana.Animations = {
 		Id = "rbxassetid://14149034454",
 		Priority = Enum.AnimationPriority.Movement,
 		Looped = true,
+		-- Intentionally reuses the Idle animation.
+		SharedWith = "Idle",
 
 		TransitionTime = 0.325,
 	},
