@@ -6,10 +6,13 @@
 -- bounds (BasePart CFrame/Size, Model GetBoundingBox) are measured once and
 -- cached in a hash grid. A BasePart guide whose CFrame or Size property
 -- changes, or a Model guide whose descendants change (streaming), is marked
--- dirty and re-measured lazily by the next query. A guide with the
--- ClimbableDynamic attribute is re-measured on every query instead (use it
--- for physically simulated guides or Models whose parts move). The
--- module-level instance from `get` outlives every character.
+-- dirty and re-measured lazily by the next query. A static Model guide is
+-- also re-measured when its pivot or the CFrame of one reference part has
+-- changed since it was measured (PivotTo, tweens, a moving PrimaryPart); each
+-- query checks that with two property reads per Model guide. A guide with the
+-- ClimbableDynamic attribute, an unanchored BasePart guide and a Model guide
+-- containing an unanchored BasePart are re-measured on every query instead.
+-- The module-level instance from `get` outlives every character.
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -41,6 +44,11 @@ type Entry = {
 	Min: Vector3,
 	Max: Vector3,
 	Cells: { number }?,
+	-- Model guides only: the pivot, a reference part and its CFrame when
+	-- measured. A change to either means the Model moved.
+	Pivot: CFrame?,
+	Reference: BasePart?,
+	ReferenceCFrame: CFrame?,
 }
 
 local ClimbableIndex = {}
@@ -56,6 +64,8 @@ export type ClimbableIndex = typeof(setmetatable(
 		_grid: { [number]: { [Instance]: boolean } },
 		_large: { [Instance]: boolean },
 		_dynamic: { [Instance]: boolean },
+		-- Indexed (cached, non-dynamic) Model guides, checked for movement.
+		_models: { [Instance]: boolean },
 		_dirty: { [Instance]: boolean },
 		_connections: { ConnectionLike },
 		_destroyed: boolean,
@@ -82,6 +92,37 @@ local function measure(instance: Instance): (boolean, CFrame, Vector3)
 		return true, cframe, size
 	end
 	return false, CFrame.identity, Vector3.zero
+end
+
+-- Whether a Model contains an unanchored BasePart (physics moves it without
+-- any property signal), and its first BasePart as a movement reference.
+local function scan_model(model: Model): (boolean, BasePart?)
+	local reference: BasePart? = model.PrimaryPart
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			if not descendant.Anchored then
+				return true, reference or descendant
+			end
+			if not reference then
+				reference = descendant
+			end
+		end
+	end
+	return false, reference
+end
+
+-- True when a cached Model guide moved since it was measured.
+local function model_moved(entry: Entry): boolean
+	local pivot = entry.Pivot
+	if not pivot then
+		return false
+	end
+	local model = entry.Instance :: Model
+	if model:GetPivot() ~= pivot then
+		return true
+	end
+	local reference = entry.Reference
+	return reference ~= nil and reference.CFrame ~= entry.ReferenceCFrame
 end
 
 local function overlaps(min_a: Vector3, max_a: Vector3, min_b: Vector3, max_b: Vector3): boolean
@@ -112,6 +153,7 @@ function ClimbableIndex.new(deps: {
 		_grid = {},
 		_large = {},
 		_dynamic = {},
+		_models = {},
 		_dirty = {},
 		_connections = {},
 		_destroyed = false,
@@ -165,6 +207,7 @@ function ClimbableIndex._grid_remove(self: ClimbableIndex, entry: Entry)
 	end
 	self._large[instance] = nil
 	self._dynamic[instance] = nil
+	self._models[instance] = nil
 end
 
 function ClimbableIndex._grid_insert(self: ClimbableIndex, entry: Entry)
@@ -175,6 +218,9 @@ function ClimbableIndex._grid_insert(self: ClimbableIndex, entry: Entry)
 	if entry.Dynamic then
 		self._dynamic[instance] = true
 		return
+	end
+	if entry.Pivot then
+		self._models[instance] = true
 	end
 
 	local cell_size = self.CellSize
@@ -218,18 +264,34 @@ function ClimbableIndex._refresh(self: ClimbableIndex, instance: Instance)
 
 	local measurable, cframe, size = measure(instance)
 	local min, max = world_aabb(cframe, size)
+	-- Physically simulated parts move without property signals, so they
+	-- are measured live like an explicitly dynamic guide.
+	local dynamic = instance:GetAttribute(Config.World.Attributes.ClimbableDynamic) == true
+		or (instance:IsA("BasePart") and not instance.Anchored)
+	local pivot: CFrame? = nil
+	local reference: BasePart? = nil
+	local reference_cframe: CFrame? = nil
+	if instance:IsA("Model") then
+		local has_unanchored, first_part = scan_model(instance)
+		dynamic = dynamic or has_unanchored
+		if not dynamic then
+			pivot = instance:GetPivot()
+			reference = first_part
+			reference_cframe = if first_part then first_part.CFrame else nil
+		end
+	end
 	local fresh: Entry = {
 		Instance = instance,
 		Measurable = measurable,
-		-- Physically simulated parts move without property signals, so they
-		-- are measured live like an explicitly dynamic guide.
-		Dynamic = instance:GetAttribute(Config.World.Attributes.ClimbableDynamic) == true
-			or (instance:IsA("BasePart") and not instance.Anchored),
+		Dynamic = dynamic,
 		CFrame = cframe,
 		Size = size,
 		Min = min,
 		Max = max,
 		Cells = nil,
+		Pivot = pivot,
+		Reference = reference,
+		ReferenceCFrame = reference_cframe,
 	}
 	self._entries[instance] = fresh
 	self:_grid_insert(fresh)
@@ -279,6 +341,12 @@ function ClimbableIndex._untrack(self: ClimbableIndex, instance: Instance)
 end
 
 function ClimbableIndex._flush(self: ClimbableIndex)
+	local entries = self._entries
+	for instance in self._models do
+		if model_moved(entries[instance]) then
+			self._dirty[instance] = true
+		end
+	end
 	if next(self._dirty) == nil then
 		return
 	end
@@ -352,13 +420,15 @@ function ClimbableIndex.IsClimbable(self: ClimbableIndex, instance: Instance?): 
 	return self:GuideOf(instance) ~= nil
 end
 
--- Bounds of a guide: cached for static Models, live for BaseParts (as cheap
--- as a cache read) and for dynamic or unindexed guides.
+-- Bounds of a guide: cached for static Models (re-measured once they move),
+-- live for BaseParts (as cheap as a cache read) and for dynamic or unindexed
+-- guides.
 function ClimbableIndex.Bounds(self: ClimbableIndex, guide: Instance): (CFrame, Vector3)
-	if self._dirty[guide] then
-		self:_refresh(guide)
-	end
 	local entry = self._entries[guide]
+	if self._dirty[guide] or (entry and model_moved(entry)) then
+		self:_refresh(guide)
+		entry = self._entries[guide]
+	end
 	if entry and entry.Measurable and not entry.Dynamic and not guide:IsA("BasePart") then
 		return entry.CFrame, entry.Size
 	end

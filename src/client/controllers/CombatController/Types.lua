@@ -30,6 +30,8 @@ export type CombatLayerLike = {
 -- The AnimationController (or a spec fake).
 export type AnimationLike = {
 	Combat: CombatLayerLike,
+	-- Fires after the Animator was replaced and its tracks destroyed.
+	CacheReset: Signal,
 	StopAction: (self: any) -> (),
 }
 

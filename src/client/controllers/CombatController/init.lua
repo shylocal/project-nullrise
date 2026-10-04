@@ -113,6 +113,17 @@ function CombatController._start(self: CombatController, input_controller: Types
 		end
 	)
 
+	-- A replaced Animator destroys the attack's track, which disconnects its
+	-- Ended handler before it runs. Finish the attack here instead so the
+	-- lease, hitbox and HitStop are not left open until the next attack.
+	self.Trove:Connect(self.AnimationController.CacheReset, function()
+		local attack_trove = self.AttackTrove
+		local move_id = self.CurrentMoveId
+		if attack_trove and move_id then
+			self:_finish_attack(move_id, attack_trove)
+		end
+	end)
+
 	self.Trove:Connect(
 		input_controller.ActionBegan,
 		function(action: string)

@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Trove = require(script.Parent.Parent.ClientTrove)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
+local Signal = require(ReplicatedStorage.packages.Signal)
 local TrackCache = require(script.TrackCache)
 local Types = require(script.Types)
 local Movement = require(script.Movement)
@@ -16,6 +17,7 @@ local Combat = require(script.Combat)
 type Trove = Trove.Trove
 type Track = Types.Track
 type WeaponDefinition = Types.WeaponDefinition
+type Signal = typeof(Signal.new())
 
 export type Channel = "Locomotion" | "Action" | "Traversal"
 export type Deps = {
@@ -35,6 +37,10 @@ export type AnimationController = {
 	CacheTrove: Trove?,
 	-- Tracks whose Ended handler is already connected (once per track).
 	KnownTracks: { [Track]: boolean },
+	-- Fires (no arguments) after a replaced Animator's tracks were stopped
+	-- and destroyed. Destroying a track disconnects its Ended handlers, so
+	-- owners of an in-flight track (an attack) must clean up on this instead.
+	CacheReset: Signal,
 	EquippedWeapon: WeaponDefinition?,
 	Channels: Types.Channels,
 	Movement: Movement.Movement,
@@ -83,6 +89,7 @@ function AnimationController.new(deps: Deps): AnimationController
 		Cache = nil,
 		CacheTrove = nil,
 		KnownTracks = {},
+		CacheReset = Signal.new(),
 		EquippedWeapon = nil,
 
 		Channels = {
@@ -100,6 +107,7 @@ function AnimationController.new(deps: Deps): AnimationController
 	self.Movement = Movement.new(self)
 	self.Weapon = Weapon.new(self)
 	self.Combat = Combat.new(self)
+	self.Trove:Add(self.CacheReset)
 
 	local ok, err = pcall(function()
 		self:_start()
@@ -151,6 +159,7 @@ function AnimationController._set_animator(self: AnimationController, animator: 
 		return
 	end
 
+	local replaced = self.Cache ~= nil
 	self:_stop_tracks()
 	self:_destroy_cache()
 
@@ -159,6 +168,10 @@ function AnimationController._set_animator(self: AnimationController, animator: 
 	self.CacheTrove = Trove.new()
 
 	self:_apply_weapon(self.EquippedWeapon)
+
+	if replaced then
+		self.CacheReset:Fire()
+	end
 end
 
 function AnimationController._destroy_cache(self: AnimationController)

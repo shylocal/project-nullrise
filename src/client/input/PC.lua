@@ -161,6 +161,13 @@ function PCInput._start(self: PCInput)
 	end)
 end
 
+-- Called by InputController on focus loss, after it has released every
+-- action itself. Clears the sprint latch without reporting, so the next
+-- Left Shift press begins sprint again even though its End never arrived.
+function PCInput.ReleaseAll(self: PCInput)
+	self.SprintActive = false
+end
+
 function PCInput.Destroy(self: PCInput)
 	if self._destroyed then
 		return

@@ -176,6 +176,50 @@ return function()
 			expect(size).to.equal(mover.Size)
 		end)
 
+		it("re-measures a Model guide moved by PivotTo", function()
+			local model = Instance.new("Model")
+			model.Parent = container
+			make_part("A", Vector3.zero, Vector3.new(2, 2, 2), model)
+			make_part("B", Vector3.new(4, 0, 0), Vector3.new(2, 2, 2), model)
+			local _, index = build({ model })
+			expect(#index:QueryBox(CFrame.new(ORIGIN), Vector3.one)).to.equal(1)
+
+			-- No descendant is added or removed, so only the pivot check sees this.
+			model:PivotTo(model:GetPivot() + Vector3.new(0, 300, 0))
+			expect(#index:QueryBox(CFrame.new(ORIGIN), Vector3.one)).to.equal(0)
+			local hits = index:QueryBox(CFrame.new(ORIGIN + Vector3.new(0, 300, 0)), Vector3.one)
+			expect(hits[1]).to.equal(model)
+
+			model:PivotTo(model:GetPivot() + Vector3.new(0, 50, 0))
+			local cframe = index:Bounds(model)
+			expect((cframe.Position - (ORIGIN + Vector3.new(2, 350, 0))).Magnitude < 1e-3).to.equal(true)
+		end)
+
+		it("re-measures a Model guide whose parts are moved directly", function()
+			local model = Instance.new("Model")
+			model.Parent = container
+			local only = make_part("Only", Vector3.zero, Vector3.new(2, 2, 2), model)
+			local _, index = build({ model })
+
+			-- Without a PrimaryPart the pivot stays put; the reference part moves.
+			only.CFrame = CFrame.new(ORIGIN + Vector3.new(0, 300, 0))
+			expect(#index:QueryBox(CFrame.new(ORIGIN), Vector3.one)).to.equal(0)
+			expect(#index:QueryBox(CFrame.new(ORIGIN + Vector3.new(0, 300, 0)), Vector3.one)).to.equal(1)
+		end)
+
+		it("measures a Model with an unanchored part live", function()
+			local model = Instance.new("Model")
+			model.Parent = container
+			make_part("Anchored", Vector3.zero, Vector3.new(2, 2, 2), model)
+			local loose = make_part("Loose", Vector3.new(4, 0, 0), Vector3.new(2, 2, 2), model)
+			loose.Anchored = false
+			local _, index = build({ model })
+
+			-- Moving a non-reference part with no signal is still seen live.
+			loose.CFrame = CFrame.new(ORIGIN + Vector3.new(40, 0, 0))
+			expect(#index:QueryBox(CFrame.new(ORIGIN + Vector3.new(40, 0, 0)), Vector3.one)).to.equal(1)
+		end)
+
 		it("keeps very large guides queryable", function()
 			local huge = make_part("Huge", Vector3.zero, Vector3.new(2000, 1, 2000), container)
 			local _, index = build({ huge })

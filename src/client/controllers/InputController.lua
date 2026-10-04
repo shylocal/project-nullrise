@@ -42,7 +42,10 @@ export type SourceId = string | EnumItem | Instance
 -- Adapters report (action, source family, physical source id). A missing
 -- family defaults to "Default" and a missing id to the family.
 export type Report = (action: string, source: string?, source_id: SourceId?) -> ()
--- A device adapter, or any destroyable fake in specs.
+-- A device adapter, or any destroyable fake in specs. An adapter may also
+-- define an optional `ReleaseAll(self)`: the controller calls it on focus loss
+-- so the adapter can drop internal held/latched state (PC's sprint latch)
+-- without reporting; the controller has already released every action.
 export type Adapter =
 	PCInput.PCInput
 	| MobileInput.MobileInput
@@ -78,6 +81,7 @@ type InputControllerFields = {
 	-- This is the sole source of truth; IsDown derives from its membership.
 	SourcesDown: { [string]: { [SourceId]: string } },
 	ActiveInputSource: string?,
+	_adapters: { Adapter },
 	_destroyed: boolean,
 }
 
@@ -135,6 +139,7 @@ function InputController.from_adapters(deps: AdapterDeps): InputController
 		ActionEnded = Signal.new(),
 		SourcesDown = {},
 		ActiveInputSource = deps.initial_source,
+		_adapters = {},
 		_destroyed = false,
 	} :: InputControllerFields, InputController)
 
@@ -175,7 +180,9 @@ function InputController._start(self: InputController, deps: AdapterDeps)
 	end
 
 	for _, factory in ipairs(deps.adapters) do
-		self.Trove:Add(factory(began, ended))
+		local adapter = factory(began, ended)
+		table.insert(self._adapters, adapter)
+		self.Trove:Add(adapter)
 	end
 end
 
@@ -264,6 +271,16 @@ end
 
 -- InputEnded may not arrive after focus changes, app switching, or overlays.
 function InputController._release_all(self: InputController)
+	-- Adapters that latch held state (PC's sprint) must forget it too, or the
+	-- next press of that key is swallowed as a repeat.
+	for _, adapter in ipairs(self._adapters) do
+		-- ReleaseAll is optional and not part of every Adapter member's type.
+		local release_all = (adapter :: any).ReleaseAll
+		if type(release_all) == "function" then
+			release_all(adapter)
+		end
+	end
+
 	local actions: { string } = {}
 	for action in pairs(self.SourcesDown) do
 		table.insert(actions, action)

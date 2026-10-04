@@ -7,6 +7,7 @@ local Signal = require(ReplicatedStorage.packages.Signal)
 local Client = StarterPlayer.StarterPlayerScripts.client
 local InputController = require(Client.controllers.InputController)
 local PCInput = require(Client.input.PC)
+local ClientTrove = require(Client.ClientTrove)
 local GamepadInput = require(Client.input.Gamepad)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 
@@ -275,6 +276,56 @@ return function()
 			pc_input:_on_sprint_input("Sprint", Enum.UserInputState.End, { KeyCode = Enum.KeyCode.LeftShift })
 			expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 			expect(ended_count).to.equal(1)
+			controller:Destroy()
+		end)
+
+		it("begins sprint on the first Left Shift press after a focus loss", function()
+			local pc_input: any = nil
+			local focus_released = Signal.new()
+			local controller = InputController.from_adapters({
+				adapters = {
+					function(began, ended)
+						pc_input = setmetatable({
+							Trove = ClientTrove.new(),
+							SprintActive = false,
+							OnBegan = began,
+							OnEnded = ended,
+							_destroyed = false,
+							-- A partial adapter that binds nothing, so not a
+							-- PCInput as far as the analyzer knows.
+						}, PCInput) :: any
+						return pc_input
+					end,
+				},
+				focus_released = focus_released,
+			})
+			local began_count = 0
+			controller.ActionBegan:Connect(function(action)
+				if action == Actions.Sprint then
+					began_count += 1
+				end
+			end)
+			local shift = { KeyCode = Enum.KeyCode.LeftShift }
+
+			pc_input:_on_sprint_input("Sprint", Enum.UserInputState.Begin, shift)
+			expect(began_count).to.equal(1)
+
+			-- Focus is lost while Shift is held; its End never arrives.
+			focus_released:Fire()
+			expect(controller:IsDown(Actions.Sprint)).to.equal(false)
+			expect(pc_input.SprintActive).to.equal(false)
+
+			pc_input:_on_sprint_input("Sprint", Enum.UserInputState.Begin, shift)
+			expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+			expect(began_count).to.equal(2)
+			controller:Destroy()
+		end)
+
+		it("still accepts adapters without ReleaseAll on focus loss", function()
+			local controller, hooks, focus_released = make_controller(nil)
+			hooks.began(Actions.Jump)
+			focus_released:Fire()
+			expect(controller:IsDown(Actions.Jump)).to.equal(false)
 			controller:Destroy()
 		end)
 

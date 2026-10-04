@@ -43,6 +43,7 @@ local function make_animation()
 		},
 		Current = nil,
 		StopCount = 0,
+		CacheReset = Signal.new(),
 	}
 
 	local function claim(track)
@@ -415,6 +416,39 @@ return function()
 			expect(h.controller.PendingMoveId).to.equal(nil)
 			expect(h.controller.NextComboMoveId).to.equal(nil)
 			expect(h.animation.StopCount).to.equal(1)
+			h.destroy()
+		end)
+
+		it("finishes the attack when the Animator is replaced mid-swing", function()
+			local h = make_harness()
+			h.tap()
+			h.remote:Inject("AttackAccepted", LIGHT1, LIGHT2)
+			h.animation.Tracks.Light1:FireMarker("HitStart")
+			-- The harness character has no wielded parts, so stand in an
+			-- active hitbox to check that it is stopped.
+			local stopped = false
+			h.controller.ActiveHit = {
+				Hitbox = { Stop = function() stopped = true end },
+				MoveId = LIGHT1,
+				AttackTrove = h.controller.AttackTrove,
+				LifecycleId = h.controller.AttackLifecycleId,
+			} :: any
+			h.remote:Clear()
+
+			-- A replaced Animator destroys the track, so its Ended never runs.
+			h.animation.CacheReset:Fire()
+
+			expect(h.sent()[1]).to.equal(message("HitStop", LIGHT1))
+			expect(stopped).to.equal(true)
+			expect(h.controller.ActiveHit).to.equal(nil)
+			expect(h.controller.AttackTrove).to.equal(nil)
+			expect(h.controller.CurrentMoveId).to.equal(nil)
+			expect(h.state:IsActive("Attack")).to.equal(false)
+
+			-- With no attack in flight a reset sends nothing.
+			h.remote:Clear()
+			h.animation.CacheReset:Fire()
+			expect(#h.remote.Sent).to.equal(0)
 			h.destroy()
 		end)
 
