@@ -13,7 +13,19 @@ Last updated: 2026-10-05. Work happens directly on `main` (commit + push without
 | Phase 2 – features (data-driven moves, DamageService, lag compensation, CombatFx, items + ProfileStore persistence, asset contracts, animation manifest tool, selene, Wally) | Done, pushed (839c7b3..7466199) |
 | Phase 3 – `--!strict` everywhere + naming + dead code + early-HitStart hit buffer | Done, pushed |
 | Integrate 3 (analyzer zero, rojo build, commit, push) | Done, pushed (see plan §19) |
-| Adversarial review (server+shared lens, client lens) | Done (ecdd430): 10 findings, none critical or high, in `docs/refactor/REVIEW_FINDINGS.md`. **Next:** fix them (server 1–7, client 8–10), then Finish docs |
+| Adversarial review (server+shared lens, client lens) | Done (ecdd430): 10 findings, none critical or high, in `docs/refactor/REVIEW_FINDINGS.md` |
+| Fix review findings | **IN PROGRESS when the last session ended (2026-10-05).** Two agents ran in parallel: FIX-SERVER (findings 1–7: src/server, src/shared, server specs) and FIX-CLIENT (findings 8–10: src/client, client specs). Each was told to mark findings Fixed/Rejected/Deferred in REVIEW_FINDINGS.md, add §14 notes to the plan, and commit and push. See "Resuming the fixes" below |
+| Finish (docs/ARCHITECTURE.md from the plan, update README/DEPENDENCIES/TESTING/VENDORED/THREAT_MODEL/review docs) | Not started |
+
+### Resuming the fixes
+
+1. Run `git log --oneline -10` and `git status`. Commits after fb2953d are fix commits. Uncommitted changes are partial fix work: finish it, or revert it with `git checkout -- <paths>`.
+2. Open `docs/refactor/REVIEW_FINDINGS.md`. Every finding that isn't marked Fixed, Rejected or Deferred is still open. Fix it with a regression spec, following the suggested fix written there.
+3. Gate: `~/.rokit/bin/wally install`, then `sh scripts/analyze.sh` must report zero luau-lsp and selene diagnostics, then `~/.aftman/bin/rojo build default.project.json -o <tmp>.rbxlx` must succeed.
+4. Then do **Finish**:
+   - Turn `docs/REFACTOR_PLAN.md` into `docs/ARCHITECTURE.md`, keeping a short history section.
+   - Update README, DEPENDENCIES, TESTING, VENDORED and THREAT_MODEL, and mark the items done in CODEBASE_REVIEW and ARCHITECTURE_REVIEW.
+   - Mark this table complete, then commit and push to main.
 | Finish (fix confirmed bugs, docs/ARCHITECTURE.md from the plan, update docs, commit, push) | Not started |
 
 Nothing after Phase 2 has been run in Studio yet. The pre-refactor baseline was 151/151.
