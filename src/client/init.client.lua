@@ -3,7 +3,10 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
+local Config = require(ReplicatedStorage.shared.config)
+local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local Runtime = require(ReplicatedStorage.shared.runtime.Runtime)
 local Scheduler = require(ReplicatedStorage.shared.runtime.Scheduler)
 
@@ -14,9 +17,16 @@ local CharacterController = require(script.controllers.CharacterController)
 local TrackCache = require(script.controllers.AnimationController.TrackCache)
 local CombatClient = require(script.session.CombatClient)
 local LoadoutClient = require(script.session.LoadoutClient)
+local UiContracts = require(script.UiContracts)
 
 local player = Players.LocalPlayer
 local remotes = ReplicatedStorage.remotes
+
+-- UI templates are checked against the Catalog before anything is built.
+UiContracts.Report(
+	UiContracts.Verify(Catalog, ReplicatedStorage:FindFirstChild(Config.World.Folders.UiTemplates)),
+	RunService:IsStudio()
+)
 
 local NULL_SERVICE = { Destroy = function() end }
 

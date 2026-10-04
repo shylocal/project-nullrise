@@ -1,0 +1,12 @@
+[package]
+name = "mykytalytovchenko/project-nullrise"
+version = "0.1.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+private = true
+
+[dependencies]
+Trove = "sleitnick/trove@1.8.0"
+
+[dev-dependencies]
+TestEZ = "roblox/testez@0.4.1"

@@ -83,10 +83,14 @@ return function()
 			local began_count = 0
 			local ended_count = 0
 			controller.ActionBegan:Connect(function(action)
-				if action == Actions.Forward then began_count += 1 end
+				if action == Actions.Forward then
+					began_count += 1
+				end
 			end)
 			controller.ActionEnded:Connect(function(action)
-				if action == Actions.Forward then ended_count += 1 end
+				if action == Actions.Forward then
+					ended_count += 1
+				end
 			end)
 
 			hooks.began(Actions.Forward)
@@ -134,10 +138,14 @@ return function()
 			local began_count = 0
 			local ended_count = 0
 			controller.ActionBegan:Connect(function(action)
-				if action == Actions.Sprint then began_count += 1 end
+				if action == Actions.Sprint then
+					began_count += 1
+				end
 			end)
 			controller.ActionEnded:Connect(function(action)
-				if action == Actions.Sprint then ended_count += 1 end
+				if action == Actions.Sprint then
+					ended_count += 1
+				end
 			end)
 
 			hooks.began(Actions.Sprint, "PC", "SprintToggle")

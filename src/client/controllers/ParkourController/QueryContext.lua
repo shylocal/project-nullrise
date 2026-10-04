@@ -112,7 +112,7 @@ function QueryContext.Raycast(
 end
 
 -- Sets a one-element Include filter and returns the params.
-function QueryContext.Include(self: QueryContext, params: RaycastParams, instance: Instance): RaycastParams
+function QueryContext.Include(_self: QueryContext, params: RaycastParams, instance: Instance): RaycastParams
 	params.FilterDescendantsInstances = { instance }
 	return params
 end

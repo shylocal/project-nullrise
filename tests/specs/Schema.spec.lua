@@ -130,8 +130,13 @@ return function()
 		end)
 
 		it("rejects sparse arrays and extra keys", function()
-			expect(only(Schema.check({ 1, 2, [4] = 4 }, spec, "L"))).to.equal("L: must be a dense array")
-			expect(only(Schema.check({ 1, 2, x = 3 }, spec, "L"))).to.equal("L: must be a dense array")
+			-- Built by assignment: mixed table constructors are what the check rejects.
+			local sparse: { [any]: any } = { 1, 2 }
+			sparse[4] = 4
+			local keyed: { [any]: any } = { 1, 2 }
+			keyed.x = 3
+			expect(only(Schema.check(sparse, spec, "L"))).to.equal("L: must be a dense array")
+			expect(only(Schema.check(keyed, spec, "L"))).to.equal("L: must be a dense array")
 		end)
 
 		it("enforces the minimum length", function()

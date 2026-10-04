@@ -8,6 +8,10 @@ local Config = require(ReplicatedStorage.shared.config).Parkour
 local State = require(script.Parent.State)
 local Queries = require(script.Parent.Queries)
 
+-- World up as a local value: selene's Roblox std types Vector3.yAxis as a
+-- plain value without Vector3 methods.
+local UP = Vector3.yAxis
+
 local Traversal = {}
 
 function Traversal.get_traverse_speed(self)
@@ -238,14 +242,18 @@ function Traversal.traverse(self, dt)
 	local active_top_y = hang.HangPosition.Y + Config.HangDrop
 
 	local direction = 0
-	if self.Input:IsDown(Actions.Right) then direction += 1 end
-	if self.Input:IsDown(Actions.Left) then direction -= 1 end
+	if self.Input:IsDown(Actions.Right) then
+		direction += 1
+	end
+	if self.Input:IsDown(Actions.Left) then
+		direction -= 1
+	end
 
 	if direction ~= 0 then
 		local pose_snapshot = Traversal.snapshot_hang_pose(self)
 		local tangent = Vector.flatten(root.CFrame.RightVector)
 		if tangent.Magnitude < 0.05 then
-			tangent = Vector.flatten(Vector3.yAxis:Cross(normal))
+			tangent = Vector.flatten(UP:Cross(normal))
 		end
 		if tangent.Magnitude < 0.05 then
 			self:_position_hanging(dt)
@@ -270,7 +278,7 @@ function Traversal.traverse(self, dt)
 				radial = radial.Unit
 				local radius = math.max(cylinder.Size.Y, cylinder.Size.Z) * 0.5
 				local arc = Traversal.get_traverse_speed(self) * math.max(dt, 0)
-				local angular_tangent = Vector.flatten(Vector3.yAxis:Cross(radial))
+				local angular_tangent = Vector.flatten(UP:Cross(radial))
 				local travel_tangent = tangent * direction
 				local turn_sign = angular_tangent:Dot(travel_tangent) >= 0 and 1 or -1
 				local angle = arc / math.max(radius + Config.WallGap, 0.1) * turn_sign
@@ -426,7 +434,9 @@ function Traversal.traverse(self, dt)
 		if is_corner_transfer and hang.Normal:Dot(pose_snapshot.Normal) < 0.707 then
 			local midpoint = pose_snapshot.HangPosition:Lerp(hang.HangPosition, 0.5)
 			local midpoint_normal = Vector.flatten(pose_snapshot.Normal + hang.Normal)
-			if midpoint_normal.Magnitude < 0.05 then midpoint_normal = hang.Normal end
+			if midpoint_normal.Magnitude < 0.05 then
+				midpoint_normal = hang.Normal
+			end
 			midpoint_clear = Queries.has_hang_body_clearance(self, midpoint, midpoint_normal)
 		end
 		local body_clear = not pose_changed or (midpoint_clear and Queries.has_hang_body_clearance(self, hang.HangPosition, hang.Normal))

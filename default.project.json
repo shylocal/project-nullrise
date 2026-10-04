@@ -8,7 +8,22 @@
 
       "packages": {
         "$className": "Folder",
-        "$path": "src/packages"
+
+        "_Index": {
+          "$path": "Packages/_Index"
+        },
+
+        "Trove": {
+          "$path": "Packages/Trove.lua"
+        },
+
+        "Signal": {
+          "$path": "src/packages/Signal.lua"
+        },
+
+        "ShapecastHitbox": {
+          "$path": "src/packages/ShapecastHitbox"
+        }
       },
 
       "shared": {
@@ -62,7 +77,15 @@
 
     "TestService": {
       "$className": "TestService",
-      "$path": "tests"
+      "$path": "tests",
+
+      "_Index": {
+        "$path": "DevPackages/_Index"
+      },
+
+      "TestEZ": {
+        "$path": "DevPackages/TestEZ.lua"
+      }
     },
 
     "StarterPlayer": {

@@ -1,0 +1,17 @@
+# Luau builtins that selene 0.32's bundled standard library does not know yet
+# (math.isfinite / isnan / isinf). Combined into selene.toml's std.
+---
+name: luau_extras
+globals:
+  math.isfinite:
+    args:
+      - type: number
+    must_use: true
+  math.isnan:
+    args:
+      - type: number
+    must_use: true
+  math.isinf:
+    args:
+      - type: number
+    must_use: true

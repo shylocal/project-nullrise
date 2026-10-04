@@ -12,6 +12,10 @@ local Queries = require(script.Parent.Queries)
 local Traversal = require(script.Parent.Traversal)
 local VaultMath = require(script.Parent.VaultMath)
 
+-- World up as a local value: selene's Roblox std types Vector3.yAxis as a
+-- plain value without Vector3 methods.
+local UP = Vector3.yAxis
+
 local LedgeTraversal = {}
 
 local function try_lower_ledge_impl(self)
@@ -29,7 +33,7 @@ local function try_lower_ledge_impl(self)
 
 	local tangent = Vector.flatten(root.CFrame.RightVector)
 	if tangent.Magnitude < 0.05 then
-		tangent = Vector.flatten(Vector3.yAxis:Cross(normal))
+		tangent = Vector.flatten(UP:Cross(normal))
 	end
 	if tangent.Magnitude < 0.05 then
 		return
@@ -119,12 +123,11 @@ function LedgeTraversal.transfer_hang_to_ledge(self, top, target_normal)
 	-- immediately resolve the destination's actual side/top contact using the
 	-- same probe that has been correcting the position during A/D traversal.
 	local depth_offset = hang.HangDepthOffset
-	if target_normal then
+	if target_normal or not depth_offset or Vector.flatten(depth_offset).Magnitude < 0.05 then
 		-- A vertical transfer may land on a ledge whose wall faces another
 		-- direction. Use its detected destination normal for both facing and
 		-- stand-off depth instead of carrying the source wall's cached offset.
-		depth_offset = destination_normal * Config.WallGap
-	elseif not depth_offset or Vector.flatten(depth_offset).Magnitude < 0.05 then
+		-- Without a usable (horizontal) cached offset the same stand-off applies.
 		depth_offset = destination_normal * Config.WallGap
 	end
 	local target_guide = top.Guide or self.Climbables:GuideOf(top.Instance) or top.Instance
@@ -294,7 +297,7 @@ local function try_mantle_impl(self)
 	if tangent.Magnitude > 0.05 then
 		tangent = tangent.Unit
 	else
-		tangent = Vector.flatten(Vector3.yAxis:Cross(normal))
+		tangent = Vector.flatten(UP:Cross(normal))
 		if tangent.Magnitude < 0.05 then
 			return
 		end

@@ -226,7 +226,9 @@ function ParkourController:_step(dt)
 			and humanoid_state ~= Enum.HumanoidStateType.Climbing
 		if can_probe and self.Input:IsDown(Actions.Jump) and not self.Latch:IsBlocked("Jump") then
 			local climbable, normal, position, edge_gap = Queries.detect_surface(self)
-			if climbable then self:_grab(climbable, normal, position, edge_gap, dt) end
+			if climbable then
+				self:_grab(climbable, normal, position, edge_gap, dt)
+			end
 		end
 	elseif kind == "Hanging" then
 		if not self.Input:IsDown(Actions.Jump) then

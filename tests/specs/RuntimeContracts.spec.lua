@@ -6,7 +6,9 @@ local ServerStorage = game:GetService("ServerStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 local Workspace = game:GetService("Workspace")
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
+local Config = require(ReplicatedStorage.shared.config)
 local Signal = require(ReplicatedStorage.packages.Signal)
+local UiContracts = require(StarterPlayer.StarterPlayerScripts.client.UiContracts)
 
 -- Specs must never yield indefinitely, so every lookup uses FindFirstChild.
 -- ServerStorage and ServerScriptService are empty when viewed from a client.
@@ -33,8 +35,12 @@ local function make_loadout()
 		EquippedChanged = Signal.new(),
 		InventoryChanged = Signal.new(),
 		Selected = {},
-		SelectItem = function(self, weapon_id)
+		SelectWeapon = function(self, weapon_id)
 			table.insert(self.Selected, weapon_id)
+			return true
+		end,
+		SelectUid = function(self, uid)
+			table.insert(self.Selected, uid)
 		end,
 		SelectSlot = function(self, slot)
 			table.insert(self.Selected, slot)
@@ -126,47 +132,31 @@ return function()
 			expect(ServerStorage:FindFirstChild("weapon_models") ~= nil).to.equal(true)
 		end)
 
-		it("resolves every catalog weapon's bindings and hitboxes in its model template", function()
-			if not IS_SERVER then
-				return
-			end
-
-			local weapon_models = ServerStorage:FindFirstChild("weapon_models")
-			expect(weapon_models ~= nil).to.equal(true)
-			if not weapon_models then
-				return
-			end
-
-			for _, weapon_id in ipairs(Catalog.Ids()) do
-				local weapon = Catalog.Get(weapon_id)
-				expect(typeof(weapon)).to.equal("table")
-				if not weapon then
-					continue
+		-- The same checks the server runs at boot (compose/Content), one weapon at a time.
+		for _, weapon_id in ipairs(Catalog.Ids()) do
+			local current_weapon_id = weapon_id
+			it("matches the " .. current_weapon_id .. " model template to its definition", function()
+				if not IS_SERVER then
+					return
 				end
-
-				local model = weapon_models:FindFirstChild(weapon.Model)
-				expect(model ~= nil).to.equal(true)
-				if not model then
-					continue
+				local AssetContracts = require(ServerScriptService.server.AssetContracts)
+				local single = {
+					Ids = function()
+						return { current_weapon_id }
+					end,
+					Get = Catalog.Get,
+				}
+				local errors = AssetContracts.Verify(single, ServerStorage:FindFirstChild(Config.World.Folders.WeaponModels))
+				if #errors > 0 then
+					error(table.concat(errors, "\n"), 0)
 				end
+			end)
+		end
 
-				for wield_name in pairs(weapon.Wield) do
-					local wielded = model:FindFirstChild(wield_name, true)
-					expect(wielded ~= nil and wielded:IsA("BasePart")).to.equal(true)
-				end
-
-				local function expect_hitbox(attack)
-					local hitbox = model:FindFirstChild(attack.Hitbox, true)
-					expect(hitbox ~= nil and hitbox:IsA("BasePart")).to.equal(true)
-				end
-
-				for _, attack in ipairs(weapon.Attacks) do
-					expect_hitbox(attack)
-				end
-
-				if weapon.Charge then
-					expect_hitbox(weapon.Charge)
-				end
+		it("matches the UI templates to the catalog", function()
+			local errors = UiContracts.Verify(Catalog, ReplicatedStorage:FindFirstChild(Config.World.Folders.UiTemplates))
+			if #errors > 0 then
+				error(table.concat(errors, "\n"), 0)
 			end
 		end)
 
@@ -225,7 +215,7 @@ return function()
 			local expectations = {
 				{ "CombatService", "new" },
 				{ "CombatValidation", "ValidateHit" },
-				{ "InventoryService", "SetSlot" },
+				{ "InventoryService", "SelectUid" },
 				{ "PlayerService", "Get" },
 				{ "PlayerSession", "Destroy" },
 				{ "WeaponAttachment", "Attach" },
@@ -257,7 +247,7 @@ return function()
 
 			local menu = require(weapon_menu_module).new(ui_controller)
 			expect(menu.Gui).to.equal(nil)
-			ui_controller.Loadout.InventoryChanged:Fire({ { Slot = 2, WeaponId = "Katana" } }, 2)
+			ui_controller.Loadout.InventoryChanged:Fire({ { Slot = 2, Uid = "uid-katana", ItemId = "Katana" } }, 2)
 			ui_controller.Loadout.EquippedChanged:Fire("Katana")
 			expect(menu.SelectedWeapon).to.equal(nil)
 			menu:Destroy()
@@ -310,7 +300,7 @@ return function()
 			expect(menu.SelectedWeapon).to.equal(Catalog.DefaultId)
 			expect(fists_selection.Visible).to.equal(true)
 
-			loadout.InventoryChanged:Fire({ { Slot = 2, WeaponId = "Katana" } }, 2)
+			loadout.InventoryChanged:Fire({ { Slot = 2, Uid = "uid-katana", ItemId = "Katana" } }, 2)
 			expect(menu.SelectedWeapon).to.equal("Katana")
 			expect(katana_button.Visible).to.equal(true)
 			expect(katana_selection.Visible).to.equal(true)

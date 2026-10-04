@@ -1,8 +1,9 @@
 -- Manual TestEZ entrypoint. This ModuleScript never runs automatically.
 local RunService = game:GetService("RunService")
 
--- TestEZ is vendored beside this module (tests/TestEZ -> TestService.TestEZ)
--- so the test runner is never shipped to clients.
+-- TestEZ is a Wally dev dependency mapped beside this module
+-- (DevPackages/TestEZ.lua -> TestService.TestEZ), so the test runner is never
+-- shipped to clients.
 local TestEZ = require(script.Parent.TestEZ)
 
 local RunTests = {}

@@ -1,0 +1,12 @@
+# selene lint configuration. scripts/analyze.sh runs `selene src tests`.
+# roblox.yml is generated locally by `selene generate-roblox-std` (analyze.sh
+# does this when it is missing); testez.yml adds the TestEZ spec globals and
+# luau_extras.yml the Luau math builtins selene 0.32 does not ship.
+std = "roblox+testez+luau_extras"
+
+exclude = [
+	"src/packages/**",
+	"src/server/vendor/**",
+	"Packages/**",
+	"DevPackages/**",
+]

@@ -12,6 +12,7 @@ local Config = require(ReplicatedStorage.shared.config)
 local Runtime = require(ReplicatedStorage.shared.runtime.Runtime)
 local Scheduler = require(ReplicatedStorage.shared.runtime.Scheduler)
 
+local Content = require(script.compose.Content)
 local Core = require(script.compose.Core)
 local Items = require(script.compose.Items)
 local Combat = require(script.compose.Combat)
@@ -35,6 +36,8 @@ local env: Core.ServerEnv = {
 assert(env.Remotes, ("ReplicatedStorage.%s is missing"):format(Config.World.Folders.Remotes))
 
 local runtime = Runtime.new("Server")
+-- Content first: assets are verified before any service is built.
+Content(runtime, env)
 Core(runtime, env)
 Items(runtime, env)
 Combat(runtime, env)
