@@ -15,15 +15,25 @@ return function()
 				end
 			end)
 
-			it("keeps " .. current_weapon_id .. " attack cooldowns no shorter than MinDuration", function()
+			it("keeps " .. current_weapon_id .. " move cooldowns no shorter than MinDuration", function()
 				local weapon = Catalog.Get(current_weapon_id)
 				assert(weapon, "weapon must exist")
-				for _, attack in ipairs(weapon.Attacks) do
-					expect(attack.Cooldown >= attack.MinDuration).to.equal(true)
+				for _, move in pairs(weapon.Moves) do
+					expect(move.Cooldown >= move.MinDuration).to.equal(true)
+					if move.Kind == "Charge" then
+						local hold = move.Hold
+						assert(hold, "a Charge move must have Hold")
+						expect(hold.MaxHoldTime > move.HitStartAt).to.equal(true)
+					end
 				end
-				if weapon.Charge then
-					expect(weapon.Charge.Cooldown >= weapon.Charge.MinDuration).to.equal(true)
-					expect(weapon.Charge.MaxHoldTime > weapon.Charge.HitStartAt).to.equal(true)
+			end)
+
+			it("keeps every " .. current_weapon_id .. " combo entry a Light move", function()
+				local weapon = Catalog.Get(current_weapon_id)
+				assert(weapon, "weapon must exist")
+				expect(#weapon.Combo >= 1).to.equal(true)
+				for _, name in ipairs(weapon.Combo) do
+					expect(weapon.Moves[name].Kind).to.equal("Light")
 				end
 			end)
 		end

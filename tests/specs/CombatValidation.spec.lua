@@ -71,7 +71,7 @@ local function make_active(attacker: Model, wielded: BasePart): (any, Attachment
 	local active = {
 		Character = attacker,
 		Wielded = wielded,
-		Attack = {
+		Move = {
 			Hitbox = "TestHitbox",
 			Range = 8,
 			HitPositionTolerance = 3,
@@ -82,13 +82,40 @@ local function make_active(attacker: Model, wielded: BasePart): (any, Attachment
 	return active, segment
 end
 
-local function validate(wielded: BasePart, active: any, target: any, segment: any, hit_position: any): (Humanoid?, string?)
+local function validate(
+	wielded: BasePart,
+	active: any,
+	target: any,
+	segment: any,
+	hit_position: any,
+	opts: any?
+): (Humanoid?, string?, boolean?)
 	local weapon_service = {
 		GetWielded = function()
 			return wielded
 		end,
 	}
-	return CombatValidation.ValidateHit(weapon_service, {}, active, target, segment, hit_position)
+	return CombatValidation.ValidateHit(weapon_service, {}, active, target, segment, hit_position, opts)
+end
+
+-- PositionHistory stand-in: one recorded state per character, returned for
+-- any time; Requested records the requested times.
+local function fake_history(character: Model, root_cframe: CFrame, latest_time: number)
+	local history = { Requested = {} :: { number } }
+	local sample = {
+		Time = latest_time,
+		RootCFrame = root_cframe,
+		BoxCFrame = root_cframe,
+		BoxSize = Vector3.new(2, 2, 2),
+	}
+	function history.Latest(_self: any, model: Model)
+		return if model == character then sample else nil
+	end
+	function history.Sample(self: any, model: Model, t: number)
+		table.insert(self.Requested, t)
+		return if model == character then sample else nil
+	end
+	return history
 end
 
 local function reason_of(...: any): any
@@ -277,6 +304,67 @@ return function()
 
 			expect(humanoid).to.equal(nil)
 			expect(reason).to.equal(RejectReason.Reach)
+		end)
+
+		it("accepts a hit that only reaches the target's rewound position", function()
+			local attacker = make_attacker(created)
+			-- The target has moved out of reach; the attacker saw it at -6.
+			local target = make_character("Target", Vector3.new(0, 0, -30), created)
+			local wielded = make_wielded(attacker, Vector3.new(0, 0, -3))
+			local active, segment = make_active(attacker, wielded)
+			local history = fake_history(target, CFrame.new(0, 0, -6), 50)
+
+			local rejected_humanoid, reason = validate(wielded, active, target, segment, Vector3.new(0, 0, -6))
+			expect(rejected_humanoid).to.equal(nil)
+			expect(reason).to.equal(RejectReason.Reach)
+
+			local humanoid, no_reason, rewound =
+				validate(wielded, active, target, segment, Vector3.new(0, 0, -6), { History = history, Rewind = 0.2 })
+			expect(humanoid).to.equal(humanoid_of(target))
+			expect(no_reason).to.equal(nil)
+			expect(rewound).to.equal(true)
+			expect(history.Requested[1]).to.be.near(50 - 0.2)
+		end)
+
+		it("does not rewind a hit that passes against the current state", function()
+			local attacker = make_attacker(created)
+			local target = make_character("Target", Vector3.new(0, 0, -6), created)
+			local wielded = make_wielded(attacker, Vector3.new(0, 0, -3))
+			local active, segment = make_active(attacker, wielded)
+			local history = fake_history(target, CFrame.new(0, 0, -6), 50)
+
+			local humanoid, _, rewound =
+				validate(wielded, active, target, segment, root_of(target).Position, { History = history, Rewind = 0.2 })
+			expect(humanoid).to.equal(humanoid_of(target))
+			expect(rewound).to.equal(false)
+			expect(#history.Requested).to.equal(0)
+		end)
+
+		it("still rejects a hit that fails against the rewound position", function()
+			local attacker = make_attacker(created)
+			local target = make_character("Target", Vector3.new(0, 0, -30), created)
+			local wielded = make_wielded(attacker, Vector3.new(0, 0, -3))
+			local active, segment = make_active(attacker, wielded)
+			local history = fake_history(target, CFrame.new(0, 0, -25), 50)
+
+			local humanoid, reason =
+				validate(wielded, active, target, segment, Vector3.new(0, 0, -6), { History = history, Rewind = 0.2 })
+			expect(humanoid).to.equal(nil)
+			expect(reason).to.equal(RejectReason.Reach)
+		end)
+
+		it("checks line of sight to the rewound position", function()
+			local attacker = make_attacker(created)
+			local target = make_character("Target", Vector3.new(0, 0, -30), created)
+			local wielded = make_wielded(attacker, Vector3.new(0, 0, -3))
+			make_wall(Vector3.new(0, 0, -4.5), created)
+			local active, segment = make_active(attacker, wielded)
+			local history = fake_history(target, CFrame.new(0, 0, -6), 50)
+
+			local humanoid, reason =
+				validate(wielded, active, target, segment, Vector3.new(0, 0, -6), { History = history, Rewind = 0.2 })
+			expect(humanoid).to.equal(nil)
+			expect(reason).to.equal(RejectReason.NoLOS)
 		end)
 
 		it("does not treat non-collidable parts as cover", function()

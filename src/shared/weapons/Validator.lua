@@ -1,6 +1,7 @@
 --!strict
--- Validates authored weapon definitions: a Schema pass per weapon kind, then
--- cross-field rules. Every problem is reported, not just the first.
+-- Validates weapon definitions (schema v2: Moves, Combo, Bindings): a Schema
+-- pass per weapon kind, then cross-field rules. Every problem is reported, not
+-- just the first.
 local Schema = require(script.Parent.Parent.utility.Schema)
 
 local Validator = {}
@@ -8,10 +9,15 @@ local Validator = {}
 -- Animation roles in declaration order. A later role that reuses an earlier
 -- role's asset id must say so with SharedWith, so accidental copy-paste of an
 -- id is caught while intentional sharing (Katana Idle/Sprint) is explicit.
-local ROLE_ORDER = { "Equip", "Idle", "Sprint", "Charge" }
+local ROLE_ORDER = { "Equip", "Idle", "Sprint" }
+
+-- Bindings.Primary.Tap value that cycles through Combo.
+local COMBO_TAP = "Combo"
+local MOVE_NAME_PATTERN = "^%a[%w_]*$"
 
 local positive = Schema.number({ gt = 0 })
 local non_negative = Schema.number({ gte = 0 })
+local positive_integer = Schema.number({ gt = 0, integer = true })
 local non_empty_string = Schema.string({ nonEmpty = true })
 
 local ANIMATION = Schema.record({
@@ -23,7 +29,10 @@ local ANIMATION = Schema.record({
 	SharedWith = Schema.optional(Schema.enum(ROLE_ORDER)),
 })
 
-local ATTACK_FIELDS: { [string]: Schema.Spec } = {
+-- Authored move fields. Name and Id are injected by the Catalog and checked
+-- separately (forbidden in authored data, consistent in catalog data).
+local MOVE_FIELDS: { [string]: Schema.Spec } = {
+	Kind = Schema.enum({ "Light", "Charge" }),
 	Animation = ANIMATION,
 	Hitbox = non_empty_string,
 	Damage = positive,
@@ -34,6 +43,7 @@ local ATTACK_FIELDS: { [string]: Schema.Spec } = {
 	HitPositionTolerance = non_negative,
 	Range = positive,
 	CanSprintWhileAttacking = Schema.optional(Schema.boolean()),
+	Hold = Schema.optional(Schema.record({ HoldTime = positive, MaxHoldTime = positive })),
 }
 
 local function with_fields(base: { [string]: Schema.Spec }, extra: { [string]: Schema.Spec }): { [string]: Schema.Spec }
@@ -52,7 +62,10 @@ local function all_optional(fields: { [string]: Schema.Spec }): { [string]: Sche
 	return optional
 end
 
-local CHARGE_FIELDS = with_fields(ATTACK_FIELDS, { HoldTime = positive, MaxHoldTime = positive })
+local MOVE = Schema.record(with_fields(MOVE_FIELDS, {
+	Name = Schema.optional(Schema.string({ pattern = MOVE_NAME_PATTERN })),
+	Id = Schema.optional(positive_integer),
+}))
 
 local MELEE_SPEC = Schema.record({
 	-- Injected by the Catalog; optional so catalog definitions re-validate.
@@ -65,19 +78,26 @@ local MELEE_SPEC = Schema.record({
 		Equip = ANIMATION,
 		Idle = ANIMATION,
 		Sprint = ANIMATION,
-		Charge = Schema.optional(ANIMATION),
 	}),
-	-- Attacks are a combo sequence indexed 1..n; the server cycles through them
-	-- by index, so the table must be a dense array.
-	Attacks = Schema.array(Schema.record(ATTACK_FIELDS), { minLength = 1 }),
-	Charge = Schema.optional(Schema.record(CHARGE_FIELDS)),
-	-- Shared attack fields, shallow-merged into every attack and the charge.
-	AttackDefaults = Schema.optional(Schema.record(all_optional(CHARGE_FIELDS))),
+	-- Shared move fields, shallow-merged into every move (authored keys win).
+	MoveDefaults = Schema.optional(Schema.record(all_optional(MOVE_FIELDS))),
+	Moves = Schema.map(Schema.string({ pattern = MOVE_NAME_PATTERN }), MOVE, { nonEmpty = true }),
+	-- Light moves played in order by the Combo tap; the server cycles a cursor
+	-- through it, so it must be a dense array.
+	Combo = Schema.array(non_empty_string, { minLength = 1 }),
+	Bindings = Schema.record({
+		Primary = Schema.record({
+			Tap = non_empty_string,
+			Hold = Schema.optional(non_empty_string),
+		}),
+	}),
 })
 
 Validator.KINDS = table.freeze({
 	Melee = MELEE_SPEC,
 }) :: { [string]: Schema.Spec }
+
+Validator.ComboTap = COMBO_TAP
 
 local function kind_names(): string
 	local names = {}
@@ -88,50 +108,181 @@ local function kind_names(): string
 	return table.concat(names, ", ")
 end
 
-local function merge_defaults(defaults: { [any]: any }, attack: any): any
-	if type(attack) ~= "table" then
-		return attack
+local function merge_defaults(defaults: { [any]: any }, move: any): any
+	if type(move) ~= "table" then
+		return move
 	end
 	local merged = table.clone(defaults)
-	for key, value in pairs(attack) do
+	for key, value in pairs(move) do
 		merged[key] = value
 	end
 	return merged
 end
 
--- Returns a shallow copy of `definition` with AttackDefaults merged into each
--- attack and the charge (authored keys win) and the AttackDefaults key
--- removed. Returns the input unchanged when there are no defaults to apply.
+-- Returns a shallow copy of `definition` with MoveDefaults merged into each
+-- move (authored keys win) and the MoveDefaults key removed. Returns the
+-- input unchanged when there are no defaults to apply.
 function Validator.resolve(definition: any): any
-	if type(definition) ~= "table" or type(definition.AttackDefaults) ~= "table" then
+	if type(definition) ~= "table" or type(definition.MoveDefaults) ~= "table" then
 		return definition
 	end
-	local defaults = definition.AttackDefaults
+	local defaults = definition.MoveDefaults
 	local resolved = table.clone(definition)
-	resolved.AttackDefaults = nil
-	if type(definition.Attacks) == "table" then
-		local attacks = {}
-		for key, attack in pairs(definition.Attacks) do
-			attacks[key] = merge_defaults(defaults, attack)
+	resolved.MoveDefaults = nil
+	if type(definition.Moves) == "table" then
+		local moves = {}
+		for name, move in pairs(definition.Moves) do
+			moves[name] = merge_defaults(defaults, move)
 		end
-		resolved.Attacks = attacks
-	end
-	if definition.Charge ~= nil then
-		resolved.Charge = merge_defaults(defaults, definition.Charge)
+		resolved.Moves = moves
 	end
 	return resolved
+end
+
+-- Move ids for a Moves table: string keys sorted with `<`, numbered from 1.
+-- Non-string keys get no id (the schema reports them).
+function Validator.move_ids(moves: any): { [string]: number }
+	local ids: { [string]: number } = {}
+	if type(moves) ~= "table" then
+		return ids
+	end
+	local names = {}
+	for name in pairs(moves) do
+		if type(name) == "string" then
+			table.insert(names, name)
+		end
+	end
+	table.sort(names)
+	for index, name in ipairs(names) do
+		ids[name] = index
+	end
+	return ids
 end
 
 local function is_number(value: any): boolean
 	return type(value) == "number" and value == value
 end
 
-local function check_attack_timing(attack: any, path: string, errors: { string })
-	if type(attack) ~= "table" then
+local function check_move(move: any, path: string, errors: { string })
+	if type(move) ~= "table" then
 		return
 	end
-	if is_number(attack.Cooldown) and is_number(attack.MinDuration) and attack.Cooldown < attack.MinDuration then
-		table.insert(errors, ("%s.Cooldown: must be >= MinDuration (%s)"):format(path, tostring(attack.MinDuration)))
+	if is_number(move.Cooldown) and is_number(move.MinDuration) and move.Cooldown < move.MinDuration then
+		table.insert(errors, ("%s.Cooldown: must be >= MinDuration (%s)"):format(path, tostring(move.MinDuration)))
+	end
+
+	local hold = move.Hold
+	if move.Kind == "Charge" and hold == nil then
+		table.insert(errors, path .. ".Hold: is required for a Charge move")
+	elseif move.Kind == "Light" and hold ~= nil then
+		table.insert(errors, path .. ".Hold: is only allowed on a Charge move")
+	end
+	-- MaxHoldTime is measured from the move start, like HitStartAt.
+	if type(hold) == "table" and is_number(hold.MaxHoldTime) and is_number(move.HitStartAt) and hold.MaxHoldTime <= move.HitStartAt then
+		table.insert(errors, ("%s.Hold.MaxHoldTime: must be > HitStartAt (%s)"):format(path, tostring(move.HitStartAt)))
+	end
+end
+
+-- Name and Id belong to the Catalog: an authored definition (no weapon Id)
+-- must not set them, and a catalog definition must carry the injected values.
+local function check_injected(definition: any, moves: { [any]: any }, path: string, errors: { string })
+	local is_catalog = definition.Id ~= nil
+	local ids = Validator.move_ids(moves)
+	for name, move in pairs(moves) do
+		if type(name) ~= "string" or type(move) ~= "table" then
+			continue
+		end
+		local move_path = ("%s.Moves.%s"):format(path, name)
+		if not is_catalog then
+			if move.Name ~= nil then
+				table.insert(errors, move_path .. ".Name: is injected by the Catalog")
+			end
+			if move.Id ~= nil then
+				table.insert(errors, move_path .. ".Id: is injected by the Catalog")
+			end
+		else
+			if move.Name ~= nil and move.Name ~= name then
+				table.insert(errors, ("%s.Name: must be %s"):format(move_path, name))
+			end
+			if move.Id ~= nil and move.Id ~= ids[name] then
+				table.insert(errors, ("%s.Id: must be %d"):format(move_path, ids[name]))
+			end
+		end
+	end
+end
+
+-- (exists, kind) for a move name. The kind is nil when the move is missing
+-- or its Kind is malformed (the schema reports that).
+local function move_kind(moves: { [any]: any }, name: any): (boolean, string?)
+	local move = if type(name) == "string" then moves[name] else nil
+	if type(move) ~= "table" then
+		return false, nil
+	end
+	return true, if type(move.Kind) == "string" then move.Kind else nil
+end
+
+local function check_moves(definition: any, path: string, errors: { string })
+	local moves = definition.Moves
+	if type(moves) ~= "table" then
+		return
+	end
+
+	for name, move in pairs(moves) do
+		if type(name) == "string" then
+			check_move(move, ("%s.Moves.%s"):format(path, name), errors)
+		end
+	end
+	check_injected(definition, moves, path, errors)
+
+	if moves[COMBO_TAP] ~= nil then
+		table.insert(errors, ("%s.Moves.%s: is a reserved name"):format(path, COMBO_TAP))
+	end
+
+	local reachable: { [string]: boolean } = {}
+
+	local combo = definition.Combo
+	if type(combo) == "table" then
+		for index, name in ipairs(combo) do
+			if type(name) ~= "string" then
+				continue
+			end
+			local exists, kind = move_kind(moves, name)
+			if not exists then
+				table.insert(errors, ("%s.Combo[%d]: %s is not a move"):format(path, index, name))
+			elseif kind ~= nil and kind ~= "Light" then
+				table.insert(errors, ("%s.Combo[%d]: %s must be a Light move"):format(path, index, name))
+			end
+			reachable[name] = true
+		end
+	end
+
+	local bindings = definition.Bindings
+	local primary = if type(bindings) == "table" then bindings.Primary else nil
+	if type(primary) == "table" then
+		local tap = primary.Tap
+		if type(tap) == "string" and tap ~= COMBO_TAP then
+			if not (move_kind(moves, tap)) then
+				table.insert(errors, ("%s.Bindings.Primary.Tap: must be %s or a move name"):format(path, COMBO_TAP))
+			end
+			reachable[tap] = true
+		end
+
+		local hold = primary.Hold
+		if type(hold) == "string" then
+			local exists, kind = move_kind(moves, hold)
+			if not exists then
+				table.insert(errors, ("%s.Bindings.Primary.Hold: %s is not a move"):format(path, hold))
+			elseif kind ~= nil and kind ~= "Charge" then
+				table.insert(errors, ("%s.Bindings.Primary.Hold: %s must be a Charge move"):format(path, hold))
+			end
+			reachable[hold] = true
+		end
+	end
+
+	for name in pairs(moves) do
+		if type(name) == "string" and not reachable[name] then
+			table.insert(errors, ("%s.Moves.%s: is not reachable from Combo or Bindings"):format(path, name))
+		end
 	end
 end
 
@@ -164,32 +315,6 @@ local function check_shared_animations(animations: any, path: string, errors: { 
 	end
 end
 
-local function check_cross_fields(definition: any, path: string, errors: { string })
-	if type(definition.Attacks) == "table" then
-		for index, attack in ipairs(definition.Attacks) do
-			check_attack_timing(attack, ("%s.Attacks[%d]"):format(path, index), errors)
-		end
-	end
-
-	local charge = definition.Charge
-	local animations = definition.Animations
-	local has_charge_animation = type(animations) == "table" and animations.Charge ~= nil
-	if type(charge) == "table" then
-		check_attack_timing(charge, path .. ".Charge", errors)
-		-- MaxHoldTime is measured from the charge start, like HitStartAt.
-		if is_number(charge.MaxHoldTime) and is_number(charge.HitStartAt) and charge.MaxHoldTime <= charge.HitStartAt then
-			table.insert(errors, ("%s.Charge.MaxHoldTime: must be > HitStartAt (%s)"):format(path, tostring(charge.HitStartAt)))
-		end
-		if type(animations) == "table" and not has_charge_animation then
-			table.insert(errors, path .. ".Animations.Charge: is required")
-		end
-	elseif charge == nil and has_charge_animation then
-		table.insert(errors, path .. ".Animations.Charge: is only allowed with a Charge")
-	end
-
-	check_shared_animations(animations, path, errors)
-end
-
 -- Returns every problem with `definition`, each prefixed with `id`. An unknown
 -- Type is the only error reported for that definition, since the remaining
 -- rules depend on the kind.
@@ -208,15 +333,16 @@ function Validator.check(definition: any, id: string): { string }
 
 	local resolved = Validator.resolve(definition)
 	local errors = Schema.check(resolved, spec, id)
-	-- AttackDefaults itself is checked on the authored definition.
-	if definition.AttackDefaults ~= nil then
+	-- MoveDefaults itself is checked on the authored definition.
+	if definition.MoveDefaults ~= nil then
 		for _, message in ipairs(Schema.check(definition, spec, id)) do
-			if string.find(message, id .. ".AttackDefaults", 1, true) == 1 then
+			if string.find(message, id .. ".MoveDefaults", 1, true) == 1 then
 				table.insert(errors, message)
 			end
 		end
 	end
-	check_cross_fields(resolved, id, errors)
+	check_moves(resolved, id, errors)
+	check_shared_animations(resolved.Animations, id, errors)
 	return errors
 end
 

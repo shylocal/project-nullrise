@@ -23,11 +23,23 @@ local function default_weapon(): any
 	return assert(Catalog.Get(Catalog.DefaultId), "default weapon must exist")
 end
 
+local LIGHT1 = assert(Catalog.MoveId(Catalog.DefaultId, "Light1"))
+local LIGHT2 = assert(Catalog.MoveId(Catalog.DefaultId, "Light2"))
+local HEAVY = assert(Catalog.MoveId(Catalog.DefaultId, "Heavy"))
+
+local function message(action: string, move_id: number): string
+	return action .. ":" .. tostring(move_id)
+end
+
 -- AnimationController stand-in exposing the surface CombatController uses.
 local function make_animation()
 	local animation = {
-		Attacks = { FakeAnimationTrack.new(), FakeAnimationTrack.new() },
-		ChargeTrack = FakeAnimationTrack.new(),
+		-- One track per default-weapon move name.
+		Tracks = {
+			Light1 = FakeAnimationTrack.new(),
+			Light2 = FakeAnimationTrack.new(),
+			Heavy = FakeAnimationTrack.new(),
+		},
 		Current = nil,
 		StopCount = 0,
 	}
@@ -43,12 +55,9 @@ local function make_animation()
 	end
 
 	animation.Combat = {
-		BeginAttack = function(_, index)
-			local track = animation.Attacks[index]
+		BeginMove = function(_, name)
+			local track = animation.Tracks[name]
 			return track and claim(track)
-		end,
-		BeginCharge = function()
-			return claim(animation.ChargeTrack)
 		end,
 		Play = function(_, track, transition_time)
 			track:Play(transition_time)
@@ -165,34 +174,35 @@ return function()
 			local h = make_harness()
 			h.tap()
 
-			expect(h.sent()[1]).to.equal("Attack:1")
-			expect(h.controller.PendingAttackIndex).to.equal(1)
+			expect(h.sent()[1]).to.equal(message("Attack", LIGHT1))
+			expect(h.controller.PendingMoveId).to.equal(LIGHT1)
 			expect(h.state:IsActive("Attack")).to.equal(true)
-			expect(h.animation.Attacks[1].IsPlaying).to.equal(true)
+			expect(h.animation.Tracks.Light1.IsPlaying).to.equal(true)
 			h.destroy()
 		end)
 
 		it("advances the combo only on AttackAccepted", function()
 			local h = make_harness()
 			h.tap()
-			h.remote:Inject("AttackAccepted", 1, 2)
+			h.remote:Inject("AttackAccepted", LIGHT1, LIGHT2)
 
-			expect(h.controller.PendingAttackIndex).to.equal(nil)
-			expect(h.controller.NextAttack).to.equal(2)
+			expect(h.controller.PendingMoveId).to.equal(nil)
+			expect(h.controller.NextComboMoveId).to.equal(LIGHT2)
 
-			h.clock:advance(default_weapon().Attacks[1].Cooldown)
+			h.clock:advance(default_weapon().Moves.Light1.Cooldown)
 			h.tap()
-			expect(contains(h.sent(), "Attack:2")).to.equal(true)
+			expect(contains(h.sent(), message("Attack", LIGHT2))).to.equal(true)
+			expect(h.animation.Tracks.Light2.IsPlaying).to.equal(true)
 			h.destroy()
 		end)
 
 		it("resyncs the combo from AttackRejected", function()
 			local h = make_harness()
 			h.tap()
-			h.remote:Inject("AttackRejected", 1, 1)
+			h.remote:Inject("AttackRejected", LIGHT1, LIGHT2)
 
-			expect(h.controller.PendingAttackIndex).to.equal(nil)
-			expect(h.controller.NextAttack).to.equal(1)
+			expect(h.controller.PendingMoveId).to.equal(nil)
+			expect(h.controller.NextComboMoveId).to.equal(LIGHT2)
 			h.destroy()
 		end)
 
@@ -200,27 +210,37 @@ return function()
 			local h = make_harness()
 			h.tap()
 			h.clock:advance(Config.Combat.PendingAttackTimeout - 0.05)
-			expect(h.controller.PendingAttackIndex).to.equal(1)
+			expect(h.controller.PendingMoveId).to.equal(LIGHT1)
 
 			h.clock:advance(0.1)
-			expect(h.controller.PendingAttackIndex).to.equal(nil)
+			expect(h.controller.PendingMoveId).to.equal(nil)
 
 			-- A late reply for the abandoned request is ignored.
-			h.remote:Inject("AttackAccepted", 1, 2)
-			expect(h.controller.NextAttack).to.equal(1)
+			h.remote:Inject("AttackAccepted", LIGHT1, LIGHT2)
+			expect(h.controller.NextComboMoveId).to.equal(nil)
+			h.destroy()
+		end)
+
+		it("ignores a reply naming a move that is not in the combo", function()
+			local h = make_harness()
+			h.tap()
+			h.remote:Inject("AttackAccepted", LIGHT1, HEAVY)
+
+			expect(h.controller.PendingMoveId).to.equal(nil)
+			expect(h.controller.NextComboMoveId).to.equal(nil)
 			h.destroy()
 		end)
 
 		it("drops a tap during the cooldown", function()
 			local h = make_harness()
 			h.tap()
-			h.remote:Inject("AttackAccepted", 1, 2)
+			h.remote:Inject("AttackAccepted", LIGHT1, LIGHT2)
 			h.clock:advance(0.1)
 			h.tap()
 
 			local attacks = 0
-			for _, message in ipairs(h.sent()) do
-				if message:sub(1, 7) == "Attack:" then
+			for _, sent in ipairs(h.sent()) do
+				if sent:sub(1, 7) == "Attack:" then
 					attacks += 1
 				end
 			end
@@ -231,27 +251,27 @@ return function()
 		it("sends HitStart and HitStop from the animation markers", function()
 			local h = make_harness()
 			h.tap()
-			local track = h.animation.Attacks[1]
+			local track = h.animation.Tracks.Light1
 
 			track:FireMarker("HitStart")
 			track:FireMarker("HitStop")
 
 			local sent = h.sent()
-			expect(contains(sent, "HitStart:1")).to.equal(true)
-			expect(contains(sent, "HitStop:1")).to.equal(true)
+			expect(contains(sent, message("HitStart", LIGHT1))).to.equal(true)
+			expect(contains(sent, message("HitStop", LIGHT1))).to.equal(true)
 			h.destroy()
 		end)
 
 		it("finishes the attack and releases its lease when the track ends", function()
 			local h = make_harness()
 			h.tap()
-			h.remote:Inject("AttackAccepted", 1, 2)
+			h.remote:Inject("AttackAccepted", LIGHT1, LIGHT2)
 			h.remote:Clear()
 
-			h.animation.Attacks[1]:Finish()
+			h.animation.Tracks.Light1:Finish()
 
-			expect(h.sent()[1]).to.equal("HitStop:1")
-			expect(h.controller.CurrentAttackKey).to.equal(nil)
+			expect(h.sent()[1]).to.equal(message("HitStop", LIGHT1))
+			expect(h.controller.CurrentMoveId).to.equal(nil)
 			expect(h.state:IsActive("Attack")).to.equal(false)
 			h.destroy()
 		end)
@@ -265,7 +285,7 @@ return function()
 			lease:Release()
 
 			h.tap()
-			expect(h.sent()[1]).to.equal("Attack:1")
+			expect(h.sent()[1]).to.equal(message("Attack", LIGHT1))
 			h.destroy()
 		end)
 
@@ -281,38 +301,40 @@ return function()
 
 	describe("CombatController charge", function()
 		local function charge_def()
-			return default_weapon().Charge
+			return default_weapon().Moves.Heavy
 		end
 
 		it("turns a hold past HoldTime into a charge", function()
 			local h = make_harness()
 			h.press()
-			h.clock:advance(charge_def().HoldTime * 0.5)
+			h.clock:advance(charge_def().Hold.HoldTime * 0.5)
 			expect(#h.remote.Sent).to.equal(0)
 
-			h.clock:advance(charge_def().HoldTime)
-			expect(h.sent()[1]).to.equal("Charge:Charge")
+			h.clock:advance(charge_def().Hold.HoldTime)
+			expect(h.sent()[1]).to.equal(message("Attack", HEAVY))
 			expect(h.controller.Charging).to.equal(true)
+			-- Only combo moves wait for the server's reply.
+			expect(h.controller.PendingMoveId).to.equal(nil)
 
 			-- Releasing a charge never falls back to a light attack.
 			h.release()
-			expect(contains(h.sent(), "Attack:1")).to.equal(false)
+			expect(contains(h.sent(), message("Attack", LIGHT1))).to.equal(false)
 			h.destroy()
 		end)
 
 		it("pauses on HitStart while held and starts the hit on release", function()
 			local h = make_harness()
 			h.press()
-			h.clock:advance(charge_def().HoldTime)
-			local track = h.animation.ChargeTrack
+			h.clock:advance(charge_def().Hold.HoldTime)
+			local track = h.animation.Tracks.Heavy
 
 			track:FireMarker("HitStart")
 			expect(track.Speed).to.equal(0)
 			expect(h.controller.ChargeReady).to.equal(true)
-			expect(contains(h.sent(), "HitStart:Charge")).to.equal(false)
+			expect(contains(h.sent(), message("HitStart", HEAVY))).to.equal(false)
 
 			h.release()
-			expect(contains(h.sent(), "HitStart:Charge")).to.equal(true)
+			expect(contains(h.sent(), message("HitStart", HEAVY))).to.equal(true)
 			expect(track.Speed).to.equal(1)
 			expect(h.controller.Charging).to.equal(false)
 			h.destroy()
@@ -321,45 +343,45 @@ return function()
 		it("sends HitStart from the marker when released before it", function()
 			local h = make_harness()
 			h.press()
-			h.clock:advance(charge_def().HoldTime)
+			h.clock:advance(charge_def().Hold.HoldTime)
 			h.release()
-			expect(contains(h.sent(), "HitStart:Charge")).to.equal(false)
+			expect(contains(h.sent(), message("HitStart", HEAVY))).to.equal(false)
 
-			h.animation.ChargeTrack:FireMarker("HitStart")
-			expect(contains(h.sent(), "HitStart:Charge")).to.equal(true)
+			h.animation.Tracks.Heavy:FireMarker("HitStart")
+			expect(contains(h.sent(), message("HitStart", HEAVY))).to.equal(true)
 			h.destroy()
 		end)
 
 		it("auto-releases at MaxHoldTime", function()
 			local h = make_harness()
 			h.press()
-			h.clock:advance(charge_def().HoldTime)
-			h.animation.ChargeTrack:FireMarker("HitStart")
+			h.clock:advance(charge_def().Hold.HoldTime)
+			h.animation.Tracks.Heavy:FireMarker("HitStart")
 
-			h.clock:advance(charge_def().MaxHoldTime - 0.05)
-			expect(contains(h.sent(), "HitStart:Charge")).to.equal(false)
+			h.clock:advance(charge_def().Hold.MaxHoldTime - 0.05)
+			expect(contains(h.sent(), message("HitStart", HEAVY))).to.equal(false)
 
 			h.clock:advance(0.1)
-			expect(contains(h.sent(), "HitStart:Charge")).to.equal(true)
+			expect(contains(h.sent(), message("HitStart", HEAVY))).to.equal(true)
 			expect(h.controller.Charging).to.equal(false)
 			h.destroy()
 		end)
 
 		it("buffers a hold during the cooldown and charges when it ends", function()
 			local h = make_harness()
-			local cooldown = default_weapon().Attacks[1].Cooldown
+			local cooldown = default_weapon().Moves.Light1.Cooldown
 			h.tap()
-			h.remote:Inject("AttackAccepted", 1, 2)
+			h.remote:Inject("AttackAccepted", LIGHT1, LIGHT2)
 
 			h.clock:advance(0.1)
 			h.press()
-			h.clock:advance(charge_def().HoldTime)
-			expect(h.controller.BufferedAttack).to.equal("Charge")
-			expect(contains(h.sent(), "Charge:Charge")).to.equal(false)
+			h.clock:advance(charge_def().Hold.HoldTime)
+			expect(h.controller.BufferedMove).to.equal("Heavy")
+			expect(contains(h.sent(), message("Attack", HEAVY))).to.equal(false)
 
 			h.clock:advance(cooldown)
-			expect(contains(h.sent(), "Charge:Charge")).to.equal(true)
-			expect(h.controller.BufferedAttack).to.equal(nil)
+			expect(contains(h.sent(), message("Attack", HEAVY))).to.equal(true)
+			expect(h.controller.BufferedMove).to.equal(nil)
 			h.destroy()
 		end)
 
@@ -367,9 +389,9 @@ return function()
 			local h = make_harness()
 			local lease = h.state:Acquire("spec", "Vault")
 			h.press()
-			h.clock:advance(charge_def().HoldTime)
+			h.clock:advance(charge_def().Hold.HoldTime)
 
-			expect(contains(h.sent(), "Charge:Charge")).to.equal(false)
+			expect(contains(h.sent(), message("Attack", HEAVY))).to.equal(false)
 			lease:Release()
 			h.destroy()
 		end)
@@ -383,10 +405,10 @@ return function()
 
 			h.controller:Reset()
 
-			expect(h.sent()[1]).to.equal("HitStop:1")
+			expect(h.sent()[1]).to.equal(message("HitStop", LIGHT1))
 			expect(h.state:IsActive("Attack")).to.equal(false)
-			expect(h.controller.PendingAttackIndex).to.equal(nil)
-			expect(h.controller.NextAttack).to.equal(1)
+			expect(h.controller.PendingMoveId).to.equal(nil)
+			expect(h.controller.NextComboMoveId).to.equal(nil)
 			expect(h.animation.StopCount).to.equal(1)
 			h.destroy()
 		end)

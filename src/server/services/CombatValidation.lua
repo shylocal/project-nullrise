@@ -1,5 +1,7 @@
--- Server-side validation of one reported hit. Returns (humanoid, nil) when the
--- hit is plausible and (nil, reason) otherwise, with reason a RejectReason.
+-- Server-side validation of one reported hit. Returns (humanoid, nil, rewound)
+-- when the hit is plausible and (nil, reason) otherwise, with reason a
+-- RejectReason. `rewound` is true when the hit only passed against the
+-- target's lag-compensated (rewound) position.
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -24,10 +26,9 @@ local function is_finite_vector3(value)
 		and math.isfinite(value.Z)
 end
 
--- Distance from a world point to the target's oriented bounding box. Zero when
--- the point is inside the box.
-local function distance_to_bounding_box(model, point)
-	local box_cframe, box_size = model:GetBoundingBox()
+-- Distance from a world point to an oriented bounding box. Zero when the
+-- point is inside the box.
+local function distance_to_box(box_cframe, box_size, point)
 	local local_point = box_cframe:PointToObjectSpace(point)
 	local half_size = box_size / 2
 	local clamped = Vector3.new(
@@ -70,8 +71,24 @@ local function is_valid_active(active)
 		and active.Character:IsA("Model")
 		and typeof(active.Wielded) == "Instance"
 		and active.Wielded:IsA("BasePart")
-		and typeof(active.Attack) == "table"
-		and typeof(active.Attack.Hitbox) == "string"
+		and typeof(active.Move) == "table"
+		and typeof(active.Move.Hitbox) == "string"
+end
+
+-- Reach (target root within weapon range of the attacker) and body (the
+-- reported impact on or near the target's bounding box) checks.
+local function check_reach_and_body(attacker_position, target_position, box_cframe, box_size, hit_position, range, tolerance)
+	if (target_position - attacker_position).Magnitude > range + tolerance then
+		return RejectReason.Reach
+	end
+
+	-- The reported impact must be on (or, allowing for replication lag, close
+	-- to) the target's body, not merely somewhere within weapon range of it.
+	if distance_to_box(box_cframe, box_size, hit_position) > tolerance then
+		return RejectReason.OffBody
+	end
+
+	return nil
 end
 
 function CombatValidation.ValidateHit(
@@ -80,7 +97,8 @@ function CombatValidation.ValidateHit(
 	active,
 	hit_character,
 	segment_instance,
-	hit_position
+	hit_position,
+	opts
 )
 	if typeof(hit_character) ~= "Instance" or not hit_character:IsA("Model") then
 		return nil, RejectReason.BadPayload
@@ -111,7 +129,7 @@ function CombatValidation.ValidateHit(
 		return nil, RejectReason.TargetInvalid
 	end
 
-	local wielded = weapon_service:GetWielded(player, active.Attack.Hitbox)
+	local wielded = weapon_service:GetWielded(player, active.Move.Hitbox)
 	if wielded ~= active.Wielded or not wielded:IsDescendantOf(active.Character) then
 		return nil, RejectReason.WieldMismatch
 	end
@@ -136,8 +154,8 @@ function CombatValidation.ValidateHit(
 		return nil, RejectReason.TargetInvalid
 	end
 
-	local range = active.Attack.Range
-	local hit_position_tolerance = active.Attack.HitPositionTolerance
+	local range = active.Move.Range
+	local hit_position_tolerance = active.Move.HitPositionTolerance
 
 	if typeof(range) ~= "number"
 		or not math.isfinite(range)
@@ -148,15 +166,47 @@ function CombatValidation.ValidateHit(
 		return nil, RejectReason.BadPayload
 	end
 
-	-- Reach: the target must be within weapon range of the attacker.
-	if (hit_root.Position - attacker_root.Position).Magnitude > range + hit_position_tolerance then
-		return nil, RejectReason.Reach
+	local box_cframe, box_size = hit_character:GetBoundingBox()
+	local reason = check_reach_and_body(
+		attacker_root.Position,
+		hit_root.Position,
+		box_cframe,
+		box_size,
+		hit_position,
+		range,
+		hit_position_tolerance
+	)
+
+	-- Lag compensation: the attacker saw the target up to Rewind seconds in
+	-- the past. Reach and body are retried against the target's recorded
+	-- state then (the attacker keeps its current position). This only makes
+	-- validation more lenient; every other check still runs.
+	local rewound = false
+	local target_offset = Vector3.zero
+	local history = opts and opts.History
+	if reason and history then
+		local latest = history:Latest(hit_character)
+		local sample = latest and history:Sample(hit_character, latest.Time - opts.Rewind)
+		if sample then
+			local sample_root = sample.RootCFrame.Position
+			if not check_reach_and_body(
+				attacker_root.Position,
+				sample_root,
+				sample.BoxCFrame,
+				sample.BoxSize,
+				hit_position,
+				range,
+				hit_position_tolerance
+			) then
+				reason = nil
+				rewound = true
+				target_offset = sample_root - hit_root.Position
+			end
+		end
 	end
 
-	-- The reported impact must be on (or, allowing for replication lag, close
-	-- to) the target's body, not merely somewhere within weapon range of it.
-	if distance_to_bounding_box(hit_character, hit_position) > hit_position_tolerance then
-		return nil, RejectReason.OffBody
+	if reason then
+		return nil, reason
 	end
 
 	-- The impact must also be where the weapon's hitpoint actually is.
@@ -195,8 +245,14 @@ function CombatValidation.ValidateHit(
 	-- never skipped. Root-to-root and head-to-head are tried so a waist-high
 	-- ledge or an overhang alone does not block a legitimate swing; a wall
 	-- blocks both.
-	if is_line_clear(raycast_params, { active.Character, hit_character }, attacker_root.Position, hit_root.Position) then
-		return hit_humanoid, nil
+	-- After a rewind, line of sight runs to where the target was.
+	if is_line_clear(
+		raycast_params,
+		{ active.Character, hit_character },
+		attacker_root.Position,
+		hit_root.Position + target_offset
+	) then
+		return hit_humanoid, nil, rewound
 	end
 
 	local attacker_head = active.Character:FindFirstChild("Head")
@@ -209,9 +265,9 @@ function CombatValidation.ValidateHit(
 			raycast_params,
 			{ active.Character, hit_character },
 			attacker_head.Position,
-			hit_head.Position
+			hit_head.Position + target_offset
 		) then
-		return hit_humanoid, nil
+		return hit_humanoid, nil, rewound
 	end
 
 	return nil, RejectReason.NoLOS

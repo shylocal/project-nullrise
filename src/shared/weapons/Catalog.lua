@@ -17,6 +17,7 @@ local Types = require(script.Parent.Types)
 local Validator = require(script.Parent.Validator)
 
 export type WeaponDefinition = Types.WeaponDefinition
+export type MoveDef = Types.MoveDef
 
 local WEAPON_IDS = {
 	"Fists",
@@ -33,6 +34,7 @@ local Catalog = {}
 Catalog.DefaultId = DEFAULT_ID
 
 local definitions: { [string]: WeaponDefinition } = {}
+local moves_by_id: { [string]: { [number]: MoveDef } } = {}
 local ordered: { WeaponDefinition } = {}
 local loadouts: { [string]: { [number]: string } } = {}
 
@@ -60,11 +62,19 @@ local function load_definitions(): { string }
 
 	for _, weapon_id in ipairs(WEAPON_IDS) do
 		-- The authored module table stays untouched; the catalog owns a copy
-		-- with AttackDefaults applied and the Id injected.
+		-- with MoveDefaults applied and the weapon Id and move Name/Id injected.
 		local definition = Freeze.clone_deep(Validator.resolve(authored[weapon_id]))
 		definition.Id = weapon_id
+		local by_id = {}
+		for name, move_id in pairs(Validator.move_ids(definition.Moves)) do
+			local move = definition.Moves[name]
+			move.Name = name
+			move.Id = move_id
+			by_id[move_id] = move
+		end
 		Freeze.deep(definition)
 		definitions[weapon_id] = definition
+		moves_by_id[weapon_id] = table.freeze(by_id)
 		table.insert(ordered, definition)
 	end
 	return errors
@@ -142,6 +152,33 @@ function Catalog.IsEquippable(definition: any): boolean
 		and definitions[definition.Id] ~= nil
 		and type(definition.Type) == "string"
 		and Validator.KINDS[definition.Type] ~= nil
+end
+
+-- The move of a catalog weapon with this id, or nil for an unknown weapon or
+-- id (any value is accepted, so remote payloads can be passed straight in).
+function Catalog.GetMove(weapon_id: string, move_id: any): MoveDef?
+	local by_id = moves_by_id[weapon_id]
+	if by_id == nil or type(move_id) ~= "number" then
+		return nil
+	end
+	return by_id[move_id]
+end
+
+function Catalog.MoveId(weapon_id: string, name: string): number?
+	local definition = definitions[weapon_id]
+	local move = definition and definition.Moves[name]
+	return move and move.Id
+end
+
+-- Move id of the `index`-th Combo entry of `weapon` (a catalog definition or
+-- a copy of one). Errors for an index outside 1..#weapon.Combo.
+function Catalog.ComboMoveId(weapon: WeaponDefinition, index: number): number
+	local name = weapon.Combo[index]
+	local move = name and weapon.Moves[name]
+	if move == nil then
+		error(("Catalog.ComboMoveId: %s has no combo entry %s"):format(tostring(weapon.Id), tostring(index)), 2)
+	end
+	return move.Id
 end
 
 -- Frozen slot -> weapon id map for a named loadout. Errors on an unknown name.

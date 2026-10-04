@@ -6,6 +6,7 @@ local Workspace = game:GetService("Workspace")
 
 local Signal = require(ReplicatedStorage.packages.Signal)
 local MovementValidation = require(ServerScriptService.server.services.MovementValidation)
+local PositionHistory = require(ServerScriptService.server.services.PositionHistory)
 local ServerHarness = require(TestService.support.ServerHarness)
 
 local Window = MovementValidation.Window
@@ -32,12 +33,21 @@ type Fixture = {
 local function setup(limits: any?): Fixture
 	local h = ServerHarness.new()
 	local step = Signal.new()
+	-- Samples come from a real PositionHistory driven by `step`.
+	h.Runtime:Add("PositionHistory", function(get)
+		return PositionHistory.new({
+			players = get("PlayerService"),
+			scheduler = h.Clock:scheduler(),
+			step = step,
+			capacity = 64,
+		})
+	end)
 	h.Runtime:Add("MovementValidation", function(get)
 		return MovementValidation.new({
 			players = get("PlayerService"),
 			telemetry = get("Telemetry"),
 			scheduler = h.Clock:scheduler(),
-			step = step,
+			history = get("PositionHistory"),
 			limits = limits or LIMITS,
 		})
 	end)
@@ -272,6 +282,18 @@ return function()
 			f.player:SetCharacter(character)
 
 			expect(violations(f)).to.equal(0)
+		end)
+
+		it("treats a dead character as having no position", function()
+			f = setup()
+			settle(f)
+			local humanoid = (f.root.Parent :: Model):FindFirstChildOfClass("Humanoid") :: Humanoid
+			humanoid.Health = 0
+			f.root.Position = Vector3.new(500, 0, 0)
+			tick(f, FRAME)
+
+			expect(violations(f)).to.equal(0)
+			expect(#state_of(f).Samples).to.equal(0)
 		end)
 
 		it("forgets the player when they leave", function()

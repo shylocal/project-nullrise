@@ -8,9 +8,25 @@ local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 local Config = require(ReplicatedStorage.shared.config)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
+local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
+local Validator = require(ReplicatedStorage.shared.weapons.Validator)
 
 local CombatController = {}
 CombatController.__index = CombatController
+
+-- True when `move_id` is the id of one of the weapon's combo moves.
+local function is_combo_move_id(weapon, move_id)
+	if not weapon or typeof(move_id) ~= "number" then
+		return false
+	end
+	for _, name in ipairs(weapon.Combo) do
+		local move = weapon.Moves[name]
+		if move and move.Id == move_id then
+			return true
+		end
+	end
+	return false
+end
 
 function CombatController.new(deps)
 	Deps.check(deps, "CombatController", { "weapon", "animation", "state", "input", "combat", "scheduler" })
@@ -26,17 +42,25 @@ function CombatController.new(deps)
 		AttackTrove = nil,
 		AttackLifecycleId = 0,
 		AttackLease = nil,
-		Hitbox = nil,
+		-- Reusable hitboxes by wielded part; the move each hitbox was last
+		-- started for ({ Hitbox, MoveId, AttackTrove, LifecycleId }); and the
+		-- currently started one.
+		Hitboxes = {},
+		HitboxOwners = {},
+		ActiveHit = nil,
 
-		NextAttack = 1,
-		PendingAttackIndex = nil,
+		-- The combo move the server expects next; nil means the first.
+		NextComboMoveId = nil,
+		PendingMoveId = nil,
 		PendingAttackId = 0,
-		CurrentAttackKey = nil,
+		CurrentMoveId = nil,
+		CurrentMove = nil,
 		CurrentTrack = nil,
 
 		ChargeReady = false,
 
-		BufferedAttack = nil,
+		-- Name of the hold move waiting for the cooldown.
+		BufferedMove = nil,
 		AttackReadyAt = 0,
 
 		Charging = false,
@@ -59,28 +83,25 @@ end
 function CombatController:_start(input_controller)
 	self.Trove:Connect(
 		self.CombatClient.AttackAccepted,
-		function(attack_key, next_index)
-			if attack_key ~= self.PendingAttackIndex then
+		function(move_id, next_combo_move_id)
+			if move_id ~= self.PendingMoveId then
 				return
 			end
 
-			local weapon = self.WeaponController.Equipped
-			if not weapon or not weapon.Attacks or not weapon.Attacks[next_index] then
-				return
+			self.PendingMoveId = nil
+			if is_combo_move_id(self.WeaponController.Equipped, next_combo_move_id) then
+				self.NextComboMoveId = next_combo_move_id
 			end
-
-			self.NextAttack = next_index
-			self.PendingAttackIndex = nil
 		end
 	)
 
 	self.Trove:Connect(
 		self.CombatClient.AttackRejected,
-		function(attack_key, next_index)
-			if self.PendingAttackIndex == attack_key then
-				self.PendingAttackIndex = nil
-				if typeof(next_index) == "number" then
-					self.NextAttack = next_index
+		function(move_id, next_combo_move_id)
+			if self.PendingMoveId == move_id then
+				self.PendingMoveId = nil
+				if is_combo_move_id(self.WeaponController.Equipped, next_combo_move_id) then
+					self.NextComboMoveId = next_combo_move_id
 				end
 			end
 		end
@@ -110,8 +131,15 @@ function CombatController:_is_alive()
 	return humanoid ~= nil and humanoid.Health > 0
 end
 
+local function has_cooldown(move)
+	local cooldown = move.Cooldown
+	return typeof(cooldown) == "number" and math.isfinite(cooldown) and cooldown > 0
+end
+
+-- The Primary tap: the next combo move, or the move Tap names directly.
+-- Combo moves wait for the server's reply before the combo advances.
 function CombatController:Attack()
-	if self.PendingAttackIndex ~= nil or not self:_can_begin_attack() then
+	if self.PendingMoveId ~= nil or not self:_can_begin_attack() then
 		return
 	end
 
@@ -120,45 +148,54 @@ function CombatController:Attack()
 	end
 
 	local weapon = self.WeaponController.Equipped
-	if not weapon or not weapon.Attacks then
+	if not weapon then
 		return
 	end
 
-	local attack_index = self.NextAttack
-	local attack = weapon.Attacks[attack_index]
+	local tap = weapon.Bindings.Primary.Tap
+	local is_combo = tap == Validator.ComboTap
+	local move
+	if is_combo then
+		local move_id = self.NextComboMoveId or Catalog.ComboMoveId(weapon, 1)
+		move = if is_combo_move_id(weapon, move_id) then Catalog.GetMove(weapon.Id, move_id) else nil
+		if not move then
+			self.NextComboMoveId = nil
+			return
+		end
+	else
+		move = weapon.Moves[tap]
+	end
 
-	if not attack then
-		self.NextAttack = 1
+	if not move or not has_cooldown(move) then
 		return
 	end
 
-	local cooldown = attack.Cooldown
-	if typeof(cooldown) ~= "number" or not math.isfinite(cooldown) or cooldown <= 0 then
-		return
-	end
-
-	local track = self.AnimationController.Combat:BeginAttack(attack_index)
+	local track = self.AnimationController.Combat:BeginMove(move.Name)
 	if not track then
 		return
 	end
 
-	-- The server is authoritative over combo sequencing. Keep this request
-	-- pending until AttackAccepted/AttackRejected arrives instead of advancing
-	-- locally. The server always answers, but a lost or dropped reply must not
-	-- block light attacks forever, so give up after PendingAttackTimeout. A late
-	-- reply is then ignored and the next request resyncs the combo index.
-	self.PendingAttackIndex = attack_index
-	self.PendingAttackId += 1
-	local pending_attack_id = self.PendingAttackId
-	self.Scheduler.after(Config.Combat.PendingAttackTimeout, function()
-		if self.PendingAttackId == pending_attack_id then
-			self.PendingAttackIndex = nil
-		end
-	end)
+	if is_combo then
+		-- The server is authoritative over combo sequencing. Keep this request
+		-- pending until AttackAccepted/AttackRejected arrives instead of
+		-- advancing locally. The server always answers, but a lost or dropped
+		-- reply must not block taps forever, so give up after
+		-- PendingAttackTimeout. A late reply is then ignored and the next
+		-- request resyncs the combo.
+		self.PendingMoveId = move.Id
+		self.PendingAttackId += 1
+		local pending_attack_id = self.PendingAttackId
+		self.Scheduler.after(Config.Combat.PendingAttackTimeout, function()
+			if self.PendingAttackId == pending_attack_id then
+				self.PendingMoveId = nil
+			end
+		end)
+	end
 
-	AttackLifecycle.begin_attack(self, attack_index, attack, track, Protocol.Combat.Attack)
+	AttackLifecycle.begin_attack(self, move, track)
 end
 
+-- The Primary hold move (a Charge move).
 function CombatController:Charge()
 	if not self:_can_begin_attack() then
 		return
@@ -168,23 +205,17 @@ function CombatController:Charge()
 		return
 	end
 
-	local weapon = self.WeaponController.Equipped
-	local charge = weapon and weapon.Charge
-	if not charge then
+	local move = AttackInput.hold_move(self.WeaponController.Equipped)
+	if not move or not has_cooldown(move) then
 		return
 	end
 
-	local cooldown = charge.Cooldown
-	if typeof(cooldown) ~= "number" or not math.isfinite(cooldown) or cooldown <= 0 then
-		return
-	end
-
-	local track = self.AnimationController.Combat:BeginCharge()
+	local track = self.AnimationController.Combat:BeginMove(move.Name)
 	if not track then
 		return
 	end
 
-	AttackLifecycle.begin_attack(self, "Charge", charge, track, Protocol.Combat.Charge)
+	AttackLifecycle.begin_attack(self, move, track)
 end
 
 function CombatController:_can_begin_attack()
@@ -199,24 +230,25 @@ function CombatController:_release_charge()
 	AttackInput.release_charge(self)
 end
 
-function CombatController:_finish_attack(attack_key, attack_trove)
+function CombatController:_finish_attack(move_id, attack_trove)
 	if self.AttackTrove ~= attack_trove then
 		return
 	end
 
 	AttackLifecycle.stop_hitbox(self)
-	self.CombatClient:Send(Protocol.Combat.HitStop, attack_key)
+	self.CombatClient:Send(Protocol.Combat.HitStop, move_id)
 
 	self.AttackTrove = nil
 	self.Trove:Remove(attack_trove)
 
 	self.Charging = false
-	self.CurrentAttackKey = nil
+	self.CurrentMoveId = nil
+	self.CurrentMove = nil
 	self.CurrentTrack = nil
 	self.ChargeReady = false
 	AttackLifecycle.release_lease(self)
 
-	if self.BufferedAttack then
+	if self.BufferedMove then
 		task.defer(function()
 			if not self._destroyed then
 				self:_resolve_buffered_attack()
@@ -230,20 +262,23 @@ function CombatController:Reset()
 	self.PrimaryHeld = false
 	self.PrimaryPressId += 1
 	self.PrimaryPressAttackPending = false
-	self.BufferedAttack = nil
+	self.BufferedMove = nil
 
 	AttackLifecycle.clear_attack_lifecycle(self)
+	-- Hitboxes belong to the equipped weapon's parts; swaps and deaths reset here.
+	AttackLifecycle.destroy_hitboxes(self)
 
 	self.AnimationController:StopAction()
 	AttackLifecycle.release_lease(self)
 
 	-- Character death and weapon swaps reset through here, so a pending
 	-- attack from the previous weapon or character never blocks new input.
-	self.NextAttack = 1
-	self.PendingAttackIndex = nil
+	self.NextComboMoveId = nil
+	self.PendingMoveId = nil
 	self.PendingAttackId += 1
 	self.AttackReadyAt = 0
-	self.CurrentAttackKey = nil
+	self.CurrentMoveId = nil
+	self.CurrentMove = nil
 	self.CurrentTrack = nil
 	self.ChargeReady = false
 	self.Charging = false

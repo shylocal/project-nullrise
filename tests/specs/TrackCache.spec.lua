@@ -83,8 +83,8 @@ return function()
 				for _, animation in pairs(weapon.Animations) do
 					expect(ids[animation.Id]).to.equal(true)
 				end
-				for _, attack in ipairs(weapon.Attacks) do
-					expect(ids[attack.Animation.Id]).to.equal(true)
+				for _, move in pairs(weapon.Moves) do
+					expect(ids[move.Animation.Id]).to.equal(true)
 				end
 			end
 		end)

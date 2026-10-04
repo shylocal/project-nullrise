@@ -30,68 +30,72 @@ Katana.Animations = {
 
 		TransitionTime = 0.325,
 	},
-
-	Charge = {
-		Id = "rbxassetid://14148935586",
-		Priority = Enum.AnimationPriority.Action,
-		Looped = false,
-
-		TransitionTime = 0.275,
-	},
 }
 
-Katana.Attacks = {
-	[1] = {
+-- Shared by every move unless the move sets its own value.
+Katana.MoveDefaults = {
+	Hitbox = "Mesh",
+	HitWindow = 0.55,
+	HitPositionTolerance = 3,
+	Range = 10,
+}
+
+Katana.Moves = {
+	Light1 = {
+		Kind = "Light",
 		Animation = {
 			Id = "rbxassetid://14148902740",
 			Priority = Enum.AnimationPriority.Action,
 			Looped = false,
 		},
 
-		Hitbox = "Mesh",
 		Damage = 15,
 		Cooldown = 0.35,
 		MinDuration = 0.35,
 		HitStartAt = 0.1,
-		HitWindow = 0.55,
-		HitPositionTolerance = 3,
-		Range = 10,
 	},
 
-	[2] = {
+	Light2 = {
+		Kind = "Light",
 		Animation = {
 			Id = "rbxassetid://14148910201",
 			Priority = Enum.AnimationPriority.Action,
 			Looped = false,
 		},
 
-		Hitbox = "Mesh",
 		Damage = 15,
 		Cooldown = 0.35,
 		MinDuration = 0.35,
 		HitStartAt = 0.1,
-		HitWindow = 0.55,
-		HitPositionTolerance = 3,
-		Range = 10,
+	},
+
+	Heavy = {
+		Kind = "Charge",
+		Animation = {
+			Id = "rbxassetid://14148935586",
+			Priority = Enum.AnimationPriority.Action,
+			Looped = false,
+
+			TransitionTime = 0.275,
+		},
+
+		Damage = 30,
+		Cooldown = 0.6,
+		MinDuration = 0.6,
+		-- Measured from the move start. The move pauses on its HitStart
+		-- marker while held; its hits stay valid for HitWindow after the release.
+		HitStartAt = 0.15,
+		Hold = {
+			HoldTime = 0.15,
+			MaxHoldTime = 10,
+		},
 	},
 }
 
-Katana.Charge = {
-	Animation = Katana.Animations.Charge,
-	Hitbox = "Mesh",
-	Damage = 30,
-	Cooldown = 0.6,
-	MinDuration = 0.6,
-	-- Measured from the charge start. The charge pauses on its HitStart
-	-- marker while held and is released automatically at MaxHoldTime.
-	HitStartAt = 0.15,
-	MaxHoldTime = 10,
-	-- Charge hits stay valid for HitWindow after the release (HitStart).
-	HitWindow = 0.55,
-	HitPositionTolerance = 3,
-	Range = 10,
-	-- How long the primary input must be held before it becomes a charge.
-	HoldTime = 0.15,
+Katana.Combo = { "Light1", "Light2" }
+
+Katana.Bindings = {
+	Primary = { Tap = "Combo", Hold = "Heavy" },
 }
 
 return Katana

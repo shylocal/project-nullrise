@@ -50,7 +50,10 @@ function Hitbox.new(character, wielded, on_hit)
 	return self
 end
 
+-- Hitboxes are reused across swings: each Start begins a fresh per-target
+-- dedupe for the new swing.
 function Hitbox:Start()
+	table.clear(self.HitCharacters)
 	self.Shapecast:HitStart()
 end
 

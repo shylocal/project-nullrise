@@ -18,6 +18,12 @@ local Telemetry = {
 		NoLOS = 1,
 		HorizontalSpeed = 1,
 		VerticalSpeed = 1,
+		-- Lag-compensated hits and policy-blocked damage are legitimate play.
+		Rewound = 0,
+		Blocked = 0,
+		-- An early HitStart is now armed rather than dropped, so it is
+		-- usually latency, not cheating.
+		EarlyHitStart = 0.25,
 	},
 }
 

@@ -44,54 +44,61 @@ return function()
 			local fists = Catalog.Get("Fists")
 			expect(fists).to.equal(Catalog.Get("Fists"))
 			expect(table.isfrozen(fists)).to.equal(true)
-			expect(table.isfrozen(fists.Attacks)).to.equal(true)
-			expect(table.isfrozen(fists.Attacks[1].Animation)).to.equal(true)
+			expect(table.isfrozen(fists.Moves)).to.equal(true)
+			expect(table.isfrozen(fists.Moves.Light1.Animation)).to.equal(true)
+			expect(table.isfrozen(fists.Combo)).to.equal(true)
+			expect(table.isfrozen(fists.Bindings.Primary)).to.equal(true)
 			expect(table.isfrozen(fists.Wield)).to.equal(true)
 			expect(pcall(function()
 				(fists :: any).Model = "Changed"
 			end)).to.equal(false)
 		end)
 
-		it("keeps the charge animation shared with the charge role", function()
-			local fists = Catalog.Get("Fists")
-			assert(fists and fists.Charge and fists.Animations.Charge, "Fists must define a charge")
-			expect(fists.Charge.Animation).to.equal(fists.Animations.Charge)
-		end)
-
-		it("keeps every feel-critical number unchanged", function()
-			-- { Hitbox, Damage, Cooldown, MinDuration, HitStartAt, HitWindow, Tolerance, Range }
-			local golden = {
-				Fists = {
-					Attacks = {
-						{ "RightFist", 10, 0.3, 0.3, 0.1, 0.55, 3, 8 },
-						{ "LeftFist", 10, 0.3, 0.3, 0.1, 0.55, 3, 8 },
-					},
-					Charge = { "RightFist", 20, 0.6, 0.6, 0.15, 0.55, 3, 8 },
-				},
-				Katana = {
-					Attacks = {
-						{ "Mesh", 15, 0.35, 0.35, 0.1, 0.55, 3, 10 },
-						{ "Mesh", 15, 0.35, 0.35, 0.1, 0.55, 3, 10 },
-					},
-					Charge = { "Mesh", 30, 0.6, 0.6, 0.15, 0.55, 3, 10 },
-				},
-			}
-			local fields = { "Hitbox", "Damage", "Cooldown", "MinDuration", "HitStartAt", "HitWindow", "HitPositionTolerance", "Range" }
-			local function expect_attack(attack: any, values: { any })
-				for index, field in ipairs(fields) do
-					expect(attack[field]).to.equal(values[index])
+		it("assigns move ids by sorted move name and injects Name and Id", function()
+			for _, weapon_id in ipairs(Catalog.Ids()) do
+				local weapon = Catalog.Get(weapon_id) :: any
+				local names = {}
+				for name in pairs(weapon.Moves) do
+					table.insert(names, name)
+				end
+				table.sort(names)
+				for index, name in ipairs(names) do
+					local move = weapon.Moves[name]
+					expect(move.Name).to.equal(name)
+					expect(move.Id).to.equal(index)
+					expect(Catalog.MoveId(weapon_id, name)).to.equal(index)
+					expect(Catalog.GetMove(weapon_id, index)).to.equal(move)
 				end
 			end
-			for weapon_id, expected in pairs(golden) do
-				local weapon = Catalog.Get(weapon_id) :: any
-				expect(#weapon.Attacks).to.equal(#expected.Attacks)
-				for index, values in ipairs(expected.Attacks) do
-					expect_attack(weapon.Attacks[index], values)
-				end
-				expect_attack(weapon.Charge, expected.Charge)
-				expect(weapon.Charge.HoldTime).to.equal(0.15)
-				expect(weapon.Charge.MaxHoldTime).to.equal(10)
-				expect(weapon.CanSprintWhileAttacking).to.equal(true)
+			expect(Catalog.MoveId("Fists", "Heavy")).to.equal(1)
+			expect(Catalog.MoveId("Fists", "Light1")).to.equal(2)
+			expect(Catalog.MoveId("Fists", "Light2")).to.equal(3)
+		end)
+
+		it("returns nil for unknown moves", function()
+			expect(Catalog.GetMove("Fists", 99)).to.equal(nil)
+			expect(Catalog.GetMove("Fists", "1")).to.equal(nil)
+			expect(Catalog.GetMove("Fists", nil)).to.equal(nil)
+			expect(Catalog.GetMove("Missing", 1)).to.equal(nil)
+			expect(Catalog.MoveId("Fists", "Missing")).to.equal(nil)
+			expect(Catalog.MoveId("Missing", "Light1")).to.equal(nil)
+		end)
+
+		it("maps combo positions to move ids and rejects other positions", function()
+			local fists = Catalog.Get("Fists") :: any
+			expect(Catalog.ComboMoveId(fists, 1)).to.equal(Catalog.MoveId("Fists", "Light1"))
+			expect(Catalog.ComboMoveId(fists, 2)).to.equal(Catalog.MoveId("Fists", "Light2"))
+			expect(function()
+				Catalog.ComboMoveId(fists, 0)
+			end).to.throw()
+			expect(function()
+				Catalog.ComboMoveId(fists, #fists.Combo + 1)
+			end).to.throw()
+		end)
+
+		it("leaves no move defaults on catalog definitions", function()
+			for _, weapon in ipairs(Catalog.All()) do
+				expect((weapon :: any).MoveDefaults).to.equal(nil)
 			end
 		end)
 

@@ -19,20 +19,27 @@ function AttackLifecycle.release_lease(self)
 	end
 end
 
-function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_action)
+function AttackLifecycle.is_charge(move)
+	return move ~= nil and move.Kind == "Charge"
+end
+
+function AttackLifecycle.begin_attack(self, move, track)
 	AttackLifecycle.clear_attack_lifecycle(self)
 
 	self.AttackLifecycleId += 1
 	local lifecycle_id = self.AttackLifecycleId
+	local move_id = move.Id
+	local is_charge = AttackLifecycle.is_charge(move)
 
-	self.Charging = attack_key == "Charge"
+	self.Charging = is_charge
 	self.ChargeReady = false
-	self.CurrentAttackKey = attack_key
+	self.CurrentMoveId = move_id
+	self.CurrentMove = move
 	self.CurrentTrack = track
 
-	-- A rooted attack blocks sprint through the CharacterState policy.
+	-- A rooted move blocks sprint through the CharacterState policy.
 	AttackLifecycle.release_lease(self)
-	local activity = if AttackLifecycle.can_sprint_while_attacking(self, attack) then "Attack" else "AttackRooted"
+	local activity = if AttackLifecycle.can_sprint_while_attacking(self, move) then "Attack" else "AttackRooted"
 	self.AttackLease = self.State:Acquire(self, activity)
 
 	local attack_trove = Trove.new()
@@ -46,16 +53,16 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 				return
 			end
 
-			-- While the charge is still held, pause on the marker and wait
-			-- for the release. Once released, the marker starts the hit.
-			if attack_key == "Charge" and self.Charging and self.PrimaryHeld then
+			-- While a charge is still held, pause on the marker and wait for
+			-- the release. Once released, the marker starts the hit.
+			if is_charge and self.Charging and self.PrimaryHeld then
 				self.ChargeReady = true
 				self.AnimationController.Combat:Pause(track)
 				return
 			end
 
-			self.CombatClient:Send(Protocol.Combat.HitStart, attack_key)
-			AttackLifecycle.start_hitbox(self, attack_key, attack, attack_trove, lifecycle_id)
+			self.CombatClient:Send(Protocol.Combat.HitStart, move_id)
+			AttackLifecycle.start_hitbox(self, move, attack_trove, lifecycle_id)
 		end
 	)
 
@@ -67,20 +74,20 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 			end
 
 			AttackLifecycle.stop_hitbox(self)
-			self.CombatClient:Send(Protocol.Combat.HitStop, attack_key)
+			self.CombatClient:Send(Protocol.Combat.HitStop, move_id)
 		end
 	)
 
-	self.CombatClient:Send(remote_action, attack_key)
+	self.CombatClient:Send(Protocol.Combat.Attack, move_id)
 
 	self.AnimationController.Combat:Play(
 		track,
-		attack.Animation.TransitionTime
+		move.Animation.TransitionTime
 	)
 
 	-- Cooldown is validated to be no shorter than the server-enforced
-	-- MinDuration, so a legitimate client never starts an attack early.
-	local cooldown = attack.Cooldown
+	-- MinDuration, so a legitimate client never starts a move early.
+	local cooldown = move.Cooldown
 	self.AttackReadyAt = self.Scheduler.clock() + cooldown
 
 	-- Owned by the attack trove so a track that never ends (for example one
@@ -89,18 +96,18 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 		track.Ended,
 		function()
 			-- Tracks are cached and reused, so a late Ended from an earlier
-			-- Stop must not finish an attack that replayed the same track.
+			-- Stop must not finish a move that replayed the same track.
 			if track.IsPlaying then
 				return
 			end
-			self:_finish_attack(attack_key, attack_trove)
+			self:_finish_attack(move_id, attack_trove)
 		end
 	)
 
-	if attack_key == "Charge" then
+	if is_charge then
 		-- The server stops accepting the charge's HitStart after MaxHoldTime,
 		-- so release it automatically instead of letting a long hold whiff.
-		self.Scheduler.after(attack.MaxHoldTime, function()
+		self.Scheduler.after(move.Hold.MaxHoldTime, function()
 			if self.AttackLifecycleId ~= lifecycle_id or not self.Charging then
 				return
 			end
@@ -114,16 +121,16 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 			return
 		end
 
-		if self.BufferedAttack and self.PrimaryHeld then
+		if self.BufferedMove and self.PrimaryHeld then
 			self:_resolve_buffered_attack()
 		end
 	end)
 end
 
 function AttackLifecycle.clear_attack_lifecycle(self)
-	local attack_key = self.CurrentAttackKey
-	if attack_key then
-		self.CombatClient:Send(Protocol.Combat.HitStop, attack_key)
+	local move_id = self.CurrentMoveId
+	if move_id then
+		self.CombatClient:Send(Protocol.Combat.HitStop, move_id)
 	end
 
 	AttackLifecycle.stop_hitbox(self)
@@ -135,28 +142,71 @@ function AttackLifecycle.clear_attack_lifecycle(self)
 		self.Trove:Remove(attack_trove)
 	end
 
-	self.CurrentAttackKey = nil
+	self.CurrentMoveId = nil
+	self.CurrentMove = nil
 	self.CurrentTrack = nil
 	self.Charging = false
 	self.ChargeReady = false
 end
 
-function AttackLifecycle.can_sprint_while_attacking(self, attack)
+function AttackLifecycle.can_sprint_while_attacking(self, move)
 	local weapon = self.WeaponController.Equipped
 
-	if attack.CanSprintWhileAttacking ~= nil then
-		return attack.CanSprintWhileAttacking
+	if move.CanSprintWhileAttacking ~= nil then
+		return move.CanSprintWhileAttacking
 	end
 
 	return weapon ~= nil and weapon.CanSprintWhileAttacking == true
 end
 
-function AttackLifecycle.start_hitbox(self, attack_key, attack, expected_trove, expected_lifecycle_id)
-	if self.Hitbox then
+-- Sends a hit from `hitbox` for the move it was last started for. Hits that
+-- arrive after that move ended are dropped.
+local function forward_hit(self, hitbox, hit_character, raycast_result, segment_instance)
+	local owner = self.HitboxOwners[hitbox]
+	if not owner or not AttackLifecycle.is_current_attack(self, owner.AttackTrove, owner.LifecycleId) then
 		return
 	end
 
-	local wielded = self.WeaponController:GetWielded(attack.Hitbox)
+	self.CombatClient:Send(
+		Protocol.Combat.Hit,
+		owner.MoveId,
+		hit_character,
+		segment_instance,
+		raycast_result.Position
+	)
+end
+
+-- The reusable hitbox for a wielded part: created on first use per equip and
+-- part, then only started and stopped. Entries whose part left the character
+-- are destroyed here; Reset destroys the rest (weapon swap, death, teardown).
+function AttackLifecycle.hitbox_for(self, wielded)
+	local character = self.WeaponController.Character
+	for part, cached in pairs(self.Hitboxes) do
+		if part ~= wielded and not part:IsDescendantOf(character) then
+			self.Hitboxes[part] = nil
+			self.HitboxOwners[cached] = nil
+			cached:Destroy()
+		end
+	end
+
+	local hitbox = self.Hitboxes[wielded]
+	if hitbox then
+		return hitbox
+	end
+
+	hitbox = Hitbox.new(character, wielded, function(hit_character, raycast_result, segment_instance)
+		forward_hit(self, hitbox, hit_character, raycast_result, segment_instance)
+	end)
+	self.Hitboxes[wielded] = hitbox
+	return hitbox
+end
+
+function AttackLifecycle.start_hitbox(self, move, expected_trove, expected_lifecycle_id)
+	if self.ActiveHit then
+		return
+	end
+
+	local wielded = self.WeaponController:GetWielded(move.Hitbox)
 	if not wielded then
 		return
 	end
@@ -170,42 +220,35 @@ function AttackLifecycle.start_hitbox(self, attack_key, attack, expected_trove, 
 		return
 	end
 
-	local hitbox = Hitbox.new(
-		self.WeaponController.Character,
-		wielded,
-		function(hit_character, raycast_result, segment_instance)
-			if not AttackLifecycle.is_current_attack(self, attack_trove, lifecycle_id) then
-				return
-			end
-
-			self.CombatClient:Send(
-				Protocol.Combat.Hit,
-				attack_key,
-				hit_character,
-				segment_instance,
-				raycast_result.Position
-			)
-		end
-	)
-
-	self.Hitbox = hitbox
-	attack_trove:Add(hitbox)
+	local hitbox = AttackLifecycle.hitbox_for(self, wielded)
+	local owner = {
+		Hitbox = hitbox,
+		MoveId = move.Id,
+		AttackTrove = attack_trove,
+		LifecycleId = lifecycle_id,
+	}
+	self.ActiveHit = owner
+	self.HitboxOwners[hitbox] = owner
 	hitbox:Start()
 end
 
 function AttackLifecycle.stop_hitbox(self)
-	local hitbox = self.Hitbox
-	self.Hitbox = nil
+	local active = self.ActiveHit
+	self.ActiveHit = nil
 
-	if not hitbox then
-		return
+	if active then
+		active.Hitbox:Stop()
 	end
+end
 
-	hitbox:Stop()
+-- Destroys every cached hitbox. Called on weapon swap, death and teardown.
+function AttackLifecycle.destroy_hitboxes(self)
+	AttackLifecycle.stop_hitbox(self)
 
-	if self.AttackTrove then
-		self.AttackTrove:Remove(hitbox)
-	else
+	local hitboxes = self.Hitboxes
+	self.Hitboxes = {}
+	table.clear(self.HitboxOwners)
+	for _, hitbox in pairs(hitboxes) do
 		hitbox:Destroy()
 	end
 end

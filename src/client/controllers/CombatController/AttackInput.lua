@@ -5,6 +5,12 @@ local AttackLifecycle = require(script.Parent.AttackLifecycle)
 
 local AttackInput = {}
 
+-- The weapon's Primary Hold move (a Charge move), or nil.
+function AttackInput.hold_move(weapon)
+	local name = weapon and weapon.Bindings.Primary.Hold
+	return name and weapon.Moves[name]
+end
+
 function AttackInput.primary_began(self)
 	self.PrimaryHeld = true
 	self.PrimaryPressId += 1
@@ -17,18 +23,18 @@ function AttackInput.primary_began(self)
 	end
 
 	-- A new mouse press always starts a new input decision. It does not
-	-- immediately become a light attack just because the previous attack was
-	-- a released charge. Holding past HoldTime turns this press into charge;
-	-- releasing before then turns it into light attack.
+	-- immediately become a tap just because the previous move was a
+	-- released charge. Holding past HoldTime turns this press into the hold
+	-- move; releasing before then turns it into the tap.
 	if self.Charging then
 		self.PrimaryPressAttackPending = false
 		return
 	end
 
-	local charge = weapon.Charge
-	if charge then
+	local hold_move = AttackInput.hold_move(weapon)
+	if hold_move then
 		self.PrimaryPressAttackPending = true
-		AttackInput.buffer_charge(self, press_id, charge)
+		AttackInput.buffer_hold(self, press_id, hold_move)
 		return
 	end
 
@@ -36,17 +42,17 @@ function AttackInput.primary_began(self)
 	self:Attack()
 end
 
-function AttackInput.buffer_charge(self, press_id, charge)
-	self.Scheduler.after(charge.HoldTime, function()
+function AttackInput.buffer_hold(self, press_id, hold_move)
+	self.Scheduler.after(hold_move.Hold.HoldTime, function()
 		if self.PrimaryPressId ~= press_id or not self.PrimaryHeld then
 			return
 		end
 
-		-- Once the hold threshold is crossed, this press has become a
-		-- charge intent. Releasing it must never fall back to Light Attack,
-		-- even if the charge is still waiting for cooldown.
+		-- Once the hold threshold is crossed, this press has become a hold
+		-- intent. Releasing it must never fall back to the tap, even if the
+		-- hold move is still waiting for cooldown.
 		self.PrimaryPressAttackPending = false
-		self.BufferedAttack = "Charge"
+		self.BufferedMove = hold_move.Name
 		AttackInput.resolve_buffered_attack(self)
 	end)
 end
@@ -55,9 +61,8 @@ function AttackInput.primary_ended(self)
 	self.PrimaryHeld = false
 	self.PrimaryPressId += 1
 
-	if self.BufferedAttack == "Charge" then
-		self.BufferedAttack = nil
-	end
+	-- A buffered hold move is cancelled by releasing the input.
+	self.BufferedMove = nil
 
 	if not self.Charging then
 		if self.PrimaryPressAttackPending then
@@ -80,17 +85,13 @@ function AttackInput.release_charge(self)
 
 	local track = self.CurrentTrack
 	local charge_ready = self.ChargeReady
+	local move = self.CurrentMove
 	self.Charging = false
 
-	if charge_ready then
-		local weapon = self.WeaponController.Equipped
-		local charge = weapon and weapon.Charge
-
-		if charge then
-			self.ChargeReady = false
-			self.CombatClient:Send(Protocol.Combat.HitStart, "Charge")
-			AttackLifecycle.start_hitbox(self, "Charge", charge)
-		end
+	if charge_ready and move then
+		self.ChargeReady = false
+		self.CombatClient:Send(Protocol.Combat.HitStart, move.Id)
+		AttackLifecycle.start_hitbox(self, move)
 	end
 
 	if track then
@@ -99,12 +100,12 @@ function AttackInput.release_charge(self)
 end
 
 function AttackInput.resolve_buffered_attack(self)
-	if self.BufferedAttack ~= "Charge" then
+	if self.BufferedMove == nil then
 		return
 	end
 
 	if not self.PrimaryHeld then
-		self.BufferedAttack = nil
+		self.BufferedMove = nil
 		return
 	end
 
@@ -112,7 +113,7 @@ function AttackInput.resolve_buffered_attack(self)
 		return
 	end
 
-	self.BufferedAttack = nil
+	self.BufferedMove = nil
 	self:Charge()
 end
 

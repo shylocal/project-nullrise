@@ -1,17 +1,23 @@
--- Attack and charge animation layer. Roles are "Attack<n>" and "Charge".
+-- Move animation layer. One track per weapon move, with role "Move:<Name>".
 local Combat = {}
 Combat.__index = Combat
+
+local ROLE_PREFIX = "Move:"
 
 function Combat.new(animation_controller)
 	local self = setmetatable({
 		Controller = animation_controller,
 		Weapon = nil,
 
-		AttackTracks = {},
-		ChargeTrack = nil,
+		-- Move name -> track.
+		MoveTracks = {},
 	}, Combat)
 
 	return self
+end
+
+function Combat.role(move_name)
+	return ROLE_PREFIX .. move_name
 end
 
 function Combat:SetWeapon(weapon)
@@ -20,39 +26,23 @@ function Combat:SetWeapon(weapon)
 end
 
 function Combat:_load()
-	table.clear(self.AttackTracks)
-	self.ChargeTrack = nil
+	table.clear(self.MoveTracks)
 
 	local weapon = self.Weapon
 	if not weapon then
 		return
 	end
 
-	-- Catalog definitions are validated, so Attacks is always a dense array.
-	for attack_index, attack in ipairs(weapon.Attacks) do
-		if attack.Animation then
-			self.AttackTracks[attack_index] = self.Controller:Track("Attack" .. attack_index, attack.Animation)
-		end
-	end
-
-	if weapon.Charge and weapon.Charge.Animation then
-		self.ChargeTrack = self.Controller:Track("Charge", weapon.Charge.Animation)
+	-- Catalog definitions are validated, so every move has an Animation.
+	for name, move in pairs(weapon.Moves) do
+		self.MoveTracks[name] = self.Controller:Track(Combat.role(name), move.Animation)
 	end
 end
 
-function Combat:BeginAttack(attack_index)
-	local track = self.AttackTracks[attack_index]
-	if not track then
-		return nil
-	end
-
-	self.Controller:ClaimAction(track)
-
-	return track
-end
-
-function Combat:BeginCharge()
-	local track = self.ChargeTrack
+-- Claims the Action channel for the move's track and returns it, or nil when
+-- the move has no loaded track (no animator yet).
+function Combat:BeginMove(move_name)
+	local track = self.MoveTracks[move_name]
 	if not track then
 		return nil
 	end
@@ -79,17 +69,13 @@ function Combat:StopAction()
 end
 
 function Combat:Clear()
-	for _, track in pairs(self.AttackTracks) do
+	for _, track in pairs(self.MoveTracks) do
 		if track.IsPlaying then
 			track:Stop(0)
 		end
 	end
-	if self.ChargeTrack and self.ChargeTrack.IsPlaying then
-		self.ChargeTrack:Stop(0)
-	end
 
-	table.clear(self.AttackTracks)
-	self.ChargeTrack = nil
+	table.clear(self.MoveTracks)
 	self.Weapon = nil
 end
 

@@ -1,22 +1,35 @@
 --!strict
--- Phase 1 weapon definition shape (Attacks + optional Charge). Replaced by the
--- move-based schema in Phase 2.
+-- Weapon definition shape (schema v2): named moves, a light-attack combo and
+-- input bindings. Exports only.
 
 export type AnimationDef = {
 	Id: string,
 	Priority: Enum.AnimationPriority,
 	Looped: boolean,
 	TransitionTime: number?,
-	-- Required on a later role that reuses an earlier role's Id (Equip < Idle < Sprint < Charge).
+	-- Required on a later role that reuses an earlier role's Id (Equip < Idle < Sprint).
 	SharedWith: string?,
 }
 
--- Timing fields are seconds from the attack start:
+-- "Light" moves hit within HitWindow of their HitStart marker. "Charge" moves
+-- may be held (pausing on the HitStart marker) until Hold.MaxHoldTime, and
+-- their hit window starts at the release.
+export type MoveKind = "Light" | "Charge"
+
+-- HoldTime: how long the primary input must be held before it becomes this move.
+-- MaxHoldTime: measured from the move start; the move is released automatically then.
+export type HoldDef = { HoldTime: number, MaxHoldTime: number }
+
+-- Timing fields are seconds from the move start:
 --   HitStartAt   earliest time the HitStart marker can be reached
---   HitWindow    how long hits stay valid after HitStartAt
---   MinDuration  earliest time the next attack may start (server enforced)
+--   HitWindow    how long hits stay valid after HitStartAt (Light) or the release (Charge)
+--   MinDuration  earliest time the next move may start (server enforced)
 --   Cooldown     client-side input cooldown; never shorter than MinDuration
-export type AttackDef = {
+-- Name and Id are injected by the Catalog (Id: per weapon, sorted by name from 1).
+export type MoveDef = {
+	Name: string,
+	Id: number,
+	Kind: MoveKind,
 	Animation: AnimationDef,
 	Hitbox: string,
 	Damage: number,
@@ -27,11 +40,11 @@ export type AttackDef = {
 	HitPositionTolerance: number,
 	Range: number,
 	CanSprintWhileAttacking: boolean?,
+	Hold: HoldDef?,
 }
 
--- HoldTime: how long the primary input must be held before it becomes a charge.
--- MaxHoldTime: measured from the charge start; the charge is released automatically then.
-export type ChargeDef = AttackDef & { HoldTime: number, MaxHoldTime: number }
+-- Tap: "Combo" (cycle through Combo) or a move name. Hold: a Charge move name.
+export type PrimaryBinding = { Tap: string, Hold: string? }
 
 export type WeaponDefinition = {
 	Id: string,
@@ -39,9 +52,11 @@ export type WeaponDefinition = {
 	Model: string,
 	CanSprintWhileAttacking: boolean,
 	Wield: { [string]: string },
-	Animations: { Equip: AnimationDef, Idle: AnimationDef, Sprint: AnimationDef, Charge: AnimationDef? },
-	Attacks: { AttackDef },
-	Charge: ChargeDef?,
+	Animations: { Equip: AnimationDef, Idle: AnimationDef, Sprint: AnimationDef },
+	MoveDefaults: { [string]: any }?,
+	Moves: { [string]: MoveDef },
+	Combo: { string },
+	Bindings: { Primary: PrimaryBinding },
 }
 
 return table.freeze({})

@@ -2,6 +2,8 @@
 -- displacement outside the movement envelope (derived from movement and
 -- parkour tuning by shared/config/Envelope). It only reports: violations are
 -- counted in Telemetry and logged at a limited rate, nothing is corrected.
+-- Positions come from PositionHistory: each history step writes a sample per
+-- live character and then fires Stepped, which drives one observation here.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -117,7 +119,7 @@ local function check_limits(limits)
 end
 
 function MovementValidation.new(deps)
-	Deps.check(deps, "MovementValidation", { "players", "telemetry", "scheduler", "step", "limits" })
+	Deps.check(deps, "MovementValidation", { "players", "telemetry", "scheduler", "history", "limits" })
 	check_limits(deps.limits)
 
 	local self = setmetatable({
@@ -127,10 +129,11 @@ function MovementValidation.new(deps)
 		_players = deps.players,
 		_telemetry = deps.telemetry,
 		_scheduler = deps.scheduler,
+		_history = deps.history,
 	}, MovementValidation)
 
-	self.Trove:Connect(deps.step, function()
-		self:_step()
+	self.Trove:Connect(deps.history.Stepped, function(now)
+		self:_step(now)
 	end)
 
 	deps.players:Register(self, "MovementValidation")
@@ -227,8 +230,10 @@ function MovementValidation:_reset_character(state, character)
 end
 
 function MovementValidation:_observe(player, state, now)
-	local root = get_live_root(state.Character)
-	local position = root and root.Position
+	-- PositionHistory writes a sample this step only for a live character.
+	local character = state.Character
+	local sample = character and self._history:Latest(character)
+	local position = sample and sample.Time == now and sample.RootCFrame.Position
 	if not finite_vector(position) then
 		reset_tracking(state, nil, now)
 		return
@@ -293,8 +298,7 @@ function MovementValidation:_observe(player, state, now)
 	end
 end
 
-function MovementValidation:_step()
-	local now = self._scheduler.clock()
+function MovementValidation:_step(now)
 	-- Iterates the live session map directly: this runs every frame.
 	for _, session in pairs(self._players.Sessions) do
 		local state = session:Get(self)

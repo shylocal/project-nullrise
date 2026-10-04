@@ -33,6 +33,13 @@ return function()
 			expect(table.isfrozen(Config.Network.RemoteBudget.Actions["Combat.Hit"])).to.equal(true)
 		end)
 
+		it("gives legitimate combat outcomes no or little suspicion", function()
+			local weights = Config.Telemetry.Weights
+			expect(weights.Rewound).to.equal(0)
+			expect(weights.Blocked).to.equal(0)
+			expect(weights.EarlyHitStart < Config.Telemetry.DefaultWeight).to.equal(true)
+		end)
+
 		it("validates the shipped config without errors", function()
 			local errors = Config.validate(sections())
 			if #errors > 0 then

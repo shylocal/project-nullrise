@@ -55,6 +55,80 @@ return function()
 		end)
 	end)
 
+	describe("Move kinds", function()
+		it("treats only Charge moves as charges", function()
+			expect(AttackLifecycle.is_charge({ Kind = "Charge" })).to.equal(true)
+			expect(AttackLifecycle.is_charge({ Kind = "Light" })).to.equal(false)
+			expect(AttackLifecycle.is_charge(nil)).to.equal(false)
+		end)
+	end)
+
+	describe("Hitbox reuse", function()
+		local function make_controller()
+			local character = Instance.new("Model")
+			local wielded = Instance.new("Part")
+			wielded.Name = "SpecWielded"
+			wielded.Parent = character
+			local controller = {
+				WeaponController = { Character = character },
+				Hitboxes = {},
+				HitboxOwners = {},
+				ActiveHit = nil,
+			}
+			return controller, character, wielded
+		end
+
+		it("creates one hitbox per wielded part and reuses it", function()
+			local controller, character, wielded = make_controller()
+
+			local first = AttackLifecycle.hitbox_for(controller, wielded)
+			local second = AttackLifecycle.hitbox_for(controller, wielded)
+
+			expect(first).to.equal(second)
+			expect(controller.Hitboxes[wielded]).to.equal(first)
+
+			AttackLifecycle.destroy_hitboxes(controller)
+			expect((next(controller.Hitboxes))).to.equal(nil)
+			character:Destroy()
+		end)
+
+		it("drops hitboxes whose part left the character", function()
+			local controller, character, wielded = make_controller()
+			AttackLifecycle.hitbox_for(controller, wielded)
+
+			wielded.Parent = nil
+			local replacement = Instance.new("Part")
+			replacement.Parent = character
+			AttackLifecycle.hitbox_for(controller, replacement)
+
+			expect(controller.Hitboxes[wielded]).to.equal(nil)
+			expect(controller.Hitboxes[replacement]).to.be.ok()
+
+			AttackLifecycle.destroy_hitboxes(controller)
+			wielded:Destroy()
+			character:Destroy()
+		end)
+
+		it("stops the started hitbox once", function()
+			local stops = 0
+			local controller = {
+				ActiveHit = {
+					Hitbox = {
+						Stop = function()
+							stops += 1
+						end,
+					},
+				},
+			}
+
+			AttackLifecycle.stop_hitbox(controller)
+			AttackLifecycle.stop_hitbox(controller)
+
+			expect(stops).to.equal(1)
+			expect(controller.ActiveHit).to.equal(nil)
+		end)
+	end)
+
 	describe("Attack lease", function()
 		it("releases the held lease once", function()
 			local releases = 0
