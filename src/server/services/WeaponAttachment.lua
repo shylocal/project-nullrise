@@ -1,4 +1,10 @@
 local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local World = require(ReplicatedStorage.shared.config).World
+
+local HITPOINT_TAG = World.Tags.Hitpoint
+local HITPOINT_ATTACHMENT = World.Names.HitpointAttachment
 
 local WeaponAttachment = {}
 
@@ -14,11 +20,19 @@ local function warn_attachment(instance, message)
 	warn(("[WeaponAttachment] %s: %s"):format(instance:GetFullName(), message))
 end
 
+-- Weapon geometry is visual only: it never collides, never adds mass, and
+-- is invisible to spatial queries, so hit and line-of-sight casts pass
+-- through a held weapon to the body behind it.
+local function prepare_part(part)
+	part.Anchored = false
+	part.CanCollide = false
+	part.CanQuery = false
+	part.Massless = true
+end
+
 local function prepare(instance)
 	if instance:IsA("BasePart") then
-		instance.Anchored = false
-		instance.CanCollide = false
-		instance.Massless = true
+		prepare_part(instance)
 
 		return instance
 	end
@@ -37,9 +51,7 @@ local function prepare(instance)
 			continue
 		end
 
-		descendant.Anchored = false
-		descendant.CanCollide = false
-		descendant.Massless = true
+		prepare_part(descendant)
 	end
 
 	return instance
@@ -47,11 +59,11 @@ end
 
 local function tag_hitpoints(instance)
 	for _, descendant in instance:GetDescendants() do
-		if not descendant:IsA("Attachment") or descendant.Name ~= "Hitpoint" then
+		if not descendant:IsA("Attachment") or descendant.Name ~= HITPOINT_ATTACHMENT then
 			continue
 		end
 
-		CollectionService:AddTag(descendant, "Hitpoint")
+		CollectionService:AddTag(descendant, HITPOINT_TAG)
 	end
 end
 

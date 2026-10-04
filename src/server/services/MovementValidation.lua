@@ -1,40 +1,39 @@
+-- Observes every live character's replicated root position and reports
+-- displacement outside the movement envelope (derived from movement and
+-- parkour tuning by shared/config/Envelope). It only reports: violations are
+-- counted in Telemetry and logged at a limited rate, nothing is corrected.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 
+local Config = require(ReplicatedStorage.shared.config)
+local Deps = require(ReplicatedStorage.shared.runtime.Deps)
+local RejectReason = require(ReplicatedStorage.shared.combat.RejectReason)
+
 local MovementValidation = {}
 MovementValidation.__index = MovementValidation
 
-local MAX_HORIZONTAL_SPEED = 96
-local MAX_UPWARD_SPEED = 240
--- Downward speed allowed before any fall height is accumulated. Gravity adds
--- to this per fall, see GetMaxFallSpeed.
-local MAX_DOWNWARD_SPEED = 240
 local MAX_SAMPLE_GAP = 0.5
 -- Movement is judged over a short window so a burst of delayed position
 -- updates is averaged against the time it actually covers.
 local SAMPLE_WINDOW = 1
 local MIN_WINDOW_SPAN = 0.25
-local TELEPORT_DISTANCE = 40
 local DESCENT_EPSILON = 0.05
 local FALL_RESET_DELAY = 0.5
 local LOG_INTERVAL = 1
 local CHARACTER_GRACE_PERIOD = 1.5
+local ROOT_PART = Config.World.Names.RootPart
 
-MovementValidation.Limits = {
-	MaxHorizontalSpeed = MAX_HORIZONTAL_SPEED,
-	MaxUpwardSpeed = MAX_UPWARD_SPEED,
-	MaxDownwardSpeed = MAX_DOWNWARD_SPEED,
+-- Observation window tuning. Speed limits are per instance (self.Limits).
+MovementValidation.Window = table.freeze({
 	MaxSampleGap = MAX_SAMPLE_GAP,
 	SampleWindow = SAMPLE_WINDOW,
 	MinWindowSpan = MIN_WINDOW_SPAN,
-	TeleportDistance = TELEPORT_DISTANCE,
 	FallResetDelay = FALL_RESET_DELAY,
 	CharacterGracePeriod = CHARACTER_GRACE_PERIOD,
-}
+})
 
 local function finite_vector(value)
 	return typeof(value) == "Vector3"
@@ -45,12 +44,13 @@ end
 
 -- Roblox has no terminal velocity, so the downward bound follows free fall:
 -- v = sqrt(v0^2 + 2 * g * h), where h is the height fallen since the last apex.
-function MovementValidation.GetMaxFallSpeed(fall_height)
+function MovementValidation.GetMaxFallSpeed(fall_height, limits)
 	local gravity = math.max(Workspace.Gravity, 0)
-	return math.sqrt(MAX_DOWNWARD_SPEED * MAX_DOWNWARD_SPEED + 2 * gravity * math.max(fall_height, 0))
+	local base = limits.MaxDownwardSpeed
+	return math.sqrt(base * base + 2 * gravity * math.max(fall_height, 0))
 end
 
-function MovementValidation.ClassifyDelta(previous_position, current_position, delta_time, fall_height)
+function MovementValidation.ClassifyDelta(previous_position, current_position, delta_time, fall_height, limits)
 	if not finite_vector(previous_position)
 		or not finite_vector(current_position)
 		or typeof(delta_time) ~= "number"
@@ -68,29 +68,27 @@ function MovementValidation.ClassifyDelta(previous_position, current_position, d
 
 	local delta = current_position - previous_position
 	local horizontal_distance = Vector3.new(delta.X, 0, delta.Z).Magnitude
-	local allowed_horizontal = MAX_HORIZONTAL_SPEED * delta_time
+	local allowed_horizontal = limits.MaxHorizontalSpeed * delta_time
 	local allowed_vertical = if delta.Y > 0
-		then MAX_UPWARD_SPEED * delta_time
-		else MovementValidation.GetMaxFallSpeed(fall_height) * delta_time
+		then limits.MaxUpwardSpeed * delta_time
+		else MovementValidation.GetMaxFallSpeed(fall_height, limits) * delta_time
 
 	local horizontal_excess = math.max(horizontal_distance - allowed_horizontal, 0)
 	local vertical_excess = math.max(math.abs(delta.Y) - allowed_vertical, 0)
-	if Vector3.new(horizontal_excess, vertical_excess, 0).Magnitude > TELEPORT_DISTANCE then
-		return "TeleportDistance"
+	if Vector3.new(horizontal_excess, vertical_excess, 0).Magnitude > limits.TeleportDistance then
+		return RejectReason.TeleportDistance
 	end
 
 	if horizontal_excess > 0 then
-		return "HorizontalSpeed"
+		return RejectReason.HorizontalSpeed
 	end
 
 	if vertical_excess > 0 then
-		return "VerticalSpeed"
+		return RejectReason.VerticalSpeed
 	end
 
 	return nil
 end
-
-MovementValidation.CharacterGracePeriod = CHARACTER_GRACE_PERIOD
 
 local function get_live_root(character)
 	if not character or character.Parent == nil then
@@ -98,7 +96,7 @@ local function get_live_root(character)
 	end
 
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	local root = character:FindFirstChild("HumanoidRootPart")
+	local root = character:FindFirstChild(ROOT_PART)
 	if not humanoid or humanoid.Health <= 0 or not root or not root:IsA("BasePart") then
 		return nil
 	end
@@ -106,47 +104,38 @@ local function get_live_root(character)
 	return root
 end
 
-function MovementValidation.new(player_service)
-	local self = setmetatable({
-		Trove = Trove.new(),
-		PlayerService = player_service,
-		Players = {},
-	}, MovementValidation)
-
-	local ok, err = pcall(self._start, self)
-	if not ok then
-		self:Destroy()
-		error(err, 0)
+local function check_limits(limits)
+	if typeof(limits) ~= "table" then
+		error("MovementValidation.new: limits must be a table", 3)
 	end
-
-	return self
+	for _, key in { "MaxHorizontalSpeed", "MaxUpwardSpeed", "MaxDownwardSpeed", "TeleportDistance" } do
+		local value = limits[key]
+		if typeof(value) ~= "number" or not (value > 0) or value == math.huge then
+			error(("MovementValidation.new: limits.%s must be a positive finite number"):format(key), 3)
+		end
+	end
 end
 
-function MovementValidation:_start()
-	self.Trove:Connect(
-		self.PlayerService.PlayerAdded,
-		function(player)
-			self:_watch_player(player)
-		end
-	)
+function MovementValidation.new(deps)
+	Deps.check(deps, "MovementValidation", { "players", "telemetry", "scheduler", "step", "limits" })
+	check_limits(deps.limits)
 
-	self.Trove:Connect(
-		self.PlayerService.PlayerRemoving,
-		function(player)
-			self:_player_removing(player)
-		end
-	)
+	local self = setmetatable({
+		Trove = Trove.new(),
+		Limits = deps.limits,
 
-	self.Trove:Connect(
-		RunService.Heartbeat,
-		function()
-			self:_step()
-		end
-	)
+		_players = deps.players,
+		_telemetry = deps.telemetry,
+		_scheduler = deps.scheduler,
+	}, MovementValidation)
 
-	for _, player in self.PlayerService:GetPlayers() do
-		self:_watch_player(player)
-	end
+	self.Trove:Connect(deps.step, function()
+		self:_step()
+	end)
+
+	deps.players:Register(self, "MovementValidation")
+
+	return self
 end
 
 function MovementValidation._create_state()
@@ -159,43 +148,30 @@ function MovementValidation._create_state()
 		IgnoreUntil = 0,
 		ViolationCount = 0,
 		LastReason = nil,
-		LastViolationAt = 0,
+		LastViolationAt = -math.huge,
 	}
 end
 
-function MovementValidation:_watch_player(player)
-	if self.Players[player] then
-		return
+function MovementValidation:OnPlayerAdded(session)
+	session:Set(self, MovementValidation._create_state())
+end
+
+function MovementValidation:OnCharacterAdded(session, character)
+	local state = session:Get(self)
+	if state then
+		self:_reset_character(state, character)
 	end
+end
 
-	local session = self.PlayerService:Get(player)
-	if not session then
-		return
+function MovementValidation:OnCharacterRemoving(session, character)
+	local state = session:Get(self)
+	if state and state.Character == character then
+		self:_reset_character(state, nil)
 	end
+end
 
-	local state = MovementValidation._create_state()
-	state.Trove = Trove.new()
-	self.Players[player] = state
-
-	state.Trove:Connect(
-		session.CharacterAdded,
-		function(character)
-			self:_reset_character(player, character)
-		end
-	)
-
-	state.Trove:Connect(
-		session.CharacterRemoving,
-		function(character)
-			if state.Character == character then
-				self:_reset_character(player, nil)
-			end
-		end
-	)
-
-	if session.Character then
-		self:_reset_character(player, session.Character)
-	end
+function MovementValidation:OnPlayerRemoving(session)
+	session:Clear(self)
 end
 
 -- Each sample remembers the fall apex at its time, so a replication stall
@@ -238,17 +214,12 @@ local function update_fall(state, previous_y, y, now)
 	end
 end
 
-function MovementValidation:_reset_character(player, character)
-	local state = self.Players[player]
-	if not state then
-		return
-	end
-
-	local now = os.clock()
+function MovementValidation:_reset_character(state, character)
+	local now = self._scheduler.clock()
 	state.Character = character
 	state.ViolationCount = 0
 	state.LastReason = nil
-	state.LastViolationAt = 0
+	state.LastViolationAt = -math.huge
 	state.IgnoreUntil = now + CHARACTER_GRACE_PERIOD
 
 	local root = get_live_root(character)
@@ -297,7 +268,8 @@ function MovementValidation:_observe(player, state, now)
 		oldest.Position,
 		position,
 		span,
-		fall_start_y - position.Y
+		fall_start_y - position.Y,
+		self.Limits
 	)
 
 	if not reason then
@@ -310,6 +282,7 @@ function MovementValidation:_observe(player, state, now)
 
 	state.ViolationCount += 1
 	state.LastReason = reason
+	self._telemetry:Count(player, "Movement", reason)
 
 	if now - state.LastViolationAt >= LOG_INTERVAL then
 		state.LastViolationAt = now
@@ -321,14 +294,19 @@ function MovementValidation:_observe(player, state, now)
 end
 
 function MovementValidation:_step()
-	local now = os.clock()
-	for player, state in pairs(self.Players) do
-		self:_observe(player, state, now)
+	local now = self._scheduler.clock()
+	-- Iterates the live session map directly: this runs every frame.
+	for _, session in pairs(self._players.Sessions) do
+		local state = session:Get(self)
+		if state and session.Phase == "Ready" then
+			self:_observe(session.Player, state, now)
+		end
 	end
 end
 
 function MovementValidation:GetReport(player)
-	local state = self.Players[player]
+	local session = self._players:Get(player)
+	local state = session and session:Get(self)
 	if not state then
 		return nil
 	end
@@ -340,22 +318,11 @@ function MovementValidation:GetReport(player)
 	}
 end
 
-function MovementValidation:_player_removing(player)
-	local state = self.Players[player]
-	if not state then
-		return
-	end
-
-	state.Trove:Destroy()
-	self.Players[player] = nil
-end
-
 function MovementValidation:Destroy()
-	for player in pairs(self.Players) do
-		self:_player_removing(player)
+	for _, session in self._players:GetSessions() do
+		session:Clear(self)
 	end
 
-	table.clear(self.Players)
 	self.Trove:Destroy()
 end
 

@@ -16,5 +16,6 @@ fi
 	--defs=.luau/globalTypes.d.luau \
 	--defs=.luau/testez.d.luau \
 	--ignore="**/src/packages/**" \
+	--ignore="**/src/server/vendor/**" \
 	--ignore="**/tests/TestEZ/**" \
 	src tests

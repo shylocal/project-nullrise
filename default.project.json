@@ -36,6 +36,10 @@
 
         "Inventory": {
           "$className": "RemoteEvent"
+        },
+
+        "CombatFx": {
+          "$className": "UnreliableRemoteEvent"
         }
       }
     },

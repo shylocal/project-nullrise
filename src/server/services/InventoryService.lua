@@ -1,22 +1,24 @@
+-- Server-owned hotbar. Each session's inventory is PlayerService component
+-- state: seeded from the Starter loadout when the player joins, replicated to
+-- the owner on every change, and gone when the session ends. The default
+-- weapon (Catalog.DefaultId) is implicit and never occupies a slot.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local Signal = require(Packages.Signal)
 
+local Config = require(ReplicatedStorage.shared.config)
+local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
-local InventoryRemote = ReplicatedStorage.remotes.Inventory
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
-local FISTS_ID = "Fists"
-local MAX_SLOTS = 9
--- Replicated as the selected slot when nothing is selected (Fists).
+local DEFAULT_ID = Catalog.DefaultId
+local MAX_SLOTS = Config.Inventory.MaxSlots
+local MAX_ITEM_ID_LENGTH = Config.Inventory.MaxItemIdLength
+-- Replicated as the selected slot when nothing is selected (default weapon).
+-- SelectSlot also accepts it to mean "select nothing".
 local NO_SELECTION = 0
-local MAX_ITEM_ID_LENGTH = 64
-local REMOTE_MIN_INTERVAL = 0.08
-local TEMPORARY_SLOTS = {
-	[2] = "Katana",
-}
 
 local function is_valid_slot(slot)
 	return typeof(slot) == "number"
@@ -55,106 +57,75 @@ InventoryService.__index = InventoryService
 InventoryService.MAX_SLOTS = MAX_SLOTS
 InventoryService.NO_SELECTION = NO_SELECTION
 
-function InventoryService.new(player_service)
+function InventoryService.new(deps)
+	Deps.check(deps, "InventoryService", { "players", "remote", "budget", "telemetry" })
+
 	local self = setmetatable({
 		Trove = Trove.new(),
-		PlayerService = player_service,
-		Inventories = {},
-		RemoteAt = {},
-
 		Changed = Signal.new(),
+
+		_players = deps.players,
+		_remote = deps.remote,
+		_budget = deps.budget,
+		_telemetry = deps.telemetry,
 	}, InventoryService)
 
 	self.Trove:Add(self.Changed)
-	local ok, err = pcall(self._start, self)
-	if not ok then
-		self:Destroy()
-		error(err, 0)
-	end
+
+	self.Trove:Connect(self._remote.OnServerEvent, function(player, action, value)
+		self:_on_remote(player, action, value)
+	end)
+
+	deps.players:Register(self, "InventoryService")
 
 	return self
 end
 
-function InventoryService:_start()
-	self.Trove:Connect(
-		InventoryRemote.OnServerEvent,
-		function(player, action, value)
-			if action ~= Protocol.Inventory.SelectSlot
-				and action ~= Protocol.Inventory.SelectItem then
-				return
-			end
-
-			-- Ignore players without an inventory so RemoteAt cannot outlive
-			-- PlayerRemoving for late or out-of-session requests.
-			if not self:_get(player) or not self:_allow_remote(player) then
-				return
-			end
-
-			if action == Protocol.Inventory.SelectSlot then
-				self:SelectSlot(player, value)
-			else
-				self:SelectItem(player, value)
-			end
-		end
-	)
-
-	self.Trove:Connect(
-		self.PlayerService.PlayerAdded,
-		function(player)
-			self:_player_added(player)
-		end
-	)
-
-	self.Trove:Connect(
-		self.PlayerService.PlayerRemoving,
-		function(player)
-			self:_player_removing(player)
-		end
-	)
-
-	for _, player in self.PlayerService:GetPlayers() do
-		self:_player_added(player)
-	end
-end
-
-function InventoryService:_allow_remote(player)
-	local now = os.clock()
-	local last_at = self.RemoteAt[player]
-
-	if last_at and now - last_at < REMOTE_MIN_INTERVAL then
-		return false
-	end
-
-	self.RemoteAt[player] = now
-	return true
-end
-
-function InventoryService:_player_added(player)
-	if self.Inventories[player] then
+function InventoryService:_on_remote(player, action, value)
+	if typeof(action) ~= "string" then
+		self._telemetry:Count(player, "Network", "BadPayload", "Inventory")
 		return
 	end
 
-	local slots = {}
+	if not self._budget:Take(player, "Inventory." .. action) then
+		return
+	end
 
-	for slot, weapon_id in pairs(TEMPORARY_SLOTS) do
+	if not self._players:GetReady(player) then
+		return
+	end
+
+	if action == Protocol.Inventory.SelectSlot then
+		self:SelectSlot(player, value)
+	elseif action == Protocol.Inventory.SelectItem then
+		self:SelectItem(player, value)
+	end
+end
+
+function InventoryService:OnPlayerAdded(session)
+	local slots = {}
+	for slot, weapon_id in pairs(Catalog.Loadout("Starter")) do
 		slots[slot] = weapon_id
 	end
 
-	self.Inventories[player] = {
+	session:Set(self, {
 		Slots = slots,
 		SelectedSlot = nil,
-	}
+	})
 
-	self:_sync(player)
+	self:_sync(session.Player)
 end
 
-function InventoryService:_player_removing(player)
-	self.Inventories[player] = nil
-	self.RemoteAt[player] = nil
+function InventoryService:OnPlayerRemoving(session)
+	session:Clear(self)
 end
 
 function InventoryService:_get(player)
-	return self.Inventories[player]
+	local session = self._players:Get(player)
+	if not session or session.Phase == "Leaving" then
+		return nil, nil
+	end
+	return session:Get(self), session
 end
 
 function InventoryService:_get_replication_snapshot(player)
@@ -177,7 +148,7 @@ function InventoryService:_replicate(player)
 		return false
 	end
 
-	InventoryRemote:FireClient(
+	self._remote:FireClient(
 		player,
 		Protocol.Inventory.Changed,
 		snapshot.Entries,
@@ -187,15 +158,18 @@ function InventoryService:_replicate(player)
 	return true
 end
 
+-- Changed is a gameplay signal and only fires for Ready sessions. While a
+-- session is loading, components read the selection directly instead.
 function InventoryService:_sync(player)
-	local inventory = self:_get(player)
+	local inventory, session = self:_get(player)
 	if not inventory then
 		return
 	end
 
-	local weapon_id = self:GetSelectedId(player)
+	if session.Phase == "Ready" then
+		self.Changed:Fire(player, self:GetSelectedId(player), inventory.SelectedSlot)
+	end
 
-	self.Changed:Fire(player, weapon_id, inventory.SelectedSlot)
 	self:_replicate(player)
 end
 
@@ -227,14 +201,14 @@ function InventoryService:GetSelectedId(player)
 	local inventory = self:_get(player)
 
 	if not inventory or not inventory.SelectedSlot then
-		return FISTS_ID
+		return DEFAULT_ID
 	end
 
-	return inventory.Slots[inventory.SelectedSlot] or FISTS_ID
+	return inventory.Slots[inventory.SelectedSlot] or DEFAULT_ID
 end
 
 function InventoryService:Has(player, weapon_id)
-	if weapon_id == FISTS_ID then
+	if weapon_id == DEFAULT_ID then
 		return true
 	end
 
@@ -257,7 +231,7 @@ function InventoryService:SetSlot(player, slot, weapon_id)
 		return false
 	end
 
-	if weapon_id == FISTS_ID then
+	if weapon_id == DEFAULT_ID then
 		weapon_id = nil
 	end
 
@@ -266,7 +240,7 @@ function InventoryService:SetSlot(player, slot, weapon_id)
 			return false
 		end
 
-		if not Catalog.IsMelee(Catalog.Get(weapon_id)) then
+		if not Catalog.IsEquippable(Catalog.Get(weapon_id)) then
 			return false
 		end
 	end
@@ -287,7 +261,13 @@ function InventoryService:SetSlot(player, slot, weapon_id)
 	return true
 end
 
+-- nil or NO_SELECTION selects nothing (the default weapon). Selecting the
+-- selected slot toggles back to nothing.
 function InventoryService:SelectSlot(player, slot)
+	if slot == NO_SELECTION then
+		slot = nil
+	end
+
 	if slot ~= nil and not is_valid_slot(slot) then
 		return false
 	end
@@ -312,7 +292,7 @@ function InventoryService:SelectItem(player, weapon_id)
 		return false
 	end
 
-	if weapon_id == FISTS_ID then
+	if weapon_id == DEFAULT_ID then
 		return self:SelectSlot(player, nil)
 	end
 
@@ -382,8 +362,10 @@ function InventoryService:Remove(player, weapon_id)
 end
 
 function InventoryService:Destroy()
-	table.clear(self.Inventories)
-	table.clear(self.RemoteAt)
+	for _, session in self._players:GetSessions() do
+		session:Clear(self)
+	end
+
 	self.Trove:Destroy()
 end
 

@@ -1,14 +1,15 @@
+-- Equips each player's selected weapon and attaches its model to the current
+-- character. Per-session state (equipped definition, attached model, wielded
+-- parts) is PlayerService component state; the attached model lives in the
+-- character's trove and is replaced on every equip change.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage = game:GetService("ServerStorage")
 
 local Packages = ReplicatedStorage.packages
 local Trove = require(Packages.Trove)
 local Signal = require(Packages.Signal)
 
+local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
-local WeaponModels = ServerStorage:FindFirstChild("weapon_models")
-local WeaponRemote = ReplicatedStorage.remotes.Weapon
-local Fists = Catalog.Get("Fists")
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
 local WeaponAttachment = require(script.Parent.WeaponAttachment)
@@ -16,132 +17,106 @@ local WeaponAttachment = require(script.Parent.WeaponAttachment)
 local WeaponService = {}
 WeaponService.__index = WeaponService
 
-function WeaponService.new(player_service, inventory_service)
+-- deps.weapon_models is the template folder; it may be nil when the place
+-- has none, in which case nothing can be equipped beyond the default.
+function WeaponService.new(deps)
+	Deps.check(deps, "WeaponService", { "players", "inventory", "remote" })
+
 	local self = setmetatable({
 		Trove = Trove.new(),
-		PlayerService = player_service,
-		InventoryService = inventory_service,
-
-		Equipped = {},
-		CharacterTroves = {},
-		PlayerTroves = {},
-		Wielded = {},
-
 		EquippedChanged = Signal.new(),
+
+		_players = deps.players,
+		_inventory = deps.inventory,
+		_remote = deps.remote,
+		_weapon_models = deps.weapon_models,
 	}, WeaponService)
 
 	self.Trove:Add(self.EquippedChanged)
-	local ok, err = pcall(self._start, self)
-	if not ok then
-		self:Destroy()
-		error(err, 0)
-	end
+
+	self.Trove:Connect(self._inventory.Changed, function(player, weapon_id)
+		self:Equip(player, weapon_id)
+	end)
+
+	deps.players:Register(self, "WeaponService")
 
 	return self
 end
 
-function WeaponService:_start()
-	self.Trove:Connect(
-		self.InventoryService.Changed,
-		function(player, weapon_id)
-			self:Equip(player, weapon_id)
-		end
-	)
-
-	self.Trove:Connect(
-		self.PlayerService.PlayerAdded,
-		function(player)
-			self:_player_added(player)
-		end
-	)
-
-	self.Trove:Connect(
-		self.PlayerService.PlayerRemoving,
-		function(player)
-			self:_player_removing(player)
-		end
-	)
-
-	for _, player in self.PlayerService:GetPlayers() do
-		self:_player_added(player)
-	end
+local function new_state(weapon)
+	return {
+		Equipped = weapon,
+		Character = nil,
+		CharacterTrove = nil,
+		AttachTrove = nil,
+		Wielded = nil,
+	}
 end
 
-function WeaponService:_player_added(player)
-	if self.PlayerTroves[player] then
+function WeaponService:_state(player)
+	local session = self._players:Get(player)
+	if not session or session.Phase == "Leaving" then
+		return nil
+	end
+	return session:Get(self)
+end
+
+function WeaponService:OnPlayerAdded(session)
+	session:Set(self, new_state(Catalog.Get(Catalog.DefaultId)))
+	-- InventoryService is registered first, so its selection is seeded.
+	self:Equip(session.Player, self._inventory:GetSelectedId(session.Player))
+end
+
+function WeaponService:OnCharacterAdded(session, character, trove)
+	local state = session:Get(self)
+	if not state then
 		return
 	end
 
-	local session = self.PlayerService:Get(player)
-	if not session then
+	state.Character = character
+	state.CharacterTrove = trove
+	self:_attach(session.Player, state)
+end
+
+function WeaponService:OnCharacterRemoving(session, character)
+	local state = session:Get(self)
+	if not state or state.Character ~= character then
 		return
 	end
 
-	local player_trove = Trove.new()
-	self.PlayerTroves[player] = player_trove
-
-	-- InventoryService.Changed and PlayerAdded are separate event streams. Do
-	-- not depend on either signal's dispatch order to initialize player state.
-	if not self.Equipped[player] then
-		self.Equipped[player] = Fists
-	end
-
-	player_trove:Connect(
-		session.CharacterAdded,
-		function(character)
-			self:_character_added(player, character)
-		end
-	)
-
-	player_trove:Connect(
-		session.CharacterRemoving,
-		function(character)
-			self:_character_removing(player, character)
-		end
-	)
-
-	if session.Character then
-		self:_character_added(player, session.Character)
-	end
-
-	self:Equip(player, self.InventoryService:GetSelectedId(player))
+	-- The character trove is destroyed right after this hook, taking the
+	-- attached model with it.
+	state.Character = nil
+	state.CharacterTrove = nil
+	state.AttachTrove = nil
+	state.Wielded = nil
 end
 
-function WeaponService:_character_added(player, character)
-	self:_clear_character(player)
+function WeaponService:OnPlayerRemoving(session)
+	session:Clear(self)
+end
 
-	local weapon = self.Equipped[player]
-	if not weapon then
+function WeaponService:_detach(state)
+	local attach_trove = state.AttachTrove
+	state.AttachTrove = nil
+	state.Wielded = nil
+
+	if attach_trove and state.CharacterTrove then
+		state.CharacterTrove:Remove(attach_trove)
+	elseif attach_trove then
+		attach_trove:Destroy()
+	end
+end
+
+function WeaponService:_attach(player, state)
+	self:_detach(state)
+
+	local character = state.Character
+	local weapon = state.Equipped
+	if not character or not weapon or not state.CharacterTrove then
 		return
 	end
 
-	local character_trove = Trove.new()
-
-	self.CharacterTroves[player] = character_trove
-	self.Wielded[player] = {}
-
-	self:_attach_weapon(player, character, weapon, character_trove)
-end
-
-function WeaponService:_character_removing(player, character)
-	local session = self.PlayerService:Get(player)
-	if session and session.Character == character then
-		self:_clear_character(player)
-	end
-end
-
-function WeaponService:_clear_character(player)
-	local character_trove = self.CharacterTroves[player]
-
-	if character_trove then
-		character_trove:Destroy()
-		self.CharacterTroves[player] = nil
-	end
-
-	self.Wielded[player] = nil
-end
-
-function WeaponService:_attach_weapon(player, character, weapon, character_trove)
 	-- Without an attached weapon GetWielded returns nil, so CombatService
 	-- also rejects attacks from unsupported rigs.
 	local supported, reason = WeaponAttachment.IsSupportedRig(character)
@@ -154,12 +129,13 @@ function WeaponService:_attach_weapon(player, character, weapon, character_trove
 		return
 	end
 
-	if not WeaponModels then
+	local models = self._weapon_models
+	if not models then
 		warn("[WeaponService] ServerStorage.weapon_models is missing")
 		return
 	end
 
-	local model = WeaponModels:FindFirstChild(weapon.Model)
+	local model = models:FindFirstChild(weapon.Model)
 	if not model then
 		warn(("[WeaponService] Missing model %q for player %s"):format(
 			tostring(weapon.Model),
@@ -174,24 +150,29 @@ function WeaponService:_attach_weapon(player, character, weapon, character_trove
 		return
 	end
 
-	character_trove:Add(clone)
-	self.Wielded[player].Model = clone
+	local attach_trove = state.CharacterTrove:Extend()
+	attach_trove:Add(clone)
 
+	local wielded = { Model = clone }
 	for wield_name in pairs(weapon.Wield or {}) do
-		local wielded = clone:FindFirstChild(wield_name, true)
-
-		if wielded then
-			self.Wielded[player][wield_name] = wielded
+		local part = clone:FindFirstChild(wield_name, true)
+		if part then
+			wielded[wield_name] = part
 		end
 	end
+
+	state.AttachTrove = attach_trove
+	state.Wielded = wielded
 end
 
 function WeaponService:GetEquipped(player)
-	return self.Equipped[player]
+	local state = self:_state(player)
+	return state and state.Equipped
 end
 
 function WeaponService:GetWielded(player, wield_name)
-	local wielded = self.Wielded[player]
+	local state = self:_state(player)
+	local wielded = state and state.Wielded
 	if not wielded then
 		return nil
 	end
@@ -210,16 +191,18 @@ function WeaponService:Equip(player, weapon_id)
 		return false
 	end
 
-	if not self.PlayerService:Get(player) then
+	local state = self:_state(player)
+	if not state then
 		return false
 	end
 
 	local weapon = Catalog.Get(weapon_id)
-	if not Catalog.IsMelee(weapon) or typeof(weapon.Model) ~= "string" or weapon.Model == "" then
+	if not Catalog.IsEquippable(weapon) or typeof(weapon.Model) ~= "string" or weapon.Model == "" then
 		return false
 	end
 
-	if not WeaponModels or not WeaponModels:FindFirstChild(weapon.Model) then
+	local models = self._weapon_models
+	if not models or not models:FindFirstChild(weapon.Model) then
 		warn(("[WeaponService] Cannot equip %q for player %s: model template is missing"):format(
 			weapon_id,
 			player.Name
@@ -227,52 +210,27 @@ function WeaponService:Equip(player, weapon_id)
 		return false
 	end
 
-	local current = self.Equipped[player]
-	if current == weapon then
-		-- _player_added can reach this path after InventoryService.Changed
-		-- already initialized Equipped. Character state has been initialized
-		-- independently above, so the early return is safe here.
+	if state.Equipped == weapon then
 		return true
 	end
 
-	self.Equipped[player] = weapon
-
-	local session = self.PlayerService:Get(player)
-	if session and session.Character then
-		self:_character_added(player, session.Character)
-	end
+	state.Equipped = weapon
+	self:_attach(player, state)
 
 	self.EquippedChanged:Fire(player, weapon)
-	WeaponRemote:FireClient(player, Protocol.Weapon.Equipped, weapon_id)
+	self._remote:FireClient(player, Protocol.Weapon.Equipped, weapon_id)
 
 	return true
 end
 
-function WeaponService:_player_removing(player)
-	self:_clear_character(player)
-
-	local player_trove = self.PlayerTroves[player]
-	if player_trove then
-		player_trove:Destroy()
-		self.PlayerTroves[player] = nil
-	end
-
-	self.Equipped[player] = nil
-end
-
 function WeaponService:Destroy()
-	for player in pairs(self.PlayerTroves) do
-		self:_player_removing(player)
+	for _, session in self._players:GetSessions() do
+		local state = session:Get(self)
+		if state then
+			self:_detach(state)
+		end
+		session:Clear(self)
 	end
-
-	for player in pairs(self.CharacterTroves) do
-		self:_clear_character(player)
-	end
-
-	table.clear(self.PlayerTroves)
-	table.clear(self.CharacterTroves)
-	table.clear(self.Wielded)
-	table.clear(self.Equipped)
 
 	self.Trove:Destroy()
 end

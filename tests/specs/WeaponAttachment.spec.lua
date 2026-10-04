@@ -1,10 +1,16 @@
+--!strict
 local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
-local Services = ServerScriptService:WaitForChild("server"):WaitForChild("services")
-local WeaponAttachment = require(Services.WeaponAttachment)
 
-local function create_instance(class_name, name, parent, created)
+local Config = require(ReplicatedStorage.shared.config)
+local WeaponAttachment = require(ServerScriptService.server.services.WeaponAttachment)
+
+local HITPOINT_TAG = Config.World.Tags.Hitpoint
+local HITPOINT_NAME = Config.World.Names.HitpointAttachment
+
+local function create_instance(class_name: string, name: string, parent: Instance?, created: { Instance }): any
 	local instance = Instance.new(class_name)
 	instance.Name = name
 	instance.Parent = parent
@@ -14,7 +20,7 @@ end
 
 return function()
 	describe("WeaponAttachment rig support", function()
-		local created
+		local created: { Instance }
 
 		beforeEach(function()
 			created = {}
@@ -51,7 +57,7 @@ return function()
 	end)
 
 	describe("WeaponAttachment model preparation", function()
-		local created
+		local created: { Instance }
 
 		beforeEach(function()
 			created = {}
@@ -71,7 +77,7 @@ return function()
 			handle.Anchored = true
 			handle.CanCollide = true
 			handle.Massless = false
-			create_instance("Attachment", "Hitpoint", handle, created)
+			create_instance("Attachment", HITPOINT_NAME, handle, created)
 
 			local clone = WeaponAttachment.Attach(source, {
 				Handle = "Right Arm",
@@ -81,11 +87,12 @@ return function()
 			if clone then
 				local cloned_handle = clone:FindFirstChild("Handle", true)
 				local motor = cloned_handle and cloned_handle:FindFirstChildOfClass("Motor6D")
-				local hitpoint = cloned_handle and cloned_handle:FindFirstChild("Hitpoint")
+				local hitpoint = cloned_handle and cloned_handle:FindFirstChild(HITPOINT_NAME)
 
 				expect(cloned_handle ~= nil).to.equal(true)
 				expect(cloned_handle.Anchored).to.equal(false)
 				expect(cloned_handle.CanCollide).to.equal(false)
+				expect(cloned_handle.CanQuery).to.equal(false)
 				expect(cloned_handle.Massless).to.equal(true)
 				expect(motor ~= nil).to.equal(true)
 				if motor then
@@ -94,7 +101,7 @@ return function()
 				end
 				expect(hitpoint ~= nil).to.equal(true)
 				if hitpoint then
-					expect(CollectionService:HasTag(hitpoint, "Hitpoint")).to.equal(true)
+					expect(CollectionService:HasTag(hitpoint, HITPOINT_TAG)).to.equal(true)
 				end
 			end
 		end)

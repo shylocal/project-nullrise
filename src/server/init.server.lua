@@ -1,65 +1,44 @@
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- Server entry point: gathers the engine environment, composes every service
+-- through one Runtime (ordered construction and Start, reverse teardown) and
+-- tears it all down when this script is destroyed.
+local AnalyticsService = game:GetService("AnalyticsService")
 local PhysicsService = game:GetService("PhysicsService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local ServerStorage = game:GetService("ServerStorage")
 
-local CLIMBABLE_COLLISION_GROUP = "Climbable"
+local Config = require(ReplicatedStorage.shared.config)
+local Runtime = require(ReplicatedStorage.shared.runtime.Runtime)
+local Scheduler = require(ReplicatedStorage.shared.runtime.Scheduler)
+
+local Core = require(script.compose.Core)
+local Items = require(script.compose.Items)
+local Combat = require(script.compose.Combat)
+
+local CLIMBABLE_COLLISION_GROUP = Config.World.CollisionGroups.Climbable
 
 if not PhysicsService:IsCollisionGroupRegistered(CLIMBABLE_COLLISION_GROUP) then
 	PhysicsService:RegisterCollisionGroup(CLIMBABLE_COLLISION_GROUP)
 end
 
-local PlayerService = require(script.services.PlayerService)
-local InventoryService = require(script.services.InventoryService)
-local WeaponService = require(script.services.WeaponService)
-local CombatService = require(script.services.CombatService)
-local MovementValidation = require(script.services.MovementValidation)
-
-local CombatRemote = ReplicatedStorage.remotes.Combat
-
-local player_service
-local inventory_service
-local weapon_service
-local combat_service
-local movement_validation
-
-local ok, err = pcall(function()
-	player_service = PlayerService.new()
-	inventory_service = InventoryService.new(player_service)
-	weapon_service = WeaponService.new(player_service, inventory_service)
-	combat_service = CombatService.new(player_service, weapon_service, CombatRemote)
-	movement_validation = MovementValidation.new(player_service)
-end)
-
-if not ok then
-	if movement_validation then movement_validation:Destroy() end
-	if combat_service then combat_service:Destroy() end
-	if weapon_service then weapon_service:Destroy() end
-	if inventory_service then inventory_service:Destroy() end
-	if player_service then player_service:Destroy() end
-	error(err, 0)
-end
-
-local runtime = {
-	PlayerService = player_service,
-	InventoryService = inventory_service,
-	WeaponService = weapon_service,
-	CombatService = combat_service,
-	MovementValidation = movement_validation,
-	_destroyed = false,
+local env: Core.ServerEnv = {
+	Players = Players,
+	Remotes = ReplicatedStorage:FindFirstChild(Config.World.Folders.Remotes) :: Folder,
+	WeaponModels = ServerStorage:FindFirstChild(Config.World.Folders.WeaponModels),
+	IsStudio = RunService:IsStudio(),
+	Scheduler = Scheduler.real(),
+	Heartbeat = RunService.Heartbeat,
+	AnalyticsService = AnalyticsService,
 }
 
--- Shut down consumers before the services they depend on.
-function runtime:Destroy()
-	if self._destroyed then
-		return
-	end
-	self._destroyed = true
+assert(env.Remotes, ("ReplicatedStorage.%s is missing"):format(Config.World.Folders.Remotes))
 
-	self.MovementValidation:Destroy()
-	self.CombatService:Destroy()
-	self.WeaponService:Destroy()
-	self.InventoryService:Destroy()
-	self.PlayerService:Destroy()
-end
+local runtime = Runtime.new("Server")
+Core(runtime, env)
+Items(runtime, env)
+Combat(runtime, env)
+runtime:Start()
 
 script.Destroying:Connect(function()
 	runtime:Destroy()
