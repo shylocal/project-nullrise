@@ -45,10 +45,24 @@ Every implementer and integrator reads `docs/refactor/AGENT_BRIEF.md` first: rul
 
 The ranked review behind all of this is in `docs/refactor/REVIEW_IDEAS.md`.
 
+## User decisions to implement (2026-10-05, after the review fixes land)
+
+1. **Attacks and ledge grabs.** An attack in progress should block grabbing a ledge, but grabbing while holding a **charged (Heavy) attack cancels the charge** and the grab goes ahead.
+   - In `src/client/controllers/CharacterState/Policy.lua`, make the light-attack activities (`Attack` / `AttackRooted`) block `Grab`. The charge activity must NOT block Grab.
+   - On a successful grab, cancel an active charge: release the lease, stop the Heavy animation and drop the hitbox, the same as a cancelled charge.
+   - Add specs: Grab is refused during a light attack, and Grab during a charge succeeds and ends the charge.
+   - Ambiguity to confirm with the user if unclear: they answered "Yes, a charged attack should cancel."
+2. **Light-attack cooldowns.**
+   - Fists: 0.3 → **0.35s**. Katana: 0.35 → **0.6s**.
+   - Change `Cooldown` in `src/shared/weapons/Fists.lua` and `Katana.lua` (move defaults or Light1/Light2).
+   - Raise the server `MinDuration` to match, so the server enforces the same pace: the Validator requires `Cooldown >= MinDuration`.
+   - Leave HitStartAt, HitWindow and Damage unchanged.
+   - Update `tests/specs/WeaponGolden.spec.lua`, and record the change in the plan §14 and the README.
+
 ## Open decisions for the user
 
-- **Should an attack in progress block grabbing a ledge?** Today you cannot attack while hanging or vaulting, but you can grab mid-swing. It's a one-line change in `src/client/controllers/CharacterState/Policy.lua`.
-- **Light-attack cooldown:** it went from 0.1 to 0.3s (Fists) / 0.35s (Katana) so the server-enforced MinDuration is meaningful. Retune it if it feels slow.
+- (Resolved 2026-10-05; see "User decisions to implement".)
+
 
 ## User to-dos in Studio
 
