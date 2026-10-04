@@ -1,27 +1,47 @@
+-- Character animation owner. Tracks come from one TrackCache per Animator and
+-- outlive weapon swaps; SetWeapon only stops the previous weapon's tracks and
+-- remaps roles. Exclusive playback is arbitrated through channels.
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Packages = ReplicatedStorage.packages
-local Trove = require(Packages.Trove)
+local Trove = require(ReplicatedStorage.packages.Trove)
+local Deps = require(ReplicatedStorage.shared.runtime.Deps)
+local TrackCache = require(script.TrackCache)
 local Movement = require(script.Movement)
 local Weapon = require(script.Weapon)
 local Combat = require(script.Combat)
 
+local CHANNELS = { Locomotion = true, Action = true, Traversal = true }
+
 local AnimationController = {}
 AnimationController.__index = AnimationController
 
-function AnimationController.new(character)
+function AnimationController.new(deps)
+	Deps.check(deps, "AnimationController", { "character" })
+
 	local self = setmetatable({
-		Character = character,
+		Character = deps.character,
 		Trove = Trove.new(),
-		AnimationTrove = Trove.new(),
 
 		Humanoid = nil,
 		Animator = nil,
-		ActionTrack = nil,
+		Cache = nil,
+		-- Owns per-track connections; replaced together with the cache.
+		CacheTrove = nil,
+		-- Tracks whose Ended handler is already connected (once per track).
+		KnownTracks = {},
+		EquippedWeapon = nil,
+
+		Channels = {
+			Locomotion = nil,
+			Action = nil,
+			Traversal = nil,
+		},
 
 		Movement = nil,
 		Weapon = nil,
 		Combat = nil,
+		_destroyed = false,
 	}, AnimationController)
 
 	self.Movement = Movement.new(self)
@@ -82,63 +102,75 @@ function AnimationController:_set_animator(animator)
 		return
 	end
 
-	local weapon = self.Weapon.Weapon
-
-	self:_clear_tracks()
+	self:_stop_tracks()
+	self:_destroy_cache()
 
 	self.Animator = animator
+	self.Cache = TrackCache.new(animator)
+	self.CacheTrove = Trove.new()
 
-	self.Movement:SetWeapon(weapon)
-	self.Weapon:SetWeapon(weapon)
-	self.Combat:SetWeapon(weapon)
+	self:_apply_weapon(self.EquippedWeapon)
 end
 
-function AnimationController:Load(definition)
-	local animator = self.Animator
+function AnimationController:_destroy_cache()
+	local cache = self.Cache
+	local cache_trove = self.CacheTrove
+	self.Cache = nil
+	self.CacheTrove = nil
+	table.clear(self.KnownTracks)
 
-	if not animator or animator.Parent == nil or not definition or typeof(definition.Id) ~= "string" then
+	if cache_trove then
+		cache_trove:Destroy()
+	end
+	if cache then
+		cache:Destroy()
+	end
+end
+
+-- Returns the cached track for a role, or nil when there is no usable Animator.
+function AnimationController:Track(role, definition)
+	local animator = self.Animator
+	local cache = self.Cache
+
+	if not cache or not animator or animator.Parent == nil or not definition or typeof(definition.Id) ~= "string" then
 		return nil
 	end
 
-	local animation = Instance.new("Animation")
-	animation.AnimationId = definition.Id
-	self.AnimationTrove:Add(animation)
+	local track = cache:Get(role, definition)
 
-	-- Do not yield inside the state-change path. Tracks can be loaded
-	-- immediately; optional preloading happens in the background so weapon
-	-- changes and character setup cannot lose an Equipped event.
-	local owning_trove = self.AnimationTrove
-	task.defer(function()
-		if self.AnimationTrove ~= owning_trove then
-			return
-		end
-
-		pcall(function()
-			game:GetService("ContentProvider"):PreloadAsync({ animation })
-		end)
-	end)
-
-	local track = animator:LoadAnimation(animation)
-
-	if definition.Priority then
-		track.Priority = definition.Priority
-	end
-
-	if definition.Looped ~= nil then
-		track.Looped = definition.Looped
-	end
-
-	self.AnimationTrove:Add(track)
-	self.AnimationTrove:Connect(
-		track.Ended,
-		function()
-			if self.ActionTrack == track then
-				self.ActionTrack = nil
+	if not self.KnownTracks[track] then
+		self.KnownTracks[track] = true
+		self.CacheTrove:Connect(
+			track.Ended,
+			function()
+				-- A stopped track can be re-claimed before its Ended arrives;
+				-- only a track that is really done releases its channel.
+				if track.IsPlaying then
+					return
+				end
+				for channel, current in pairs(self.Channels) do
+					if current == track and channel ~= "Locomotion" then
+						self.Channels[channel] = nil
+					end
+				end
 			end
-		end
-	)
+		)
+	end
 
 	return track
+end
+
+-- Makes `track` the exclusive track of `channel`, stopping the previous one.
+function AnimationController:Claim(channel, track)
+	assert(CHANNELS[channel] and channel ~= "Locomotion", "AnimationController:Claim: channel must be Action or Traversal")
+
+	local current = self.Channels[channel]
+
+	if current and current ~= track then
+		current:Stop(0)
+	end
+
+	self.Channels[channel] = track
 end
 
 function AnimationController:ClaimAction(track)
@@ -146,13 +178,7 @@ function AnimationController:ClaimAction(track)
 		return
 	end
 
-	local current = self.ActionTrack
-
-	if current and current ~= track then
-		current:Stop(0)
-	end
-
-	self.ActionTrack = track
+	self:Claim("Action", track)
 
 	track.TimePosition = 0
 	track:AdjustSpeed(1)
@@ -178,24 +204,24 @@ function AnimationController:Play(track, transition_time)
 end
 
 function AnimationController:Pause(track)
-	if self.ActionTrack == track then
+	if self.Channels.Action == track then
 		track:AdjustSpeed(0)
 	end
 end
 
 function AnimationController:Resume(track)
-	if self.ActionTrack == track then
+	if self.Channels.Action == track then
 		track:AdjustSpeed(1)
 	end
 end
 
 function AnimationController:IsActionPlaying()
-	return self.ActionTrack ~= nil
+	return self.Channels.Action ~= nil
 end
 
 function AnimationController:StopAction()
-	local track = self.ActionTrack
-	self.ActionTrack = nil
+	local track = self.Channels.Action
+	self.Channels.Action = nil
 
 	if track then
 		track:Stop(0)
@@ -205,8 +231,12 @@ function AnimationController:StopAction()
 end
 
 function AnimationController:SetWeapon(weapon)
-	self:_clear_tracks()
+	self.EquippedWeapon = weapon
+	self:_stop_tracks()
+	self:_apply_weapon(weapon)
+end
 
+function AnimationController:_apply_weapon(weapon)
 	self.Movement:SetWeapon(weapon)
 	self.Weapon:SetWeapon(weapon)
 	self.Combat:SetWeapon(weapon)
@@ -220,25 +250,29 @@ function AnimationController:PlayEquip()
 	return self.Weapon:PlayEquip()
 end
 
-function AnimationController:_clear_tracks()
-	local action_track = self.ActionTrack
-	self.ActionTrack = nil
-
-	if action_track then
-		action_track:Stop(0)
+-- Stops every track of the current weapon without destroying any of them.
+function AnimationController:_stop_tracks()
+	for channel, track in pairs(self.Channels) do
+		self.Channels[channel] = nil
+		track:Stop(0)
 	end
 
 	self.Weapon:Clear()
 	self.Movement:Clear()
 	self.Combat:Clear()
-
-	self.AnimationTrove:Destroy()
-	self.AnimationTrove = Trove.new()
 end
 
 function AnimationController:Destroy()
-	self:_clear_tracks()
+	if self._destroyed then
+		return
+	end
+	self._destroyed = true
+
+	self:_stop_tracks()
 	self.Trove:Destroy()
+	self:_destroy_cache()
+	self.Animator = nil
+	self.Humanoid = nil
 end
 
 return AnimationController

@@ -1,10 +1,21 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Packages = ReplicatedStorage.packages
-local ShapecastHitbox = require(Packages.ShapecastHitbox)
+local ShapecastHitbox = require(ReplicatedStorage.packages.ShapecastHitbox)
+local CharacterQuery = require(ReplicatedStorage.shared.combat.CharacterQuery)
 
 local Hitbox = {}
 Hitbox.__index = Hitbox
+
+-- Resolves a raw hit part to the living character it belongs to, or nil for
+-- the owner, map geometry and dead humanoids. Nested models (an enemy's
+-- weapon) resolve to the character holding them.
+function Hitbox.resolve_target(owner: Instance, hit_part: Instance?): Model?
+	local target = CharacterQuery.resolve_alive(hit_part)
+	if not target or target == owner then
+		return nil
+	end
+	return target
+end
 
 function Hitbox.new(character, wielded, on_hit)
 	local raycast_params = RaycastParams.new()
@@ -20,22 +31,10 @@ function Hitbox.new(character, wielded, on_hit)
 	}, Hitbox)
 
 	shapecast:OnHit(function(raycast_result, segment)
-		local hit_part = raycast_result.Instance
-		local hit_character = hit_part and hit_part:FindFirstAncestorOfClass("Model")
-
-		if not hit_character or hit_character == character then
-			return
-		end
-
-		-- The client only forwards humanoid-bearing models. This prevents walls,
-		-- props, and map container models from consuming the per-target dedupe
-		-- slot before a real combat target is encountered.
-		local hit_humanoid = hit_character:FindFirstChildOfClass("Humanoid")
-		if not hit_humanoid or hit_humanoid.Health <= 0 then
-			return
-		end
-
-		if self.HitCharacters[hit_character] then
+		-- Only living characters are forwarded, so walls, props and map
+		-- container models never consume the per-target dedupe slot.
+		local hit_character = Hitbox.resolve_target(character, raycast_result.Instance)
+		if not hit_character or self.HitCharacters[hit_character] then
 			return
 		end
 

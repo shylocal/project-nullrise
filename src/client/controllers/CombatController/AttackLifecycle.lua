@@ -4,18 +4,25 @@ local Trove = require(ReplicatedStorage.packages.Trove)
 local Hitbox = require(script.Parent.Hitbox)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
-local CombatRemote = ReplicatedStorage.remotes.Combat
-
 local AttackLifecycle = {}
 
 function AttackLifecycle.is_current_attack(self, attack_trove, lifecycle_id)
 	return self.AttackTrove == attack_trove and self.AttackLifecycleId == lifecycle_id
 end
 
+function AttackLifecycle.release_lease(self)
+	local lease = self.AttackLease
+	self.AttackLease = nil
+
+	if lease then
+		lease:Release()
+	end
+end
+
 function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_action)
 	AttackLifecycle.clear_attack_lifecycle(self)
 
-	self.AttackLifecycleId = (self.AttackLifecycleId or 0) + 1
+	self.AttackLifecycleId += 1
 	local lifecycle_id = self.AttackLifecycleId
 
 	self.Charging = attack_key == "Charge"
@@ -23,10 +30,10 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 	self.CurrentAttackKey = attack_key
 	self.CurrentTrack = track
 
-	self.MovementController:SetSprintBlocked(
-		not AttackLifecycle.can_sprint_while_attacking(self, attack),
-		self
-	)
+	-- A rooted attack blocks sprint through the CharacterState policy.
+	AttackLifecycle.release_lease(self)
+	local activity = if AttackLifecycle.can_sprint_while_attacking(self, attack) then "Attack" else "AttackRooted"
+	self.AttackLease = self.State:Acquire(self, activity)
 
 	local attack_trove = Trove.new()
 	self.AttackTrove = attack_trove
@@ -47,7 +54,7 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 				return
 			end
 
-			CombatRemote:FireServer(Protocol.Combat.HitStart, attack_key)
+			self.CombatClient:Send(Protocol.Combat.HitStart, attack_key)
 			AttackLifecycle.start_hitbox(self, attack_key, attack, attack_trove, lifecycle_id)
 		end
 	)
@@ -60,11 +67,11 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 			end
 
 			AttackLifecycle.stop_hitbox(self)
-			CombatRemote:FireServer(Protocol.Combat.HitStop, attack_key)
+			self.CombatClient:Send(Protocol.Combat.HitStop, attack_key)
 		end
 	)
 
-	CombatRemote:FireServer(remote_action, attack_key)
+	self.CombatClient:Send(remote_action, attack_key)
 
 	self.AnimationController.Combat:Play(
 		track,
@@ -74,13 +81,18 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 	-- Cooldown is validated to be no shorter than the server-enforced
 	-- MinDuration, so a legitimate client never starts an attack early.
 	local cooldown = attack.Cooldown
-	self.AttackReadyAt = os.clock() + cooldown
+	self.AttackReadyAt = self.Scheduler.clock() + cooldown
 
 	-- Owned by the attack trove so a track that never ends (for example one
 	-- destroyed by a weapon swap) cannot keep a waiting thread alive.
 	attack_trove:Connect(
 		track.Ended,
 		function()
+			-- Tracks are cached and reused, so a late Ended from an earlier
+			-- Stop must not finish an attack that replayed the same track.
+			if track.IsPlaying then
+				return
+			end
 			self:_finish_attack(attack_key, attack_trove)
 		end
 	)
@@ -88,7 +100,7 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 	if attack_key == "Charge" then
 		-- The server stops accepting the charge's HitStart after MaxHoldTime,
 		-- so release it automatically instead of letting a long hold whiff.
-		task.delay(attack.MaxHoldTime, function()
+		self.Scheduler.after(attack.MaxHoldTime, function()
 			if self.AttackLifecycleId ~= lifecycle_id or not self.Charging then
 				return
 			end
@@ -97,7 +109,7 @@ function AttackLifecycle.begin_attack(self, attack_key, attack, track, remote_ac
 		end)
 	end
 
-	task.delay(cooldown, function()
+	self.Scheduler.after(cooldown, function()
 		if self.AttackLifecycleId ~= lifecycle_id then
 			return
 		end
@@ -111,7 +123,7 @@ end
 function AttackLifecycle.clear_attack_lifecycle(self)
 	local attack_key = self.CurrentAttackKey
 	if attack_key then
-		CombatRemote:FireServer(Protocol.Combat.HitStop, attack_key)
+		self.CombatClient:Send(Protocol.Combat.HitStop, attack_key)
 	end
 
 	AttackLifecycle.stop_hitbox(self)
@@ -136,7 +148,7 @@ function AttackLifecycle.can_sprint_while_attacking(self, attack)
 		return attack.CanSprintWhileAttacking
 	end
 
-	return weapon and weapon.CanSprintWhileAttacking == true
+	return weapon ~= nil and weapon.CanSprintWhileAttacking == true
 end
 
 function AttackLifecycle.start_hitbox(self, attack_key, attack, expected_trove, expected_lifecycle_id)
@@ -166,7 +178,7 @@ function AttackLifecycle.start_hitbox(self, attack_key, attack, expected_trove, 
 				return
 			end
 
-			CombatRemote:FireServer(
+			self.CombatClient:Send(
 				Protocol.Combat.Hit,
 				attack_key,
 				hit_character,

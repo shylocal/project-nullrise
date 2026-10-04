@@ -10,16 +10,45 @@ PCInput.__index = PCInput
 
 local SPRINT_BINDING = "ProjectNullriseSprint_LeftShift"
 
-local Bindings = {
+local SLOT_KEYS = {
+	Enum.KeyCode.One,
+	Enum.KeyCode.Two,
+	Enum.KeyCode.Three,
+	Enum.KeyCode.Four,
+	Enum.KeyCode.Five,
+	Enum.KeyCode.Six,
+	Enum.KeyCode.Seven,
+	Enum.KeyCode.Eight,
+	Enum.KeyCode.Nine,
+}
+
+-- Keyed by UserInputType (mouse buttons) or KeyCode (keyboard keys).
+local Bindings: { [EnumItem]: string } = {
 	[Enum.UserInputType.MouseButton1] = Actions.Primary,
 	[Enum.KeyCode.Space] = Actions.Jump,
 	[Enum.KeyCode.W] = Actions.Forward,
 	[Enum.KeyCode.S] = Actions.Backward,
 	[Enum.KeyCode.A] = Actions.Left,
 	[Enum.KeyCode.D] = Actions.Right,
-	[Enum.KeyCode.One] = Actions.Slot1,
-	[Enum.KeyCode.Two] = Actions.Slot2,
 }
+
+-- Number keys select the slots Actions generates from Config.Inventory.MaxSlots.
+for index, slot_action in ipairs(Actions.Slots) do
+	local key_code = SLOT_KEYS[index]
+	if key_code then
+		Bindings[key_code] = slot_action
+	end
+end
+
+PCInput.Bindings = Bindings
+
+-- Keyboard keys are identified by KeyCode; mouse buttons by UserInputType.
+local function source_id_of(input: InputObject): EnumItem
+	if input.UserInputType == Enum.UserInputType.Keyboard then
+		return input.KeyCode
+	end
+	return input.UserInputType
+end
 
 function PCInput.new(on_began, on_ended)
 	assert(type(on_began) == "function", "PCInput requires on_began")
@@ -85,8 +114,7 @@ function PCInput:_start()
 		end
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
 		if action then
-			local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
-			self.OnBegan(action, "PC", source_id)
+			self.OnBegan(action, "PC", source_id_of(input))
 		end
 	end)
 
@@ -96,8 +124,7 @@ function PCInput:_start()
 		end
 		local action = Bindings[input.UserInputType] or Bindings[input.KeyCode]
 		if action then
-			local source_id = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
-			self.OnEnded(action, "PC", source_id)
+			self.OnEnded(action, "PC", source_id_of(input))
 		end
 	end)
 end

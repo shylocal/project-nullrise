@@ -6,7 +6,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 local Workspace = game:GetService("Workspace")
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
-local Trove = require(ReplicatedStorage.packages.Trove)
+local Signal = require(ReplicatedStorage.packages.Signal)
 
 -- Specs must never yield indefinitely, so every lookup uses FindFirstChild.
 -- ServerStorage and ServerScriptService are empty when viewed from a client.
@@ -24,26 +24,54 @@ local function find_ui_module(name)
 	return ui and ui:FindFirstChild(name)
 end
 
--- PlayerController with character construction stubbed out, so only the
--- Workspace-parenting wait is exercised.
-local function make_player_controller(PlayerController, created)
-	return setmetatable({
-		Player = { Parent = Players },
-		Trove = Trove.new(),
-		CharacterController = nil,
-		PendingCharacter = nil,
-		PendingTrove = nil,
-		UIController = nil,
-		_destroyed = false,
-		_create_character_controller = function(_, character)
-			table.insert(created, character)
+-- Session LoadoutClient stand-in with the fields and signals UI modules read.
+local function make_loadout()
+	return {
+		EquippedId = Catalog.DefaultId,
+		Entries = {},
+		SelectedSlot = 0,
+		EquippedChanged = Signal.new(),
+		InventoryChanged = Signal.new(),
+		Selected = {},
+		SelectItem = function(self, weapon_id)
+			table.insert(self.Selected, weapon_id)
 		end,
-	}, PlayerController)
+		SelectSlot = function(self, slot)
+			table.insert(self.Selected, slot)
+		end,
+	}
+end
+
+-- PlayerController over a fake player, with character construction recorded
+-- instead of building real controllers, so only the Workspace wait runs.
+local function make_player_controller(PlayerController, created)
+	local player = {
+		Parent = Players,
+		Character = nil,
+		CharacterAdded = Signal.new(),
+		CharacterRemoving = Signal.new(),
+	}
+	local input = { ActionBegan = Signal.new(), ActionEnded = Signal.new() }
+	local loadout = make_loadout()
+	local controller = PlayerController.new({
+		player = player,
+		input = input,
+		combat = {},
+		loadout = loadout,
+		scheduler = {},
+		create_character = function(deps)
+			table.insert(created, deps.character)
+			return { Character = deps.character, Destroy = function() end }
+		end,
+	})
+	return controller, player, input, loadout
 end
 
 -- Stands in for UIController so UI modules can be built without PlayerGui.
 local function make_ui_controller(templates)
 	return {
+		Combat = { HitConfirmed = Signal.new() },
+		Loadout = make_loadout(),
 		CloneTemplate = function(_, name)
 			return templates[name]
 		end,
@@ -74,6 +102,8 @@ return function()
 					expect(remote:IsA("RemoteEvent")).to.equal(true)
 				end
 			end
+			local fx_remote = remotes and remotes:FindFirstChild("CombatFx")
+			expect(fx_remote ~= nil and fx_remote:IsA("UnreliableRemoteEvent")).to.equal(true)
 
 			local packages = ReplicatedStorage:FindFirstChild("packages")
 			expect(packages ~= nil).to.equal(true)
@@ -96,7 +126,7 @@ return function()
 			expect(ServerStorage:FindFirstChild("weapon_models") ~= nil).to.equal(true)
 		end)
 
-		it("resolves built-in weapon bindings and hitboxes in their model templates", function()
+		it("resolves every catalog weapon's bindings and hitboxes in its model template", function()
 			if not IS_SERVER then
 				return
 			end
@@ -107,7 +137,7 @@ return function()
 				return
 			end
 
-			for _, weapon_id in ipairs({ "Fists", "Katana" }) do
+			for _, weapon_id in ipairs(Catalog.Ids()) do
 				local weapon = Catalog.Get(weapon_id)
 				expect(typeof(weapon)).to.equal("table")
 				if not weapon then
@@ -120,7 +150,7 @@ return function()
 					continue
 				end
 
-				for wield_name in pairs(weapon.Wield or {}) do
+				for wield_name in pairs(weapon.Wield) do
 					local wielded = model:FindFirstChild(wield_name, true)
 					expect(wielded ~= nil and wielded:IsA("BasePart")).to.equal(true)
 				end
@@ -140,17 +170,22 @@ return function()
 			end
 		end)
 
-		it("loads client controller modules and exposes constructors", function()
+		it("loads client controller and session modules and exposes constructors", function()
 			local player_scripts = StarterPlayer:FindFirstChild("StarterPlayerScripts")
 			local client = player_scripts and player_scripts:FindFirstChild("client")
 			local controllers = client and client:FindFirstChild("controllers")
+			local session = client and client:FindFirstChild("session")
 			expect(controllers ~= nil).to.equal(true)
-			if not controllers then
+			expect(session ~= nil).to.equal(true)
+			if not controllers or not session then
 				return
 			end
-			local names = {
+
+			local modules = {}
+			for _, name in ipairs({
 				"AnimationController",
 				"CharacterController",
+				"CharacterState",
 				"CombatController",
 				"InputController",
 				"MovementController",
@@ -158,10 +193,15 @@ return function()
 				"PlayerController",
 				"UIController",
 				"WeaponController",
-			}
+			}) do
+				table.insert(modules, { name, controllers:FindFirstChild(name) })
+			end
+			for _, name in ipairs({ "CombatClient", "LoadoutClient" }) do
+				table.insert(modules, { name, session:FindFirstChild(name) })
+			end
 
-			for _, name in ipairs(names) do
-				local module = controllers:FindFirstChild(name)
+			for _, entry in ipairs(modules) do
+				local module = entry[2]
 				expect(module ~= nil and module:IsA("ModuleScript")).to.equal(true)
 				if module then
 					local exported = require(module)
@@ -217,19 +257,43 @@ return function()
 
 			local menu = require(weapon_menu_module).new(ui_controller)
 			expect(menu.Gui).to.equal(nil)
-			menu:SetInventory({ { Slot = 2, WeaponId = "Katana" } }, 2)
-			menu:SetEquipped("Katana")
+			ui_controller.Loadout.InventoryChanged:Fire({ { Slot = 2, WeaponId = "Katana" } }, 2)
+			ui_controller.Loadout.EquippedChanged:Fire("Katana")
 			expect(menu.SelectedWeapon).to.equal(nil)
 			menu:Destroy()
 
 			local hitmarker = require(hitmarker_module).new(ui_controller)
 			expect(hitmarker.Gui).to.equal(nil)
-			hitmarker:BindCharacter(nil)
+			ui_controller.Combat.HitConfirmed:Fire(1, nil)
 			hitmarker:Show()
 			hitmarker:Destroy()
 		end)
 
-		it("syncs WeaponMenu slots and selection from Inventory.Changed", function()
+		it("shows the hitmarker on a confirmed hit", function()
+			local hitmarker_module = find_ui_module("Hitmarker")
+			expect(hitmarker_module ~= nil).to.equal(true)
+			if not hitmarker_module then
+				return
+			end
+
+			local gui = Instance.new("ScreenGui")
+			local visual = Instance.new("Frame")
+			visual.Name = "Hitmarker"
+			visual.Parent = gui
+
+			local ui_controller = make_ui_controller({ Hitmarker = gui })
+			local hitmarker = require(hitmarker_module).new(ui_controller)
+			expect(visual.Visible).to.equal(false)
+
+			ui_controller.Combat.HitConfirmed:Fire(1, nil)
+			expect(visual.Visible).to.equal(true)
+
+			hitmarker:Destroy()
+			-- After Destroy the subscription is gone and firing is harmless.
+			ui_controller.Combat.HitConfirmed:Fire(1, nil)
+		end)
+
+		it("syncs WeaponMenu slots and selection from the loadout", function()
 			local weapon_menu_module = find_ui_module("WeaponMenu")
 			expect(weapon_menu_module ~= nil).to.equal(true)
 			if not weapon_menu_module then
@@ -237,25 +301,30 @@ return function()
 			end
 
 			local gui = Instance.new("ScreenGui")
-			local fists_button, fists_selection = make_weapon_button(gui, "Fists")
+			local fists_button, fists_selection = make_weapon_button(gui, Catalog.DefaultId)
 			local katana_button, katana_selection = make_weapon_button(gui, "Katana")
 
-			local menu = require(weapon_menu_module).new(make_ui_controller({ WeaponMenu = gui }))
-			expect(menu.SelectedWeapon).to.equal("Fists")
+			local ui_controller = make_ui_controller({ WeaponMenu = gui })
+			local loadout = ui_controller.Loadout
+			local menu = require(weapon_menu_module).new(ui_controller)
+			expect(menu.SelectedWeapon).to.equal(Catalog.DefaultId)
 			expect(fists_selection.Visible).to.equal(true)
 
-			menu:SetInventory({ { Slot = 2, WeaponId = "Katana" } }, 2)
+			loadout.InventoryChanged:Fire({ { Slot = 2, WeaponId = "Katana" } }, 2)
 			expect(menu.SelectedWeapon).to.equal("Katana")
 			expect(katana_button.Visible).to.equal(true)
 			expect(katana_selection.Visible).to.equal(true)
 			expect(fists_selection.Visible).to.equal(false)
 
-			-- An empty selected slot means bare fists; unreported weapons are hidden.
-			menu:SetInventory({}, 1)
-			expect(menu.SelectedWeapon).to.equal("Fists")
+			-- No selected slot means the default weapon; unreported weapons are hidden.
+			loadout.InventoryChanged:Fire({}, 0)
+			expect(menu.SelectedWeapon).to.equal(Catalog.DefaultId)
 			expect(fists_button.Visible).to.equal(true)
 			expect(katana_button.Visible).to.equal(false)
 			expect(fists_selection.Visible).to.equal(true)
+
+			loadout.EquippedChanged:Fire("Katana")
+			expect(menu.SelectedWeapon).to.equal("Katana")
 
 			menu:Destroy()
 			gui:Destroy()
@@ -269,10 +338,10 @@ return function()
 			end
 
 			local created = {}
-			local controller = make_player_controller(require(player_controller_module), created)
+			local controller, player = make_player_controller(require(player_controller_module), created)
 			local character = Instance.new("Model")
 
-			controller:_set_character(character)
+			player.CharacterAdded:Fire(character)
 			expect(#created).to.equal(0)
 			expect(controller.PendingCharacter).to.equal(character)
 
@@ -284,7 +353,7 @@ return function()
 			expect(controller.PendingCharacter).to.equal(nil)
 			expect(controller.PendingTrove).to.equal(nil)
 
-			controller.Trove:Destroy()
+			controller:Destroy()
 			character:Destroy()
 		end)
 
@@ -296,21 +365,39 @@ return function()
 			end
 
 			local created = {}
-			local controller = make_player_controller(require(player_controller_module), created)
+			local controller, player = make_player_controller(require(player_controller_module), created)
 			local old_character = Instance.new("Model")
 			local new_character = Instance.new("Model")
 
-			controller:_set_character(old_character)
-			controller:_set_character(new_character)
+			player.CharacterAdded:Fire(old_character)
+			player.CharacterAdded:Fire(new_character)
 			expect(controller.PendingCharacter).to.equal(new_character)
 
 			old_character.Parent = Workspace
 			task.wait()
 			expect(#created).to.equal(0)
 
-			controller.Trove:Destroy()
+			controller:Destroy()
 			old_character:Destroy()
 			new_character:Destroy()
+		end)
+
+		it("maps slot hotkeys to loadout slot requests", function()
+			local player_controller_module = find_controller("PlayerController")
+			expect(player_controller_module ~= nil).to.equal(true)
+			if not player_controller_module then
+				return
+			end
+
+			local controller, _, input, loadout = make_player_controller(require(player_controller_module), {})
+			input.ActionBegan:Fire("Slot3")
+			input.ActionBegan:Fire("Slot9")
+			input.ActionBegan:Fire("Primary")
+
+			expect(#loadout.Selected).to.equal(2)
+			expect(loadout.Selected[1]).to.equal(3)
+			expect(loadout.Selected[2]).to.equal(9)
+			controller:Destroy()
 		end)
 	end)
 end

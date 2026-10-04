@@ -1,59 +1,70 @@
+-- Client composition root. Services are built in order and torn down in
+-- reverse by the Runtime; session clients outlive every character.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Runtime = require(ReplicatedStorage.shared.runtime.Runtime)
+local Scheduler = require(ReplicatedStorage.shared.runtime.Scheduler)
+
 local InputController = require(script.controllers.InputController)
 local UIController = require(script.controllers.UIController)
 local PlayerController = require(script.controllers.PlayerController)
+local CharacterController = require(script.controllers.CharacterController)
+local TrackCache = require(script.controllers.AnimationController.TrackCache)
+local CombatClient = require(script.session.CombatClient)
+local LoadoutClient = require(script.session.LoadoutClient)
 
-local player = game:GetService("Players").LocalPlayer
+local player = Players.LocalPlayer
+local remotes = ReplicatedStorage.remotes
 
-local input_controller
-local ui_controller
-local player_controller
+local NULL_SERVICE = { Destroy = function() end }
+
+local rt = Runtime.new("Client")
+
+rt:Add("Input", function()
+	return InputController.new()
+end)
+
+rt:Add("Combat", function()
+	return CombatClient.new({ remote = remotes.Combat, fx_remote = remotes.CombatFx })
+end)
+
+rt:Add("Loadout", function()
+	return LoadoutClient.new({ inventory_remote = remotes.Inventory, weapon_remote = remotes.Weapon })
+end)
+
+rt:Add("Preload", function()
+	return TrackCache.preload(TrackCache.collect_catalog())
+end)
 
 -- UI is optional: a failure there is reported but gameplay still starts.
-local ui_ok, ui_err = pcall(function()
-	ui_controller = UIController.new()
-end)
-if not ui_ok then
-	ui_controller = nil
-	warn(("UIController failed to start; continuing without UI: %s"):format(tostring(ui_err)))
-end
-
-local ok, err = pcall(function()
-	input_controller = InputController.new()
-	player_controller = PlayerController.new(
-		player,
-		input_controller,
-		ui_controller
-	)
+rt:Add("UI", function(get)
+	local ok, ui = pcall(UIController.new, {
+		combat = get("Combat"),
+		loadout = get("Loadout"),
+		player_gui = player:WaitForChild("PlayerGui"),
+	})
+	if ok then
+		return ui
+	end
+	warn(("UIController failed to start; continuing without UI: %s"):format(tostring(ui)))
+	return NULL_SERVICE
 end)
 
-if not ok then
-	if player_controller then player_controller:Destroy() end
-	if ui_controller then ui_controller:Destroy() end
-	if input_controller then input_controller:Destroy() end
-	error(err, 0)
-end
+rt:Add("Player", function(get)
+	return PlayerController.new({
+		player = player,
+		input = get("Input"),
+		combat = get("Combat"),
+		loadout = get("Loadout"),
+		scheduler = Scheduler.real(),
+		create_character = CharacterController.new,
+	})
+end)
 
-local runtime = {
-	InputController = input_controller,
-	UIController = ui_controller,
-	PlayerController = player_controller,
-	_destroyed = false,
-}
-
--- Tear down dependents before the shared services they reference.
-function runtime:Destroy()
-	if self._destroyed then
-		return
-	end
-	self._destroyed = true
-
-	self.PlayerController:Destroy()
-	if self.UIController then
-		self.UIController:Destroy()
-	end
-	self.InputController:Destroy()
-end
+rt:Start()
 
 script.Destroying:Connect(function()
-	runtime:Destroy()
+	rt:Destroy()
 end)

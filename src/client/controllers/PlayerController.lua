@@ -1,60 +1,34 @@
+-- Owns the local player's CharacterController across respawns and maps slot
+-- hotkeys to loadout requests. It does not listen to remotes: the session
+-- clients (CombatClient, LoadoutClient) do.
+
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
-local Packages = ReplicatedStorage.packages
-local Trove = require(Packages.Trove)
-local CharacterControllerModule = require(script.Parent.CharacterController)
-
+local Trove = require(ReplicatedStorage.packages.Trove)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
-local Protocol = require(ReplicatedStorage.shared.network.Protocol)
-local InventoryRemote = ReplicatedStorage.remotes.Inventory
-local WeaponRemote = ReplicatedStorage.remotes.Weapon
-
-local FISTS_ID = "Fists"
-
--- Slot hotkeys only request a slot; the server validates it against its own
--- slot limit and answers with Inventory.Changed.
-local SLOT_ACTIONS = {
-	[Actions.Slot1] = 1,
-	[Actions.Slot2] = 2,
-}
-
-local function is_valid_inventory(entries, selected_slot)
-	if typeof(entries) ~= "table" then
-		return false
-	end
-	if selected_slot ~= nil and typeof(selected_slot) ~= "number" then
-		return false
-	end
-
-	for _, entry in ipairs(entries) do
-		if typeof(entry) ~= "table"
-			or typeof(entry.Slot) ~= "number"
-			or typeof(entry.WeaponId) ~= "string" then
-			return false
-		end
-	end
-
-	return true
-end
+local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 
 local PlayerController = {}
 PlayerController.__index = PlayerController
 
--- ui_controller is optional so a UI startup failure cannot block gameplay.
-function PlayerController.new(player, input_controller, ui_controller)
+-- deps.create_character builds the per-character controller from
+-- { character, input, combat, loadout, scheduler } (CharacterController.new).
+function PlayerController.new(deps)
+	Deps.check(deps, "PlayerController", { "player", "input", "combat", "loadout", "scheduler", "create_character" })
+
 	local self = setmetatable({
-		Player = player,
+		Player = deps.player,
+		Input = deps.input,
+		Combat = deps.combat,
+		Loadout = deps.loadout,
+		Scheduler = deps.scheduler,
+		CreateCharacter = deps.create_character,
 		Trove = Trove.new(),
 		CharacterController = nil,
 		PendingCharacter = nil,
 		PendingTrove = nil,
-		InputController = input_controller,
-		UIController = ui_controller,
-		CurrentWeaponId = FISTS_ID,
-		InventoryEntries = {},
-		SelectedSlot = nil,
 		_destroyed = false,
 	}, PlayerController)
 
@@ -85,50 +59,14 @@ function PlayerController:_start()
 		end
 	)
 
-	-- Gameplay state is driven by the server's equipped-weapon event. The UI
-	-- mirrors that state but never acts as the source of truth. This is the
-	-- only client listener on these remotes so queued events are not split
-	-- between handlers.
+	-- Slot hotkeys only request a slot; the server validates it against its own
+	-- slot limit and answers with Inventory.Changed.
 	self.Trove:Connect(
-		WeaponRemote.OnClientEvent,
-		function(action, weapon_id)
-			if action ~= Protocol.Weapon.Equipped or typeof(weapon_id) ~= "string" then
-				return
-			end
-
-			self.CurrentWeaponId = weapon_id
-			self:_set_weapon(weapon_id)
-			if self.UIController then
-				self.UIController:SetEquipped(weapon_id)
-			end
-		end
-	)
-
-	self.Trove:Connect(
-		InventoryRemote.OnClientEvent,
-		function(action, entries, selected_slot)
-			if action ~= Protocol.Inventory.Changed then
-				return
-			end
-			if not is_valid_inventory(entries, selected_slot) then
-				warn("PlayerController: ignoring malformed Inventory.Changed payload")
-				return
-			end
-
-			self.InventoryEntries = entries
-			self.SelectedSlot = selected_slot
-			if self.UIController then
-				self.UIController:SetInventory(entries, selected_slot)
-			end
-		end
-	)
-
-	self.Trove:Connect(
-		self.InputController.ActionBegan,
+		self.Input.ActionBegan,
 		function(action)
-			local slot = SLOT_ACTIONS[action]
+			local slot = Actions.slot_index(action)
 			if slot then
-				InventoryRemote:FireServer(Protocol.Inventory.SelectSlot, slot)
+				self.Loadout:SelectSlot(slot)
 			end
 		end
 	)
@@ -218,12 +156,13 @@ function PlayerController:_create_character_controller(character)
 
 	-- A rejected character (for example a non-R6 rig) is reported but must not
 	-- take the rest of the client down with it.
-	local ok, result = pcall(
-		CharacterControllerModule.new,
-		character,
-		self.InputController,
-		self.CurrentWeaponId
-	)
+	local ok, result = pcall(self.CreateCharacter, {
+		character = character,
+		input = self.Input,
+		combat = self.Combat,
+		loadout = self.Loadout,
+		scheduler = self.Scheduler,
+	})
 	if not ok then
 		warn(("PlayerController: character setup failed: %s"):format(tostring(result)))
 		return
@@ -231,24 +170,10 @@ function PlayerController:_create_character_controller(character)
 
 	self.CharacterController = result
 	self.Trove:Add(result)
-	if self.UIController then
-		self.UIController:BindCharacter(result)
-	end
-end
-
-function PlayerController:_set_weapon(weapon_id)
-	local controller = self.CharacterController
-	if controller then
-		controller:SetWeapon(weapon_id)
-	end
 end
 
 function PlayerController:_clear_character()
 	self:_clear_pending()
-
-	if self.UIController then
-		self.UIController:BindCharacter(nil)
-	end
 
 	local controller = self.CharacterController
 	self.CharacterController = nil
@@ -263,9 +188,6 @@ function PlayerController:Destroy()
 		return
 	end
 	self._destroyed = true
-	if self.UIController then
-		self.UIController:BindCharacter(nil)
-	end
 	self.Trove:Destroy()
 	self.CharacterController = nil
 	self.PendingCharacter = nil

@@ -1,3 +1,4 @@
+-- Locomotion layer: the weapon's Idle and Sprint tracks.
 local Movement = {}
 Movement.__index = Movement
 
@@ -37,13 +38,8 @@ function Movement:_load()
 		return
 	end
 
-	self.IdleTrack = self.Controller:Load(
-		weapon.Animations and weapon.Animations.Idle
-	)
-
-	self.SprintTrack = self.Controller:Load(
-		weapon.Animations and weapon.Animations.Sprint
-	)
+	self.IdleTrack = self.Controller:Track("Idle", weapon.Animations and weapon.Animations.Idle)
+	self.SprintTrack = self.Controller:Track("Sprint", weapon.Animations and weapon.Animations.Sprint)
 
 	self:Update()
 end
@@ -60,7 +56,10 @@ function Movement:Update()
 	end
 
 	local sprint_track = self.SprintTrack
+	local channels = self.Controller.Channels
+
 	if not sprint_track then
+		channels.Locomotion = idle_track
 		return
 	end
 
@@ -72,8 +71,12 @@ function Movement:Update()
 
 			sprint_track:Play(definition and definition.TransitionTime or 0)
 		end
-	elseif sprint_track.IsPlaying then
-		sprint_track:Stop()
+		channels.Locomotion = sprint_track
+	else
+		if sprint_track.IsPlaying then
+			sprint_track:Stop()
+		end
+		channels.Locomotion = idle_track
 	end
 end
 

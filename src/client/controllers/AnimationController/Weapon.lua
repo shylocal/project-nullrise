@@ -1,3 +1,4 @@
+-- Equip animation layer.
 local Weapon = {}
 Weapon.__index = Weapon
 
@@ -25,9 +26,7 @@ function Weapon:_load()
 		return nil
 	end
 
-	self.EquipTrack = self.Controller:Load(
-		weapon.Animations and weapon.Animations.Equip
-	)
+	self.EquipTrack = self.Controller:Track("Equip", weapon.Animations and weapon.Animations.Equip)
 
 	return self.EquipTrack
 end
@@ -49,7 +48,12 @@ function Weapon:PlayEquip()
 end
 
 function Weapon:Clear()
+	local track = self.EquipTrack
 	self.EquipTrack = nil
+
+	if track and track.IsPlaying then
+		track:Stop(0)
+	end
 end
 
 return Weapon

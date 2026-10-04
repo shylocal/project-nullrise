@@ -1,34 +1,31 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Packages = ReplicatedStorage.packages
-local Trove = require(Packages.Trove)
-local Signal = require(Packages.Signal)
+local Trove = require(ReplicatedStorage.packages.Trove)
 local AttackLifecycle = require(script.AttackLifecycle)
 local AttackInput = require(script.AttackInput)
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
-local CombatConfig = require(ReplicatedStorage.shared.weapons.CombatConfig)
-
-local CombatRemote = ReplicatedStorage.remotes.Combat
+local Config = require(ReplicatedStorage.shared.config)
+local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 
 local CombatController = {}
 CombatController.__index = CombatController
 
-function CombatController.new(
-	weapon_controller,
-	animation_controller,
-	movement_controller,
-	input_controller
-)
+function CombatController.new(deps)
+	Deps.check(deps, "CombatController", { "weapon", "animation", "state", "input", "combat", "scheduler" })
+
 	local self = setmetatable({
 		Trove = Trove.new(),
-		WeaponController = weapon_controller,
-		AnimationController = animation_controller,
-		MovementController = movement_controller,
+		WeaponController = deps.weapon,
+		AnimationController = deps.animation,
+		State = deps.state,
+		CombatClient = deps.combat,
+		Scheduler = deps.scheduler,
 
 		AttackTrove = nil,
 		AttackLifecycleId = 0,
+		AttackLease = nil,
 		Hitbox = nil,
 
 		NextAttack = 1,
@@ -47,11 +44,10 @@ function CombatController.new(
 		PrimaryPressId = 0,
 		PrimaryPressAttackPending = false,
 
-		Hit = Signal.new(),
+		_destroyed = false,
 	}, CombatController)
 
-	self.Trove:Add(self.Hit)
-	local ok, err = pcall(self._start, self, input_controller)
+	local ok, err = pcall(self._start, self, deps.input)
 	if not ok then
 		self:Destroy()
 		error(err, 0)
@@ -62,31 +58,30 @@ end
 
 function CombatController:_start(input_controller)
 	self.Trove:Connect(
-		CombatRemote.OnClientEvent,
-		function(action, attack_key, value)
-			if action == Protocol.Combat.AttackAccepted then
-				if typeof(attack_key) ~= "number"
-					or attack_key ~= self.PendingAttackIndex
-					or typeof(value) ~= "number" then
-					return
-				end
+		self.CombatClient.AttackAccepted,
+		function(attack_key, next_index)
+			if attack_key ~= self.PendingAttackIndex then
+				return
+			end
 
-				local weapon = self.WeaponController.Equipped
-				if not weapon or not weapon.Attacks or not weapon.Attacks[value] then
-					return
-				end
+			local weapon = self.WeaponController.Equipped
+			if not weapon or not weapon.Attacks or not weapon.Attacks[next_index] then
+				return
+			end
 
-				self.NextAttack = value
+			self.NextAttack = next_index
+			self.PendingAttackIndex = nil
+		end
+	)
+
+	self.Trove:Connect(
+		self.CombatClient.AttackRejected,
+		function(attack_key, next_index)
+			if self.PendingAttackIndex == attack_key then
 				self.PendingAttackIndex = nil
-			elseif action == Protocol.Combat.AttackRejected then
-				if self.PendingAttackIndex == attack_key then
-					self.PendingAttackIndex = nil
-					if typeof(value) == "number" then
-						self.NextAttack = value
-					end
+				if typeof(next_index) == "number" then
+					self.NextAttack = next_index
 				end
-			elseif action == Protocol.Combat.HitConfirmed then
-				self.Hit:Fire(value)
 			end
 		end
 	)
@@ -110,13 +105,17 @@ function CombatController:_start(input_controller)
 	)
 end
 
+function CombatController:_is_alive()
+	local humanoid = self.WeaponController.Character:FindFirstChildOfClass("Humanoid")
+	return humanoid ~= nil and humanoid.Health > 0
+end
+
 function CombatController:Attack()
 	if self.PendingAttackIndex ~= nil or not self:_can_begin_attack() then
 		return
 	end
 
-	local humanoid = self.WeaponController.Character:FindFirstChildOfClass("Humanoid")
-	if not humanoid or humanoid.Health <= 0 then
+	if not self.State:CanStart("Attack") or not self:_is_alive() then
 		return
 	end
 
@@ -151,7 +150,7 @@ function CombatController:Attack()
 	self.PendingAttackIndex = attack_index
 	self.PendingAttackId += 1
 	local pending_attack_id = self.PendingAttackId
-	task.delay(CombatConfig.PendingAttackTimeout, function()
+	self.Scheduler.after(Config.Combat.PendingAttackTimeout, function()
 		if self.PendingAttackId == pending_attack_id then
 			self.PendingAttackIndex = nil
 		end
@@ -165,8 +164,7 @@ function CombatController:Charge()
 		return
 	end
 
-	local humanoid = self.WeaponController.Character:FindFirstChildOfClass("Humanoid")
-	if not humanoid or humanoid.Health <= 0 then
+	if not self.State:CanStart("Charge") or not self:_is_alive() then
 		return
 	end
 
@@ -190,7 +188,7 @@ function CombatController:Charge()
 end
 
 function CombatController:_can_begin_attack()
-	return os.clock() >= self.AttackReadyAt
+	return self.Scheduler.clock() >= self.AttackReadyAt
 end
 
 function CombatController:_resolve_buffered_attack()
@@ -207,7 +205,7 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	end
 
 	AttackLifecycle.stop_hitbox(self)
-	CombatRemote:FireServer(Protocol.Combat.HitStop, attack_key)
+	self.CombatClient:Send(Protocol.Combat.HitStop, attack_key)
 
 	self.AttackTrove = nil
 	self.Trove:Remove(attack_trove)
@@ -216,11 +214,13 @@ function CombatController:_finish_attack(attack_key, attack_trove)
 	self.CurrentAttackKey = nil
 	self.CurrentTrack = nil
 	self.ChargeReady = false
-	self.MovementController:SetSprintBlocked(false, self)
+	AttackLifecycle.release_lease(self)
 
 	if self.BufferedAttack then
 		task.defer(function()
-			self:_resolve_buffered_attack()
+			if not self._destroyed then
+				self:_resolve_buffered_attack()
+			end
 		end)
 	end
 end
@@ -235,7 +235,7 @@ function CombatController:Reset()
 	AttackLifecycle.clear_attack_lifecycle(self)
 
 	self.AnimationController:StopAction()
-	self.MovementController:SetSprintBlocked(false, self)
+	AttackLifecycle.release_lease(self)
 
 	-- Character death and weapon swaps reset through here, so a pending
 	-- attack from the previous weapon or character never blocks new input.
@@ -250,7 +250,11 @@ function CombatController:Reset()
 end
 
 function CombatController:Destroy()
+	if self._destroyed then
+		return
+	end
 	self:Reset()
+	self._destroyed = true
 	self.Trove:Destroy()
 end
 

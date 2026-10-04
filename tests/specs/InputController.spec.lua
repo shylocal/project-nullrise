@@ -9,16 +9,30 @@ local PCInput = require(Client.input.PC)
 local GamepadInput = require(Client.input.Gamepad)
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 
-local function make_controller()
-	return setmetatable({
-		ActionBegan = Signal.new(),
-		ActionEnded = Signal.new(),
-		Down = {},
-		SourcesDown = {},
-		ActiveInputSource = nil,
-	}, InputController)
+-- Builds a controller over one fake adapter; `hooks.began` / `hooks.ended`
+-- are the reporters the controller hands its adapters.
+local function make_controller(initial_source)
+	local hooks = { Destroyed = false }
+	local focus_released = Signal.new()
+	local controller = InputController.from_adapters({
+		adapters = {
+			function(began, ended)
+				hooks.began = began
+				hooks.ended = ended
+				return {
+					Destroy = function()
+						hooks.Destroyed = true
+					end,
+				}
+			end,
+		},
+		focus_released = focus_released,
+		initial_source = initial_source,
+	})
+	return controller, hooks, focus_released
 end
 
+-- Adapters are thin binding tables; specs build them without ContextActionService.
 local function make_gamepad(ui_navigating)
 	local calls = { Began = {}, Ended = {} }
 	local gamepad = setmetatable({
@@ -40,186 +54,220 @@ local function gamepad_input(key_code)
 	return { UserInputType = Enum.UserInputType.Gamepad1, KeyCode = key_code }
 end
 
-local function destroy_controller(controller)
-	controller.ActionBegan:Destroy()
-	controller.ActionEnded:Destroy()
-	table.clear(controller.Down)
-	table.clear(controller.SourcesDown)
-end
-
 return function()
 	describe("InputController action state", function()
-	local controller
+		local controller, hooks, focus_released
 
-	beforeEach(function()
-		controller = make_controller()
-	end)
-
-	afterEach(function()
-		if controller then
-			destroy_controller(controller)
-			controller = nil
-		end
-	end)
-
-	it("tracks an action from begin through end", function()
-		expect(controller:IsDown(Actions.Jump)).to.equal(false)
-
-		controller:_began(Actions.Jump)
-		expect(controller:IsDown(Actions.Jump)).to.equal(true)
-
-		controller:_ended(Actions.Jump)
-		expect(controller:IsDown(Actions.Jump)).to.equal(false)
-	end)
-
-	it("emits each begin and end transition only once", function()
-		local began_count = 0
-		local ended_count = 0
-		controller.ActionBegan:Connect(function(action)
-			if action == Actions.Forward then began_count += 1 end
-		end)
-		controller.ActionEnded:Connect(function(action)
-			if action == Actions.Forward then ended_count += 1 end
+		beforeEach(function()
+			controller, hooks, focus_released = make_controller(nil)
 		end)
 
-		controller:_began(Actions.Forward)
-		controller:_began(Actions.Forward)
-		controller:_ended(Actions.Forward)
-		controller:_ended(Actions.Forward)
-
-		expect(began_count).to.equal(1)
-		expect(ended_count).to.equal(1)
-	end)
-
-	it("releases all held actions when focus is lost", function()
-		local ended = {}
-		controller.ActionEnded:Connect(function(action)
-			ended[action] = (ended[action] or 0) + 1
+		afterEach(function()
+			if controller then
+				controller:Destroy()
+				controller = nil
+			end
 		end)
 
-		controller:_began(Actions.Jump)
-		controller:_began(Actions.Forward)
-		controller:_began(Actions.Sprint)
-		controller:_release_all()
+		it("tracks an action from begin through end", function()
+			expect(controller:IsDown(Actions.Jump)).to.equal(false)
 
-		expect(controller:IsDown(Actions.Jump)).to.equal(false)
-		expect(controller:IsDown(Actions.Forward)).to.equal(false)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
-		expect(ended[Actions.Jump]).to.equal(1)
-		expect(ended[Actions.Forward]).to.equal(1)
-		expect(ended[Actions.Sprint]).to.equal(1)
-	end)
+			hooks.began(Actions.Jump)
+			expect(controller:IsDown(Actions.Jump)).to.equal(true)
 
-	it("preserves held actions when switching within the same device family", function()
-		local ended_count = 0
-		controller.ActionEnded:Connect(function()
-			ended_count += 1
+			hooks.ended(Actions.Jump)
+			expect(controller:IsDown(Actions.Jump)).to.equal(false)
 		end)
 
-		controller.ActiveInputSource = "PC"
-		controller:_began(Actions.Jump, "PC", Enum.KeyCode.Space)
-		controller:_set_active_source("PC")
+		it("emits each begin and end transition only once", function()
+			local began_count = 0
+			local ended_count = 0
+			controller.ActionBegan:Connect(function(action)
+				if action == Actions.Forward then began_count += 1 end
+			end)
+			controller.ActionEnded:Connect(function(action)
+				if action == Actions.Forward then ended_count += 1 end
+			end)
 
-		expect(controller:IsDown(Actions.Jump)).to.equal(true)
-		expect(ended_count).to.equal(0)
-	end)
+			hooks.began(Actions.Forward)
+			hooks.began(Actions.Forward)
+			hooks.ended(Actions.Forward)
+			hooks.ended(Actions.Forward)
 
-	it("releases held actions from the previous device when input changes", function()
-		local ended = {}
-		controller.ActionEnded:Connect(function(action)
-			table.insert(ended, action)
+			expect(began_count).to.equal(1)
+			expect(ended_count).to.equal(1)
 		end)
 
-		controller.ActiveInputSource = "PC"
-		controller:_began(Actions.Jump, "PC")
-		controller:_began(Actions.Forward, "PC")
-		expect(controller:IsDown(Actions.Jump)).to.equal(true)
+		it("releases all held actions when focus is lost", function()
+			local ended = {}
+			controller.ActionEnded:Connect(function(action)
+				ended[action] = (ended[action] or 0) + 1
+			end)
 
-		controller:_set_active_source("Mobile")
+			hooks.began(Actions.Jump)
+			hooks.began(Actions.Forward)
+			hooks.began(Actions.Sprint)
+			focus_released:Fire()
 
-		expect(controller.ActiveInputSource).to.equal("Mobile")
-		expect(controller:IsDown(Actions.Jump)).to.equal(false)
-		expect(controller:IsDown(Actions.Forward)).to.equal(false)
-		expect(#ended).to.equal(2)
+			expect(controller:IsDown(Actions.Jump)).to.equal(false)
+			expect(controller:IsDown(Actions.Forward)).to.equal(false)
+			expect(controller:IsDown(Actions.Sprint)).to.equal(false)
+			expect(ended[Actions.Jump]).to.equal(1)
+			expect(ended[Actions.Forward]).to.equal(1)
+			expect(ended[Actions.Sprint]).to.equal(1)
+		end)
 
-		controller:_ended(Actions.Jump, "PC")
-		expect(#ended).to.equal(2)
-	end)
-
-	it("tracks Left Shift as a held sprint input", function()
-		local began_count = 0
-		local ended_count = 0
-		local pc_input = setmetatable({
-			SprintKeyDown = false,
-			SprintActive = false,
-			OnBegan = function(action, source, source_id)
-				began_count += 1
-				controller:_began(action, source, source_id)
-			end,
-			OnEnded = function(action, source, source_id)
+		it("does not emit duplicate end events after a focus release", function()
+			local ended_count = 0
+			controller.ActionEnded:Connect(function()
 				ended_count += 1
-				controller:_ended(action, source, source_id)
-			end,
-		}, PCInput)
+			end)
 
-		pc_input:_on_sprint_input("Sprint", Enum.UserInputState.Begin, { KeyCode = Enum.KeyCode.LeftShift })
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
-		expect(began_count).to.equal(1)
+			hooks.began(Actions.Jump)
+			focus_released:Fire()
+			hooks.ended(Actions.Jump)
 
-		pc_input:_on_sprint_input("Sprint", Enum.UserInputState.End, { KeyCode = Enum.KeyCode.LeftShift })
-		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
-		expect(ended_count).to.equal(1)
-	end)
-
-	it("ignores Right Shift as a sprint input", function()
-		local began_count = 0
-		local pc_input = setmetatable({
-			SprintKeyDown = false,
-			SprintActive = false,
-			OnBegan = function() began_count += 1 end,
-			OnEnded = function() end,
-		}, PCInput)
-
-		pc_input:_on_sprint_input("Sprint", Enum.UserInputState.Begin, { KeyCode = Enum.KeyCode.RightShift })
-		expect(began_count).to.equal(0)
-		expect(pc_input.SprintActive).to.equal(false)
-	end)
-
-	it("keeps an action down until every source releases it", function()
-		local began_count = 0
-		local ended_count = 0
-		controller.ActionBegan:Connect(function(action)
-			if action == Actions.Sprint then began_count += 1 end
-		end)
-		controller.ActionEnded:Connect(function(action)
-			if action == Actions.Sprint then ended_count += 1 end
+			expect(ended_count).to.equal(1)
 		end)
 
-		controller:_began(Actions.Sprint, "PC")
-		controller:_began(Actions.Sprint, "Mobile")
-		expect(began_count).to.equal(1)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+		it("keeps an action down until every physical source releases it", function()
+			local began_count = 0
+			local ended_count = 0
+			controller.ActionBegan:Connect(function(action)
+				if action == Actions.Sprint then began_count += 1 end
+			end)
+			controller.ActionEnded:Connect(function(action)
+				if action == Actions.Sprint then ended_count += 1 end
+			end)
 
-		controller:_ended(Actions.Sprint, "PC")
-		expect(ended_count).to.equal(0)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+			hooks.began(Actions.Sprint, "PC", "SprintToggle")
+			hooks.began(Actions.Sprint, "PC", Enum.KeyCode.LeftShift)
+			expect(began_count).to.equal(1)
+			expect(controller:IsDown(Actions.Sprint)).to.equal(true)
 
-		controller:_ended(Actions.Sprint, "Mobile")
-		expect(ended_count).to.equal(1)
-		expect(controller:IsDown(Actions.Sprint)).to.equal(false)
-	end)
-	it("does not emit duplicate end events after a focus release", function()
-		local ended_count = 0
-		controller.ActionEnded:Connect(function()
-			ended_count += 1
+			hooks.ended(Actions.Sprint, "PC", "SprintToggle")
+			expect(ended_count).to.equal(0)
+			expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+
+			hooks.ended(Actions.Sprint, "PC", Enum.KeyCode.LeftShift)
+			expect(ended_count).to.equal(1)
+			expect(controller:IsDown(Actions.Sprint)).to.equal(false)
 		end)
 
-		controller:_began(Actions.Jump)
-		controller:_release_all()
-		controller:_ended(Actions.Jump)
+		it("emits final releases and destroys its adapters on Destroy", function()
+			local ended = {}
+			controller.ActionEnded:Connect(function(action)
+				table.insert(ended, action)
+			end)
+			hooks.began(Actions.Jump)
 
-		expect(ended_count).to.equal(1)
+			controller:Destroy()
+			controller:Destroy()
+
+			expect(#ended).to.equal(1)
+			expect(hooks.Destroyed).to.equal(true)
+
+			-- Reports after Destroy are ignored.
+			hooks.began(Actions.Forward)
+			expect(controller:IsDown(Actions.Forward)).to.equal(false)
+			controller = nil
+		end)
 	end)
+
+	describe("InputController device switching", function()
+		it("preserves held actions when switching within the same device family", function()
+			local controller, hooks = make_controller("PC")
+			local ended_count = 0
+			controller.ActionEnded:Connect(function()
+				ended_count += 1
+			end)
+
+			hooks.began(Actions.Jump, "PC", Enum.KeyCode.Space)
+			hooks.began(Actions.Forward, "PC", Enum.KeyCode.W)
+
+			expect(controller:IsDown(Actions.Jump)).to.equal(true)
+			expect(ended_count).to.equal(0)
+			expect(controller:GetActiveSource()).to.equal("PC")
+			controller:Destroy()
+		end)
+
+		it("releases held actions from the previous device when input changes", function()
+			local controller, hooks = make_controller("PC")
+			local ended = {}
+			controller.ActionEnded:Connect(function(action)
+				table.insert(ended, action)
+			end)
+
+			hooks.began(Actions.Jump, "PC")
+			hooks.began(Actions.Forward, "PC")
+			expect(controller:IsDown(Actions.Jump)).to.equal(true)
+
+			hooks.began(Actions.Primary, "Mobile")
+
+			expect(controller:GetActiveSource()).to.equal("Mobile")
+			expect(controller:IsDown(Actions.Jump)).to.equal(false)
+			expect(controller:IsDown(Actions.Forward)).to.equal(false)
+			expect(controller:IsDown(Actions.Primary)).to.equal(true)
+			expect(#ended).to.equal(2)
+
+			-- A late release from the old device is ignored.
+			hooks.ended(Actions.Jump, "PC")
+			expect(#ended).to.equal(2)
+			controller:Destroy()
+		end)
+	end)
+
+	describe("PC adapter", function()
+		it("binds number keys to every generated slot action", function()
+			local keys = {
+				Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three,
+				Enum.KeyCode.Four, Enum.KeyCode.Five, Enum.KeyCode.Six,
+				Enum.KeyCode.Seven, Enum.KeyCode.Eight, Enum.KeyCode.Nine,
+			}
+			for index, slot_action in ipairs(Actions.Slots) do
+				expect(PCInput.Bindings[keys[index]]).to.equal(slot_action)
+				expect(Actions.slot_index(slot_action)).to.equal(index)
+			end
+		end)
+
+		it("tracks Left Shift as a held sprint input", function()
+			local controller, hooks = make_controller(nil)
+			local began_count = 0
+			local ended_count = 0
+			local pc_input = setmetatable({
+				SprintActive = false,
+				OnBegan = function(...)
+					began_count += 1
+					hooks.began(...)
+				end,
+				OnEnded = function(...)
+					ended_count += 1
+					hooks.ended(...)
+				end,
+			}, PCInput)
+
+			pc_input:_on_sprint_input("Sprint", Enum.UserInputState.Begin, { KeyCode = Enum.KeyCode.LeftShift })
+			expect(controller:IsDown(Actions.Sprint)).to.equal(true)
+			expect(began_count).to.equal(1)
+
+			pc_input:_on_sprint_input("Sprint", Enum.UserInputState.End, { KeyCode = Enum.KeyCode.LeftShift })
+			expect(controller:IsDown(Actions.Sprint)).to.equal(false)
+			expect(ended_count).to.equal(1)
+			controller:Destroy()
+		end)
+
+		it("ignores Right Shift as a sprint input", function()
+			local began_count = 0
+			local pc_input = setmetatable({
+				SprintActive = false,
+				OnBegan = function() began_count += 1 end,
+				OnEnded = function() end,
+			}, PCInput)
+
+			pc_input:_on_sprint_input("Sprint", Enum.UserInputState.Begin, { KeyCode = Enum.KeyCode.RightShift })
+			expect(began_count).to.equal(0)
+			expect(pc_input.SprintActive).to.equal(false)
+		end)
 	end)
 
 	describe("Gamepad adapter", function()
@@ -285,15 +333,11 @@ return function()
 		end)
 
 		it("feeds InputController without blocking jump", function()
-			local controller = make_controller()
+			local controller, hooks = make_controller(nil)
 			local gamepad = setmetatable({
 				Actions = {},
-				OnBegan = function(...)
-					controller:_began(...)
-				end,
-				OnEnded = function(...)
-					controller:_ended(...)
-				end,
+				OnBegan = hooks.began,
+				OnEnded = hooks.ended,
 				_is_ui_navigating = function()
 					return false
 				end,
@@ -304,7 +348,7 @@ return function()
 			press(gamepad, Actions.Jump, Enum.UserInputState.End)
 			expect(controller:IsDown(Actions.Jump)).to.equal(false)
 
-			destroy_controller(controller)
+			controller:Destroy()
 		end)
 	end)
 end

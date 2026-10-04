@@ -1,22 +1,28 @@
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Packages = ReplicatedStorage.packages
-local Trove = require(Packages.Trove)
+local Trove = require(ReplicatedStorage.packages.Trove)
+local Config = require(ReplicatedStorage.shared.config)
+local Deps = require(ReplicatedStorage.shared.runtime.Deps)
 
 -- Missing templates are a content problem, not a runtime one; report each once
 -- per session instead of on every UIController construction.
 local WarnedTemplates = {}
 
+-- Session-lifetime UI host. Each child ModuleScript is an optional UI module
+-- built as Module.new(ui); modules subscribe to the session clients
+-- (ui.Combat, ui.Loadout) themselves, so they survive respawns.
 local UIController = {}
 UIController.__index = UIController
 
-function UIController.new()
+function UIController.new(deps)
+	Deps.check(deps, "UIController", { "combat", "loadout", "player_gui" })
+
 	local self = setmetatable({
 		Trove = Trove.new(),
 		Modules = {},
-		PlayerGui = Players.LocalPlayer:WaitForChild("PlayerGui"),
-		Character = nil,
+		Combat = deps.combat,
+		Loadout = deps.loadout,
+		PlayerGui = deps.player_gui,
 		_destroyed = false,
 	}, UIController)
 
@@ -50,15 +56,16 @@ function UIController:_start()
 	end
 end
 
--- Clones ReplicatedStorage.ui[name] into PlayerGui, or returns nil (warning
+-- Clones the named ScreenGui template into PlayerGui, or returns nil (warning
 -- once) when the template is absent so the caller can run as a no-op.
 function UIController:CloneTemplate(name)
-	local templates = ReplicatedStorage:FindFirstChild("ui")
+	local folder_name = Config.World.Folders.UiTemplates
+	local templates = ReplicatedStorage:FindFirstChild(folder_name)
 	local template = templates and templates:FindFirstChild(name)
 	if not template or not template:IsA("ScreenGui") then
 		if not WarnedTemplates[name] then
 			WarnedTemplates[name] = true
-			warn(("UIController: ScreenGui template ReplicatedStorage.ui.%s is missing; %s UI is disabled"):format(name, name))
+			warn(("UIController: ScreenGui template ReplicatedStorage.%s.%s is missing; %s UI is disabled"):format(folder_name, name, name))
 		end
 		return nil
 	end
@@ -75,49 +82,12 @@ function UIController:Get(name)
 	return self.Modules[name]
 end
 
-function UIController:_dispatch(method, ...)
-	for name, module in pairs(self.Modules) do
-		if not module[method] then
-			continue
-		end
-
-		local ok, err = pcall(module[method], module, ...)
-		if not ok then
-			warn(("UIController: %s:%s failed: %s"):format(name, method, tostring(err)))
-		end
-	end
-end
-
-function UIController:BindCharacter(character_controller)
-	if self._destroyed then
-		return
-	end
-	self.Character = character_controller
-	self:_dispatch("BindCharacter", character_controller)
-end
-
--- entries is the dense, slot-sorted { Slot, WeaponId } array from Inventory.Changed.
-function UIController:SetInventory(entries, selected_slot)
-	if self._destroyed then
-		return
-	end
-	self:_dispatch("SetInventory", entries, selected_slot)
-end
-
-function UIController:SetEquipped(weapon_id)
-	if self._destroyed then
-		return
-	end
-	self:_dispatch("SetEquipped", weapon_id)
-end
-
 function UIController:Destroy()
 	if self._destroyed then
 		return
 	end
 	self._destroyed = true
 	self.Trove:Destroy()
-	self.Character = nil
 	table.clear(self.Modules)
 end
 

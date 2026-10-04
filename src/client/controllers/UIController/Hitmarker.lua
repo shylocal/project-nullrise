@@ -1,8 +1,9 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Packages = ReplicatedStorage.packages
-local Trove = require(Packages.Trove)
+local Trove = require(ReplicatedStorage.packages.Trove)
 
+-- Flashes the hitmarker on every server-confirmed hit. It subscribes to the
+-- session CombatClient once, so it keeps working across respawns.
 local Hitmarker = {}
 Hitmarker.__index = Hitmarker
 
@@ -11,7 +12,6 @@ local DISPLAY_TIME = 0.12
 function Hitmarker.new(ui_controller)
 	local self = setmetatable({
 		Trove = Trove.new(),
-		CharacterTrove = nil,
 		UIController = ui_controller,
 		Gui = nil,
 		Visual = nil,
@@ -45,38 +45,14 @@ function Hitmarker:_start()
 
 	self.Visual = gui:FindFirstChild("Hitmarker", true)
 
-	if self.Visual then
-		self.Visual.Visible = false
-	end
-end
-
-function Hitmarker:BindCharacter(character_controller)
-	if self.CharacterTrove then
-		self.CharacterTrove:Destroy()
-		self.CharacterTrove = nil
-	end
-
-	if not character_controller then
-		return
-	end
-
 	if not self.Visual then
 		return
 	end
 
-	local combat_controller = character_controller.CombatController
-	if not combat_controller then
-		return
-	end
-
-	self.CharacterTrove = Trove.new()
-
-	self.CharacterTrove:Connect(
-		combat_controller.Hit,
-		function()
-			self:Show()
-		end
-	)
+	self.Visual.Visible = false
+	self.Trove:Connect(self.UIController.Combat.HitConfirmed, function()
+		self:Show()
+	end)
 end
 
 function Hitmarker:Show()
@@ -97,11 +73,6 @@ function Hitmarker:Show()
 end
 
 function Hitmarker:Destroy()
-	if self.CharacterTrove then
-		self.CharacterTrove:Destroy()
-		self.CharacterTrove = nil
-	end
-
 	self.Trove:Destroy()
 	self.Visual = nil
 	self.Gui = nil

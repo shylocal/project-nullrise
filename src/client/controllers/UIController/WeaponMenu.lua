@@ -1,17 +1,10 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Packages = ReplicatedStorage.packages
-local Trove = require(Packages.Trove)
-
+local Trove = require(ReplicatedStorage.packages.Trove)
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
-local InventoryRemote = ReplicatedStorage.remotes.Inventory
-local Protocol = require(ReplicatedStorage.shared.network.Protocol)
 
-local FISTS_ID = "Fists"
-
--- Display-only mirror of server inventory state. PlayerController forwards
--- Inventory.Changed and Weapon.Equipped through UIController; button presses
--- only request a selection and never change the display directly.
+-- Display-only mirror of the session LoadoutClient. Button presses only
+-- request a selection and never change the display directly.
 local WeaponMenu = {}
 WeaponMenu.__index = WeaponMenu
 
@@ -19,6 +12,7 @@ function WeaponMenu.new(ui_controller)
 	local self = setmetatable({
 		Trove = Trove.new(),
 		UIController = ui_controller,
+		Loadout = ui_controller.Loadout,
 		Gui = nil,
 		Buttons = {},
 		SelectedWeapon = nil,
@@ -59,33 +53,42 @@ function WeaponMenu:_start()
 			continue
 		end
 
-		local weapon = Catalog.Get(weapon_id)
-		if not Catalog.IsMelee(weapon) then
+		if not Catalog.IsEquippable(Catalog.Get(weapon_id)) then
 			continue
 		end
 
 		self.Buttons[weapon_id] = descendant
 
+		-- The server maps the default weapon to "no slot selected".
 		self.Trove:Connect(
 			descendant.Activated,
 			function()
-				InventoryRemote:FireServer(Protocol.Inventory.SelectItem, weapon_id)
+				self.Loadout:SelectItem(weapon_id)
 			end
 		)
 	end
 
-	self:_set_selected(FISTS_ID)
+	self.Trove:Connect(self.Loadout.InventoryChanged, function(entries, selected_slot)
+		self:_show_inventory(entries, selected_slot)
+	end)
+	self.Trove:Connect(self.Loadout.EquippedChanged, function(weapon_id)
+		self:_show_equipped(weapon_id)
+	end)
+
+	-- Show whatever the session already knows; later changes arrive as signals.
+	self:_show_inventory(self.Loadout.Entries, self.Loadout.SelectedSlot)
+	self:_show_equipped(self.Loadout.EquippedId)
 end
 
--- Fists are implicit and always available; any other button is shown only
--- while the server reports that weapon in a slot.
-function WeaponMenu:SetInventory(entries, selected_slot)
+-- The default weapon is implicit and always available; any other button is
+-- shown only while the server reports that weapon in a slot.
+function WeaponMenu:_show_inventory(entries, selected_slot)
 	if typeof(entries) ~= "table" then
 		return
 	end
 
-	local owned = { [FISTS_ID] = true }
-	local selected_weapon = FISTS_ID
+	local owned = { [Catalog.DefaultId] = true }
+	local selected_weapon = Catalog.DefaultId
 
 	for _, entry in ipairs(entries) do
 		if typeof(entry) ~= "table"
@@ -107,7 +110,7 @@ function WeaponMenu:SetInventory(entries, selected_slot)
 	self:_set_selected(selected_weapon)
 end
 
-function WeaponMenu:SetEquipped(weapon_id)
+function WeaponMenu:_show_equipped(weapon_id)
 	self:_set_selected(weapon_id)
 end
 

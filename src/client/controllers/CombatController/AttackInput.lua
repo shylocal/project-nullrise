@@ -1,7 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Protocol = require(ReplicatedStorage.shared.network.Protocol)
-local CombatRemote = ReplicatedStorage.remotes.Combat
 local AttackLifecycle = require(script.Parent.AttackLifecycle)
 
 local AttackInput = {}
@@ -36,8 +35,9 @@ function AttackInput.primary_began(self)
 	self.PrimaryPressAttackPending = false
 	self:Attack()
 end
+
 function AttackInput.buffer_charge(self, press_id, charge)
-	task.delay(charge.HoldTime, function()
+	self.Scheduler.after(charge.HoldTime, function()
 		if self.PrimaryPressId ~= press_id or not self.PrimaryHeld then
 			return
 		end
@@ -50,6 +50,7 @@ function AttackInput.buffer_charge(self, press_id, charge)
 		AttackInput.resolve_buffered_attack(self)
 	end)
 end
+
 function AttackInput.primary_ended(self)
 	self.PrimaryHeld = false
 	self.PrimaryPressId += 1
@@ -68,6 +69,7 @@ function AttackInput.primary_ended(self)
 
 	AttackInput.release_charge(self)
 end
+
 -- Releases the active charge: when its HitStart marker was already reached the
 -- hit starts now, otherwise the resumed animation reaches the marker and the
 -- hit starts there. Called on input release and when MaxHoldTime is reached.
@@ -86,15 +88,16 @@ function AttackInput.release_charge(self)
 
 		if charge then
 			self.ChargeReady = false
-			CombatRemote:FireServer(Protocol.Combat.HitStart, "Charge")
+			self.CombatClient:Send(Protocol.Combat.HitStart, "Charge")
 			AttackLifecycle.start_hitbox(self, "Charge", charge)
 		end
 	end
 
 	if track then
-		self.AnimationController:Resume(track)
+		self.AnimationController.Combat:Resume(track)
 	end
 end
+
 function AttackInput.resolve_buffered_attack(self)
 	if self.BufferedAttack ~= "Charge" then
 		return
