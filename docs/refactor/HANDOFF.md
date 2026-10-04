@@ -26,7 +26,6 @@ Last updated: 2026-10-05. Work happens directly on `main` (commit + push without
    - Turn `docs/REFACTOR_PLAN.md` into `docs/ARCHITECTURE.md`, keeping a short history section.
    - Update README, DEPENDENCIES, TESTING, VENDORED and THREAT_MODEL, and mark the items done in CODEBASE_REVIEW and ARCHITECTURE_REVIEW.
    - Mark this table complete, then commit and push to main.
-| Finish (fix confirmed bugs, docs/ARCHITECTURE.md from the plan, update docs, commit, push) | Not started |
 
 Nothing after Phase 2 has been run in Studio yet. The pre-refactor baseline was 151/151.
 
@@ -47,11 +46,19 @@ The ranked review behind all of this is in `docs/refactor/REVIEW_IDEAS.md`.
 
 ## User decisions to implement (2026-10-05, after the review fixes land)
 
-1. **Attacks and ledge grabs.** An attack in progress should block grabbing a ledge, but grabbing while holding a **charged (Heavy) attack cancels the charge** and the grab goes ahead.
-   - In `src/client/controllers/CharacterState/Policy.lua`, make the light-attack activities (`Attack` / `AttackRooted`) block `Grab`. The charge activity must NOT block Grab.
-   - On a successful grab, cancel an active charge: release the lease, stop the Heavy animation and drop the hitbox, the same as a cancelled charge.
-   - Add specs: Grab is refused during a light attack, and Grab during a charge succeeds and ends the charge.
-   - Ambiguity to confirm with the user if unclear: they answered "Yes, a charged attack should cancel."
+1. **Attacks and ledge grabs (confirmed by the user).** The player CAN grab a ledge while light-attacking or charging. **The grab cancels that attack.**
+   - In `src/client/controllers/CharacterState/Policy.lua`, attack activities (`Attack`, `AttackRooted`, the charge activity) must NOT block `Grab`. Hang already blocks Attack and Charge.
+   - On a successful grab, cancel the current attack, whether a light attack or a Heavy charge:
+     - release its lease;
+     - stop its animation;
+     - stop and drop the hitbox;
+     - clear any pending or buffered move;
+     - send HitStop for the active move (or abandon it cleanly), so the server clears it.
+   - A good hook: CharacterState fires `Changed` when the Hang lease starts. CombatController reacts by running `clear_attack_lifecycle` and `release_lease`, the same path as Reset or a cancelled charge.
+   - Specs:
+     - grabbing during a light attack succeeds and ends the attack;
+     - grabbing during a charge succeeds and ends the charge;
+     - no lease is left held, and you can attack again after releasing the ledge (the Hang lease still blocks attacks while hanging).
 2. **Light-attack cooldowns.**
    - Fists: 0.3 → **0.35s**. Katana: 0.35 → **0.6s**.
    - Change `Cooldown` in `src/shared/weapons/Fists.lua` and `Katana.lua` (move defaults or Light1/Light2).
