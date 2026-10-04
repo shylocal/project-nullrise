@@ -1,8 +1,9 @@
+--!strict
 local StarterPlayer = game:GetService("StarterPlayer")
 local Client = StarterPlayer.StarterPlayerScripts.client
 local VaultMath = require(Client.controllers.ParkourController.VaultMath)
 
-local function is_near(actual, expected, tolerance)
+local function is_near(actual: number, expected: number, tolerance: number?): boolean
 	return math.abs(actual - expected) <= (tolerance or 1e-6)
 end
 

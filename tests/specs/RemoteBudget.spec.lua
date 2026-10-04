@@ -19,7 +19,7 @@ local CONFIG = {
 -- budget, so these specs do not depend on tuning values.
 local function setup(): (any, any)
 	local h = ServerHarness.new()
-	h.Runtime:Add("SpecBudget", function(get)
+	h.Runtime:Add("SpecBudget", function(get: (string) -> any)
 		return RemoteBudget.new({
 			players = get("PlayerService"),
 			config = CONFIG,

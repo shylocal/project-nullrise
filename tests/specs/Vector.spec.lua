@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Vector = require(ReplicatedStorage.shared.utility.Vector)
 

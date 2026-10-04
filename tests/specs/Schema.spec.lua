@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Schema = require(ReplicatedStorage.shared.utility.Schema)
 
@@ -123,7 +124,7 @@ return function()
 
 		it("accepts dense arrays and checks every item", function()
 			expect(#Schema.check({ 1, 2, 3 }, spec, "L")).to.equal(0)
-			local errors = Schema.check({ 1, "x", "y" }, spec, "L")
+			local errors = Schema.check({ 1, "x", "y" } :: { any }, spec, "L")
 			expect(#errors).to.equal(2)
 			expect(errors[1]).to.equal("L[2]: must be a number")
 			expect(errors[2]).to.equal("L[3]: must be a number")

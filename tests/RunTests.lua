@@ -1,3 +1,4 @@
+--!strict
 -- Manual TestEZ entrypoint. This ModuleScript never runs automatically.
 local RunService = game:GetService("RunService")
 

@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 local Workspace = game:GetService("Workspace")
@@ -60,16 +61,22 @@ return function()
 			humanoid.Parent = character
 			character.Parent = world
 
-			local input = { ActionBegan = Signal.new(), ActionEnded = Signal.new(), Down = {} }
-			function input:IsDown(action)
-				return self.Down[action] == true
-			end
-			input.Down[Actions.Jump] = true
-			input.Down[Actions.Right] = true
-			local movement = {}
-			function movement:IsSprinting()
-				return false
-			end
+			local down: { [string]: boolean } = {
+				[Actions.Jump] = true,
+				[Actions.Right] = true,
+			}
+			local input = {
+				ActionBegan = Signal.new(),
+				ActionEnded = Signal.new(),
+				IsDown = function(_self: any, action: string): boolean
+					return down[action] == true
+				end,
+			}
+			local movement = {
+				IsSprinting = function(_self: any): boolean
+					return false
+				end,
+			}
 			local state = CharacterState.new({ policy = Policy })
 			local controller = ParkourController.new({
 				character = character,
@@ -97,15 +104,13 @@ return function()
 			})
 			controller.Climbables = index
 
-			expect(State.enter(controller, {
-				kind = "Hanging",
-				data = {
-					CurrentClimbable = ledge,
-					Normal = normal,
-					HangDepthOffset = normal * Parkour.WallGap,
-					HangPosition = hang_position,
-				},
-			})).to.equal(true)
+			local hang_data: State.HangData = {
+				CurrentClimbable = ledge,
+				Normal = normal,
+				HangDepthOffset = normal * Parkour.WallGap,
+				HangPosition = hang_position,
+			}
+			expect(State.enter(controller, { kind = "Hanging", data = hang_data })).to.equal(true)
 
 			local rays = {}
 			local times = {}
@@ -123,7 +128,7 @@ return function()
 			-- Still hanging at the same spot: traversal was blocked throughout.
 			local hang = State.hang(controller)
 			expect(hang ~= nil).to.equal(true)
-			expect((hang.HangPosition - hang_position).Magnitude < 1e-3).to.equal(true)
+			expect(((hang :: State.HangData).HangPosition - hang_position).Magnitude < 1e-3).to.equal(true)
 
 			local uncached = rays[1]
 			local cached_frames = 0

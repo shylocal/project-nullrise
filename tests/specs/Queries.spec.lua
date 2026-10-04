@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 local Workspace = game:GetService("Workspace")
@@ -12,7 +13,7 @@ local QueryContext = require(Parkour.QueryContext)
 
 -- A CollectionService stand-in with a fixed tagged list, so specs do not
 -- depend on (possibly deferred) tag signals.
-local function make_collection(tagged)
+local function make_collection(tagged: { Instance }): ClimbableIndex.CollectionServiceLike
 	local added = Signal.new()
 	local removed = Signal.new()
 	return {
@@ -28,7 +29,8 @@ local function make_collection(tagged)
 	}
 end
 
-local function make_fixture(tagged)
+-- A partial controller with only the fields Queries reads, so it is `any`.
+local function make_fixture(tagged: { Instance }?): any
 	local character = Instance.new("Model")
 	character.Name = "ParkourQueriesSpecCharacter"
 	character.Parent = Workspace
@@ -42,7 +44,7 @@ local function make_fixture(tagged)
 	local humanoid = Instance.new("Humanoid")
 	humanoid.Parent = character
 
-	local controller = {
+	local controller: any = {
 		Character = character,
 		Root = root,
 		Humanoid = humanoid,
@@ -53,16 +55,16 @@ local function make_fixture(tagged)
 			cell_size = 16,
 			root = Workspace,
 		}),
+		_standing_height = function(_self: any): number
+			return 3
+		end,
 	}
 	controller.Query = QueryContext.new(controller)
-	function controller:_standing_height()
-		return 3
-	end
 
 	return controller
 end
 
-local function destroy_fixture(controller, instances)
+local function destroy_fixture(controller: any, instances: { Instance })
 	for _, instance in ipairs(instances) do
 		instance:Destroy()
 	end
@@ -81,7 +83,7 @@ return function()
 			ledge.Size = Vector3.new(5, 1, 2)
 			ledge.CFrame = CFrame.new(0, 4, 0)
 			ledge.Parent = Workspace
-			local controller = make_fixture({ ledge })
+			local controller = make_fixture({ ledge :: Instance })
 
 			local top = Queries.cast_reachable_grab_top(
 				controller,
@@ -94,8 +96,8 @@ return function()
 			)
 
 			expect(top ~= nil).to.equal(true)
-			expect(top.Instance).to.equal(ledge)
-			expect(top.Position.Y).to.equal(4.5)
+			expect((top :: RaycastResult).Instance).to.equal(ledge)
+			expect((top :: RaycastResult).Position.Y).to.equal(4.5)
 
 			destroy_fixture(controller, { ledge })
 		end)

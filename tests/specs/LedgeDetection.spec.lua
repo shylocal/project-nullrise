@@ -1,6 +1,16 @@
+--!strict
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local LedgeDetection = require(StarterPlayer.StarterPlayerScripts.client.controllers.ParkourController.LedgeDetection)
+
+-- A partial GuideTop: the selectors read Position and Normal, and Instance
+-- only when present (these tops have none).
+local function top(position: Vector3): any
+	return { Position = position, Normal = Vector3.yAxis }
+end
+
+-- Without a top Instance the higher-top selector never consults the index.
+local NO_INDEX: any = nil
 
 return function()
 	describe("Parkour ledge detection", function()
@@ -10,21 +20,12 @@ return function()
 			local tangent = Vector3.xAxis
 
 			local selected = LedgeDetection.select_lower_top(current_top, normal, tangent, {
-				{
-					Position = Vector3.new(2, 8, -1),
-					Normal = Vector3.yAxis,
-				},
-				{
-					Position = Vector3.new(0.5, 9, -1),
-					Normal = Vector3.yAxis,
-				},
-				{
-					Position = Vector3.new(0, 6, -1),
-					Normal = Vector3.yAxis,
-				},
+				top(Vector3.new(2, 8, -1)),
+				top(Vector3.new(0.5, 9, -1)),
+				top(Vector3.new(0, 6, -1)),
 			})
 
-			expect(selected.Position).to.equal(Vector3.new(0.5, 9, -1))
+			expect((selected :: any).Position).to.equal(Vector3.new(0.5, 9, -1))
 		end)
 
 		it("selects the nearest reachable higher surface", function()
@@ -33,21 +34,12 @@ return function()
 			local tangent = Vector3.xAxis
 
 			local selected = LedgeDetection.select_higher_top(current_top, normal, tangent, 7, {
-				{
-					Position = Vector3.new(2, 13, -1),
-					Normal = Vector3.yAxis,
-				},
-				{
-					Position = Vector3.new(0.5, 11, -1),
-					Normal = Vector3.yAxis,
-				},
-				{
-					Position = Vector3.new(0, 14, -1),
-					Normal = Vector3.yAxis,
-				},
-			})
+				top(Vector3.new(2, 13, -1)),
+				top(Vector3.new(0.5, 11, -1)),
+				top(Vector3.new(0, 14, -1)),
+			}, NO_INDEX)
 
-			expect(selected.Position).to.equal(Vector3.new(0.5, 11, -1))
+			expect((selected :: any).Position).to.equal(Vector3.new(0.5, 11, -1))
 		end)
 
 		it("uses horizontal distance to break equal-height ties", function()
@@ -56,17 +48,11 @@ return function()
 			local tangent = Vector3.xAxis
 
 			local selected = LedgeDetection.select_higher_top(current_top, normal, tangent, 8, {
-				{
-					Position = Vector3.new(2, 11, -1),
-					Normal = Vector3.yAxis,
-				},
-				{
-					Position = Vector3.new(0.5, 11, -1),
-					Normal = Vector3.yAxis,
-				},
-			})
+				top(Vector3.new(2, 11, -1)),
+				top(Vector3.new(0.5, 11, -1)),
+			}, NO_INDEX)
 
-			expect(selected.Position).to.equal(Vector3.new(0.5, 11, -1))
+			expect((selected :: any).Position).to.equal(Vector3.new(0.5, 11, -1))
 		end)
 
 		it("rejects surfaces outside vertical or horizontal reach", function()
@@ -75,15 +61,9 @@ return function()
 			local tangent = Vector3.xAxis
 
 			local selected = LedgeDetection.select_higher_top(current_top, normal, tangent, 8, {
-				{
-					Position = Vector3.new(0, 23, -1),
-					Normal = Vector3.yAxis,
-				},
-				{
-					Position = Vector3.new(6, 11, -1),
-					Normal = Vector3.yAxis,
-				},
-			})
+				top(Vector3.new(0, 23, -1)),
+				top(Vector3.new(6, 11, -1)),
+			}, NO_INDEX)
 
 			expect(selected).to.equal(nil)
 		end)
@@ -93,8 +73,9 @@ return function()
 			local normal = Vector3.new(1, 0, 1).Unit
 			-- A slightly skewed tangent, as produced by a smoothed root rotation.
 			local tangent = (Vector3.new(-1, 0, 1).Unit + normal * 0.1).Unit
-			local cframe, size = LedgeDetection.mantle_search_box(current_top, normal, tangent)
-			local half = size * 0.5
+			local box_cframe, box_size = LedgeDetection.mantle_search_box(current_top, normal, tangent)
+			local cframe = assert(box_cframe, "the mantle search box exists")
+			local half = assert(box_size, "the mantle search box exists") * 0.5
 
 			-- The search accepts inward [-2, 8], |lateral along tangent| <= 5
 			-- and a rise or drop of at most 12.5 (Config.Parkour defaults).

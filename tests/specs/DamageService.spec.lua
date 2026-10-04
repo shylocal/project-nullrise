@@ -25,7 +25,7 @@ local function setup(overrides: { [string]: any }?): Fixture
 	end
 
 	local h = ServerHarness.new()
-	h.Runtime:Add("DamageService", function(get)
+	h.Runtime:Add("DamageService", function(get: (string) -> any)
 		return DamageService.new({
 			players = get("PlayerService"),
 			scheduler = h.Clock:scheduler(),

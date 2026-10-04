@@ -1,3 +1,4 @@
+--!strict
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local Support = script.Parent.Parent.support

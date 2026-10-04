@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.shared.config)
 local Envelope = require(ReplicatedStorage.shared.config.Envelope)

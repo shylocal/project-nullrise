@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
@@ -11,8 +12,18 @@ local Actions = require(ReplicatedStorage.shared.input.Actions)
 
 -- Builds a controller over one fake adapter; `hooks.began` / `hooks.ended`
 -- are the reporters the controller hands its adapters.
-local function make_controller(initial_source)
-	local hooks = { Destroyed = false }
+type Hooks = {
+	Destroyed: boolean,
+	began: InputController.Report,
+	ended: InputController.Report,
+}
+
+local function make_controller(initial_source: string?)
+	local hooks: Hooks = {
+		Destroyed = false,
+		began = function() end,
+		ended = function() end,
+	}
 	local focus_released = Signal.new()
 	local controller = InputController.from_adapters({
 		adapters = {
@@ -33,7 +44,7 @@ local function make_controller(initial_source)
 end
 
 -- Adapters are thin binding tables; specs build them without ContextActionService.
-local function make_gamepad(ui_navigating)
+local function make_gamepad(ui_navigating: boolean)
 	local calls = { Began = {}, Ended = {} }
 	local gamepad = setmetatable({
 		Actions = {},
@@ -46,27 +57,29 @@ local function make_gamepad(ui_navigating)
 		_is_ui_navigating = function()
 			return ui_navigating
 		end,
-	}, GamepadInput)
+		-- A partial adapter (no bindings, overridden UI check), so not a
+		-- GamepadInput as far as the analyzer knows.
+	}, GamepadInput) :: any
 	return gamepad, calls
 end
 
-local function gamepad_input(key_code)
+local function gamepad_input(key_code: Enum.KeyCode)
 	return { UserInputType = Enum.UserInputType.Gamepad1, KeyCode = key_code }
 end
 
 return function()
 	describe("InputController action state", function()
-		local controller, hooks, focus_released
+		local controller: InputController.InputController
+		local hooks: Hooks
+		local focus_released: typeof(Signal.new())
 
 		beforeEach(function()
 			controller, hooks, focus_released = make_controller(nil)
 		end)
 
 		afterEach(function()
-			if controller then
-				controller:Destroy()
-				controller = nil
-			end
+			-- Destroy is idempotent, so a spec that already destroyed it is fine.
+			controller:Destroy()
 		end)
 
 		it("tracks an action from begin through end", function()
@@ -178,7 +191,6 @@ return function()
 			-- Reports after Destroy are ignored.
 			hooks.began(Actions.Forward)
 			expect(controller:IsDown(Actions.Forward)).to.equal(false)
-			controller = nil
 		end)
 	end)
 
@@ -252,7 +264,9 @@ return function()
 					ended_count += 1
 					hooks.ended(...)
 				end,
-			}, PCInput)
+				-- A partial adapter that binds nothing, so not a PCInput as
+				-- far as the analyzer knows.
+			}, PCInput) :: any
 
 			pc_input:_on_sprint_input("Sprint", Enum.UserInputState.Begin, { KeyCode = Enum.KeyCode.LeftShift })
 			expect(controller:IsDown(Actions.Sprint)).to.equal(true)
@@ -270,7 +284,8 @@ return function()
 				SprintActive = false,
 				OnBegan = function() began_count += 1 end,
 				OnEnded = function() end,
-			}, PCInput)
+				-- A partial adapter that binds nothing.
+			}, PCInput) :: any
 
 			pc_input:_on_sprint_input("Sprint", Enum.UserInputState.Begin, { KeyCode = Enum.KeyCode.RightShift })
 			expect(began_count).to.equal(0)
@@ -279,7 +294,7 @@ return function()
 	end)
 
 	describe("Gamepad adapter", function()
-		local function press(gamepad, action, input_state)
+		local function press(gamepad: any, action: string, input_state: Enum.UserInputState)
 			local binding = GamepadInput.Bindings[action]
 			return gamepad:_on_input(action, binding, input_state, gamepad_input(binding.KeyCode))
 		end
@@ -349,7 +364,8 @@ return function()
 				_is_ui_navigating = function()
 					return false
 				end,
-			}, GamepadInput)
+				-- A partial adapter that binds nothing.
+			}, GamepadInput) :: any
 
 			press(gamepad, Actions.Jump, Enum.UserInputState.Begin)
 			expect(controller:IsDown(Actions.Jump)).to.equal(true)

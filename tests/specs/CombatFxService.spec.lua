@@ -24,7 +24,7 @@ type Fixture = {
 local function setup(): Fixture
 	local h = ServerHarness.new()
 	local remote = FakeRemote.server()
-	h.Runtime:Add("DamageService", function(get)
+	h.Runtime:Add("DamageService", function(get: (string) -> any)
 		return DamageService.new({
 			players = get("PlayerService"),
 			scheduler = h.Clock:scheduler(),
@@ -32,7 +32,7 @@ local function setup(): Fixture
 			tags = Config.World.Tags,
 		})
 	end)
-	h.Runtime:Add("CombatFxService", function(get)
+	h.Runtime:Add("CombatFxService", function(get: (string) -> any)
 		return CombatFxService.new({
 			damage = get("DamageService"),
 			players = get("PlayerService"),

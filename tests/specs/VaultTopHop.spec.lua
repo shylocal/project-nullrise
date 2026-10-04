@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
@@ -9,7 +10,17 @@ local ParkourController = require(Controllers.ParkourController)
 local State = require(Controllers.ParkourController.State)
 local VaultTraversal = require(Controllers.ParkourController.VaultTraversal)
 
-local function make_fixture()
+type Signal = typeof(Signal.new())
+
+type Fixture = {
+	Controller: ParkourController.Controller,
+	Character: Model,
+	Humanoid: Humanoid,
+	Input: { ActionBegan: Signal, ActionEnded: Signal, IsDown: (self: any, action: string) -> boolean },
+	State: CharacterState.CharacterState,
+}
+
+local function make_fixture(): Fixture
 	local character = Instance.new("Model")
 	character.Name = "VaultTopHopSpecCharacter"
 	local root = Instance.new("Part")
@@ -22,14 +33,15 @@ local function make_fixture()
 	local input = {
 		ActionBegan = Signal.new(),
 		ActionEnded = Signal.new(),
+		IsDown = function(_self: any, _action: string): boolean
+			return false
+		end,
 	}
-	function input:IsDown()
-		return false
-	end
-	local movement = {}
-	function movement:IsSprinting()
-		return false
-	end
+	local movement = {
+		IsSprinting = function(_self: any): boolean
+			return false
+		end,
+	}
 	local state = CharacterState.new({ policy = Policy })
 	local controller = ParkourController.new({
 		character = character,
@@ -47,7 +59,7 @@ local function make_fixture()
 	}
 end
 
-local function destroy_fixture(fixture)
+local function destroy_fixture(fixture: Fixture)
 	fixture.Controller:Destroy()
 	fixture.State:Destroy()
 	fixture.Input.ActionBegan:Destroy()
@@ -72,11 +84,11 @@ return function()
 			VaultTraversal.restore_top_hop_jump(controller)
 
 			expect(humanoid.JumpPower).to.equal(50)
-			expect(connection.Connected).to.equal(false)
+			expect((connection :: RBXScriptConnection).Connected).to.equal(false)
 			-- The record and lease stay until landing so they still block re-vaults.
 			expect(State.top_hop(controller)).to.be.ok()
 			expect(fixture.State:IsActive("TopHop")).to.equal(true)
-			expect(fixture.State:CanStart("Vault")).to.equal(false)
+			expect((fixture.State:CanStart("Vault"))).to.equal(false)
 
 			destroy_fixture(fixture)
 		end)

@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local Validator = require(ReplicatedStorage.shared.weapons.Validator)

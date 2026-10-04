@@ -34,7 +34,7 @@ local function setup(limits: any?): Fixture
 	local h = ServerHarness.new()
 	local step = Signal.new()
 	-- Samples come from a real PositionHistory driven by `step`.
-	h.Runtime:Add("PositionHistory", function(get)
+	h.Runtime:Add("PositionHistory", function(get: (string) -> any)
 		return PositionHistory.new({
 			players = get("PlayerService"),
 			scheduler = h.Clock:scheduler(),
@@ -42,7 +42,7 @@ local function setup(limits: any?): Fixture
 			capacity = 64,
 		})
 	end)
-	h.Runtime:Add("MovementValidation", function(get)
+	h.Runtime:Add("MovementValidation", function(get: (string) -> any)
 		return MovementValidation.new({
 			players = get("PlayerService"),
 			telemetry = get("Telemetry"),

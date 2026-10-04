@@ -20,7 +20,7 @@ type Fixture = {
 local function setup(capacity: number?): Fixture
 	local h = ServerHarness.new()
 	local step = Signal.new()
-	h.Runtime:Add("PositionHistory", function(get)
+	h.Runtime:Add("PositionHistory", function(get: (string) -> any)
 		return PositionHistory.new({
 			players = get("PlayerService"),
 			scheduler = h.Clock:scheduler(),

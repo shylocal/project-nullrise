@@ -1,13 +1,17 @@
+--!strict
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local Controllers = StarterPlayer.StarterPlayerScripts.client.controllers
 local AttackLifecycle = require(Controllers.CombatController.AttackLifecycle)
 
+-- Each spec builds a partial controller (and partial moves and troves) with
+-- only the fields the function under test reads, so the fakes are `any`.
+
 return function()
 	describe("Combat attack callback ownership", function()
 		it("accepts callbacks owned by the current attack lifecycle", function()
-			local attack_trove = {}
-			local controller = {
+			local attack_trove: any = {}
+			local controller: any = {
 				AttackTrove = attack_trove,
 				AttackLifecycleId = 7,
 			}
@@ -16,8 +20,8 @@ return function()
 		end)
 
 		it("rejects callbacks after the active attack trove is replaced", function()
-			local stale_trove = {}
-			local controller = {
+			local stale_trove: any = {}
+			local controller: any = {
 				AttackTrove = {},
 				AttackLifecycleId = 8,
 			}
@@ -26,8 +30,8 @@ return function()
 		end)
 
 		it("rejects callbacks from an earlier generation after reset", function()
-			local attack_trove = {}
-			local controller = {
+			local attack_trove: any = {}
+			local controller: any = {
 				AttackTrove = attack_trove,
 				AttackLifecycleId = 10,
 			}
@@ -40,25 +44,25 @@ return function()
 	end)
 
 	describe("Attack sprint rule", function()
-		local function controller_with(weapon_can_sprint)
+		local function controller_with(weapon_can_sprint: boolean): any
 			return { WeaponController = { Equipped = { CanSprintWhileAttacking = weapon_can_sprint } } }
 		end
 
 		it("uses the weapon rule when the attack does not override it", function()
-			expect(AttackLifecycle.can_sprint_while_attacking(controller_with(true), {})).to.equal(true)
-			expect(AttackLifecycle.can_sprint_while_attacking(controller_with(false), {})).to.equal(false)
+			expect(AttackLifecycle.can_sprint_while_attacking(controller_with(true), {} :: any)).to.equal(true)
+			expect(AttackLifecycle.can_sprint_while_attacking(controller_with(false), {} :: any)).to.equal(false)
 		end)
 
 		it("lets the attack override the weapon rule", function()
-			expect(AttackLifecycle.can_sprint_while_attacking(controller_with(true), { CanSprintWhileAttacking = false })).to.equal(false)
-			expect(AttackLifecycle.can_sprint_while_attacking(controller_with(false), { CanSprintWhileAttacking = true })).to.equal(true)
+			expect(AttackLifecycle.can_sprint_while_attacking(controller_with(true), { CanSprintWhileAttacking = false } :: any)).to.equal(false)
+			expect(AttackLifecycle.can_sprint_while_attacking(controller_with(false), { CanSprintWhileAttacking = true } :: any)).to.equal(true)
 		end)
 	end)
 
 	describe("Move kinds", function()
 		it("treats only Charge moves as charges", function()
-			expect(AttackLifecycle.is_charge({ Kind = "Charge" })).to.equal(true)
-			expect(AttackLifecycle.is_charge({ Kind = "Light" })).to.equal(false)
+			expect(AttackLifecycle.is_charge({ Kind = "Charge" } :: any)).to.equal(true)
+			expect(AttackLifecycle.is_charge({ Kind = "Light" } :: any)).to.equal(false)
 			expect(AttackLifecycle.is_charge(nil)).to.equal(false)
 		end)
 	end)
@@ -69,7 +73,7 @@ return function()
 			local wielded = Instance.new("Part")
 			wielded.Name = "SpecWielded"
 			wielded.Parent = character
-			local controller = {
+			local controller: any = {
 				WeaponController = { Character = character },
 				Hitboxes = {},
 				HitboxOwners = {},
@@ -111,7 +115,7 @@ return function()
 
 		it("stops the started hitbox once", function()
 			local stops = 0
-			local controller = {
+			local controller: any = {
 				ActiveHit = {
 					Hitbox = {
 						Stop = function()
@@ -132,7 +136,7 @@ return function()
 	describe("Attack lease", function()
 		it("releases the held lease once", function()
 			local releases = 0
-			local controller = {
+			local controller: any = {
 				AttackLease = {
 					Release = function()
 						releases += 1

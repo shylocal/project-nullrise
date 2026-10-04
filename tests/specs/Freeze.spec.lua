@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Freeze = require(ReplicatedStorage.shared.utility.Freeze)
 

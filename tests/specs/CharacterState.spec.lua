@@ -1,3 +1,4 @@
+--!strict
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local Controllers = StarterPlayer.StarterPlayerScripts.client.controllers
@@ -6,14 +7,14 @@ local Policy = require(Controllers.CharacterState.Policy)
 
 return function()
 	describe("CharacterState", function()
-		local state
-		local changes
+		local state: CharacterState.CharacterState
+		local changes: { { Activity: string, Active: boolean } }
 
 		beforeEach(function()
 			state = CharacterState.new({ policy = Policy })
 			changes = {}
-			state.Changed:Connect(function(activity, active)
-				table.insert(changes, { activity, active })
+			state.Changed:Connect(function(activity: string, active: boolean)
+				table.insert(changes, { Activity = activity, Active = active })
 			end)
 		end)
 
@@ -36,8 +37,8 @@ return function()
 		end)
 
 		it("allows every action while nothing is active", function()
-			for _, action in ipairs({ "Attack", "Charge", "Sprint", "Vault", "Grab" }) do
-				local allowed, blocker = state:CanStart(action)
+			for _, action in { "Attack", "Charge", "Sprint", "Vault", "Grab" } do
+				local allowed, blocker = state:CanStart(action :: CharacterState.Action)
 				expect(allowed).to.equal(true)
 				expect(blocker).to.equal(nil)
 			end
@@ -48,19 +49,19 @@ return function()
 			local allowed, blocker = state:CanStart("Attack")
 			expect(allowed).to.equal(false)
 			expect(blocker).to.equal("Hang")
-			expect(state:CanStart("Grab")).to.equal(true)
+			expect((state:CanStart("Grab"))).to.equal(true)
 			lease:Release()
-			expect(state:CanStart("Attack")).to.equal(true)
+			expect((state:CanStart("Attack"))).to.equal(true)
 		end)
 
 		it("does not block anything for a plain Attack, but AttackRooted blocks Sprint", function()
 			local attack = state:Acquire("combat", "Attack")
-			expect(state:CanStart("Sprint")).to.equal(true)
-			expect(state:CanStart("Attack")).to.equal(true)
+			expect((state:CanStart("Sprint"))).to.equal(true)
+			expect((state:CanStart("Attack"))).to.equal(true)
 			attack:Release()
 
 			local rooted = state:Acquire("combat", "AttackRooted")
-			expect(state:CanStart("Sprint")).to.equal(false)
+			expect((state:CanStart("Sprint"))).to.equal(false)
 			rooted:Release()
 		end)
 
@@ -68,8 +69,8 @@ return function()
 			local first = state:Acquire("a", "Vault")
 			local second = state:Acquire("b", "Vault")
 			expect(#changes).to.equal(1)
-			expect(changes[1][1]).to.equal("Vault")
-			expect(changes[1][2]).to.equal(true)
+			expect(changes[1].Activity).to.equal("Vault")
+			expect(changes[1].Active).to.equal(true)
 
 			first:Release()
 			expect(#changes).to.equal(1)
@@ -77,7 +78,7 @@ return function()
 
 			second:Release()
 			expect(#changes).to.equal(2)
-			expect(changes[2][2]).to.equal(false)
+			expect(changes[2].Active).to.equal(false)
 			expect(state:IsActive("Vault")).to.equal(false)
 		end)
 
@@ -93,10 +94,11 @@ return function()
 
 		it("rejects unknown activities and actions", function()
 			expect(function()
-				state:Acquire("a", "Fly")
+				-- An activity outside the policy, so the cast is deliberate.
+				state:Acquire("a", "Fly" :: any)
 			end).to.throw()
 			expect(function()
-				state:CanStart("Fly")
+				state:CanStart("Fly" :: any)
 			end).to.throw()
 		end)
 
@@ -114,8 +116,8 @@ return function()
 			local humanoid = Instance.new("Humanoid")
 			humanoid.Parent = character
 			local other = CharacterState.new({ policy = Policy })
-			local released = {}
-			other.Changed:Connect(function(activity, active)
+			local released: { string } = {}
+			other.Changed:Connect(function(activity: string, active: boolean)
 				if not active then
 					table.insert(released, activity)
 				end

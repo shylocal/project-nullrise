@@ -1,22 +1,29 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 local InputLatch = require(StarterPlayer.StarterPlayerScripts.client.controllers.ParkourController.InputLatch)
 
-local function make_handle()
+-- A CharacterState.Handle stand-in that counts pops. It is `any` because
+-- Block takes real handles.
+local function make_handle(): any
 	local handle = { Pops = 0 }
-	function handle:Pop()
+	function handle.Pop(self: { Pops: number })
 		self.Pops += 1
 	end
 	return handle
 end
 
-local function make_input()
-	local input = { Down = {} }
-	function input:IsDown(action)
-		return self.Down[action] == true
-	end
+type FakeInput = { Down: { [string]: boolean }, IsDown: (self: FakeInput, action: string) -> boolean }
+
+local function make_input(): FakeInput
+	local input: FakeInput = {
+		Down = {},
+		IsDown = function(self: FakeInput, action: string): boolean
+			return self.Down[action] == true
+		end,
+	}
 	return input
 end
 

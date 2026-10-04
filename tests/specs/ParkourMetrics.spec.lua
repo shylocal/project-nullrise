@@ -1,3 +1,4 @@
+--!strict
 local StarterPlayer = game:GetService("StarterPlayer")
 local Metrics = require(StarterPlayer.StarterPlayerScripts.client.controllers.ParkourController.Metrics)
 

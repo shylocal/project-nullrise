@@ -1,10 +1,11 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local WeaponController = require(StarterPlayer.StarterPlayerScripts.client.controllers.WeaponController)
 
-local function make_weapon_model(name, part_name)
+local function make_weapon_model(name: string, part_name: string): (Model, Part)
 	local model = Instance.new("Model")
 	model.Name = name
 	local holder = Instance.new("Folder")
@@ -19,7 +20,8 @@ return function()
 	describe("WeaponController", function()
 		it("requires a character", function()
 			expect(function()
-				WeaponController.new({})
+				-- Deliberately missing its dependency.
+				WeaponController.new({} :: any)
 			end).to.throw()
 		end)
 
@@ -30,7 +32,7 @@ return function()
 			expect(controller:EquipById(Catalog.DefaultId)).to.equal(true)
 			expect(controller.Equipped).to.equal(Catalog.Get(Catalog.DefaultId))
 			expect(controller:EquipById("NotAWeapon")).to.equal(false)
-			expect(controller:EquipById(nil)).to.equal(false)
+			expect(controller:EquipById(nil :: any)).to.equal(false)
 			expect(controller.Equipped).to.equal(Catalog.Get(Catalog.DefaultId))
 
 			controller:Destroy()
@@ -41,7 +43,7 @@ return function()
 			local character = Instance.new("Model")
 			local controller = WeaponController.new({ character = character })
 			controller:EquipById("Katana")
-			local weapon = controller.Equipped
+			local weapon = assert(controller.Equipped, "Katana must equip")
 
 			expect(controller:GetWielded("Handle")).to.equal(nil)
 
@@ -61,7 +63,7 @@ return function()
 			local character = Instance.new("Model")
 			local controller = WeaponController.new({ character = character })
 			controller:EquipById("Katana")
-			local weapon = controller.Equipped
+			local weapon = assert(controller.Equipped, "Katana must equip")
 
 			local old_model, old_handle = make_weapon_model(weapon.Model, "Handle")
 			old_model.Parent = character
@@ -84,7 +86,7 @@ return function()
 			local controller = WeaponController.new({ character = character })
 			controller:EquipById("Katana")
 
-			local model = make_weapon_model(controller.Equipped.Model, "Handle")
+			local model = make_weapon_model(assert(controller.Equipped, "Katana must equip").Model, "Handle")
 			model.Parent = character
 			controller:GetWielded("Handle")
 			expect(controller.CachedModel).to.equal(model)

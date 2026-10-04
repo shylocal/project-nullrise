@@ -36,7 +36,7 @@ local function add_component(h: any, log: { string }, name: string, hooks: Hooks
 
 	function component.Destroy(_self: any) end
 
-	h.Runtime:Add(name, function(get)
+	h.Runtime:Add(name, function(get: (string) -> any)
 		get("PlayerService"):Register(component, name)
 		return component
 	end)
@@ -292,7 +292,7 @@ return function()
 
 		it("rejects duplicate registrations", function()
 			add_component(h, {}, "A")
-			h.Runtime:Add("Duplicate", function(get): any
+			h.Runtime:Add("Duplicate", function(get: (string) -> any): any
 				get("PlayerService"):Register({}, "A")
 				return { Destroy = function() end }
 			end)

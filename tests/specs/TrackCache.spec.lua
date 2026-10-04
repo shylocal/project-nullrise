@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
@@ -6,7 +7,7 @@ local FakeAnimationTrack = require(Support.FakeAnimationTrack)
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local TrackCache = require(StarterPlayer.StarterPlayerScripts.client.controllers.AnimationController.TrackCache)
 
-local function def(id, priority, looped)
+local function def(id: string, priority: Enum.AnimationPriority, looped: boolean): TrackCache.AnimationDef
 	return { Id = id, Priority = priority, Looped = looped }
 end
 
@@ -68,7 +69,7 @@ return function()
 			cache:Destroy()
 
 			expect(track.IsPlaying).to.equal(false)
-			expect(track.Destroyed).to.equal(true)
+			expect((track :: any).Destroyed).to.equal(true)
 		end)
 
 		it("collects every catalog animation once by id", function()

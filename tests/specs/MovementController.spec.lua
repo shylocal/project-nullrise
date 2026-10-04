@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
@@ -9,42 +10,53 @@ local MovementController = require(Controllers.MovementController)
 local CharacterState = require(Controllers.CharacterState)
 local Policy = require(Controllers.CharacterState.Policy)
 
-local function make_input()
-	local input = {
+type Signal = typeof(Signal.new())
+
+type FakeInput = {
+	ActionBegan: Signal,
+	ActionEnded: Signal,
+	Down: { [string]: boolean },
+	IsDown: (self: FakeInput, action: string) -> boolean,
+	Press: (self: FakeInput, action: string) -> (),
+	Release: (self: FakeInput, action: string) -> (),
+	Destroy: (self: FakeInput) -> (),
+}
+
+local function make_input(): FakeInput
+	return {
 		ActionBegan = Signal.new(),
 		ActionEnded = Signal.new(),
 		Down = {},
+		IsDown = function(self: FakeInput, action: string): boolean
+			return self.Down[action] == true
+		end,
+		Press = function(self: FakeInput, action: string)
+			self.Down[action] = true
+			self.ActionBegan:Fire(action)
+		end,
+		Release = function(self: FakeInput, action: string)
+			self.Down[action] = nil
+			self.ActionEnded:Fire(action)
+		end,
+		Destroy = function(self: FakeInput)
+			self.ActionBegan:Destroy()
+			self.ActionEnded:Destroy()
+		end,
 	}
-	function input:IsDown(action)
-		return self.Down[action] == true
-	end
-	function input:Press(action)
-		self.Down[action] = true
-		self.ActionBegan:Fire(action)
-	end
-	function input:Release(action)
-		self.Down[action] = nil
-		self.ActionEnded:Fire(action)
-	end
-	function input:Destroy()
-		self.ActionBegan:Destroy()
-		self.ActionEnded:Destroy()
-	end
-	return input
 end
 
 return function()
 	describe("MovementController", function()
-	local character
-	local humanoid
-	local input
-	local state
-	local movement
-	local moving
+	local character: Model
+	local humanoid: Humanoid
+	local input: FakeInput
+	local state: CharacterState.CharacterState
+	local movement: MovementController.MovementController
+	local moving: boolean
 
 	-- Humanoid.MoveDirection is read-only from scripts, so specs drive the
 	-- movement gate through the controller's _is_moving hook instead.
-	local function set_moving(value)
+	local function set_moving(value: boolean)
 		moving = value
 		movement:_update_sprinting()
 	end
@@ -60,34 +72,23 @@ return function()
 		state = CharacterState.new({ policy = Policy })
 		movement = MovementController.new({ character = character, input = input, state = state })
 		moving = true
-		movement._is_moving = function()
+		-- An instance override of the class method; the class type is sealed.
+		(movement :: any)._is_moving = function(): boolean
 			return moving
 		end
 	end)
 
 	afterEach(function()
-		if movement then
-			movement:Destroy()
-			movement = nil
-		end
-		if state then
-			state:Destroy()
-			state = nil
-		end
-		if input then
-			input:Destroy()
-			input = nil
-		end
-		if character then
-			character:Destroy()
-			character = nil
-		end
-		humanoid = nil
+		movement:Destroy()
+		state:Destroy()
+		input:Destroy()
+		character:Destroy()
 	end)
 
 	it("requires every constructor dependency", function()
 		expect(function()
-			MovementController.new({ character = character, input = input })
+			-- Deliberately missing the state dependency.
+			MovementController.new({ character = character, input = input } :: any)
 		end).to.throw()
 	end)
 
@@ -193,8 +194,8 @@ return function()
 	end)
 
 	it("emits sprint changes only when the effective sprint state changes", function()
-		local changes = {}
-		movement.SprintingChanged:Connect(function(sprinting)
+		local changes: { boolean } = {}
+		movement.SprintingChanged:Connect(function(sprinting: boolean)
 			table.insert(changes, sprinting)
 		end)
 

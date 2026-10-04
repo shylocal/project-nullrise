@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
@@ -8,7 +9,9 @@ local Policy = require(Controllers.CharacterState.Policy)
 local ParkourController = require(Controllers.ParkourController)
 local State = require(Controllers.ParkourController.State)
 
-local function vaulting(duration, obstacle)
+type Vaulting = { kind: "Vaulting", data: State.VaultData }
+
+local function vaulting(duration: number, obstacle: BasePart): Vaulting
 	return {
 		kind = "Vaulting",
 		data = {
@@ -89,10 +92,12 @@ return function()
 		end)
 
 		it("clears one state's data without disturbing a record that is kept", function()
-			local top_hop = { StartedAt = 123, SawAir = false }
-			expect(State.enter(controller, { kind = "Grounded", TopHop = top_hop })).to.equal(true)
+			local top_hop: State.TopHopData = { StartedAt = 123, SawAir = false }
+			local hopping: State.ParkourState = { kind = "Grounded", TopHop = top_hop }
+			expect(State.enter(controller, hopping)).to.equal(true)
 			top_hop.SawAir = true
-			expect(State.enter(controller, { kind = "Grounded", TopHop = top_hop })).to.equal(true)
+			local still_hopping: State.ParkourState = { kind = "Grounded", TopHop = top_hop }
+			expect(State.enter(controller, still_hopping)).to.equal(true)
 
 			expect((State.top_hop(controller) :: any).StartedAt).to.equal(123)
 			expect((State.top_hop(controller) :: any).SawAir).to.equal(true)
@@ -116,15 +121,14 @@ return function()
 
 		it("rejects transitions the table does not allow and keeps the current state", function()
 			expect(State.enter(controller, vaulting(1, obstacle))).to.equal(true)
-			expect(State.enter(controller, {
-				kind = "Hanging",
-				data = {
-					CurrentClimbable = obstacle,
-					Normal = Vector3.xAxis,
-					HangDepthOffset = Vector3.xAxis,
-					HangPosition = Vector3.zero,
-				},
-			})).to.equal(false)
+			local hang: State.HangData = {
+				CurrentClimbable = obstacle,
+				Normal = Vector3.xAxis,
+				HangDepthOffset = Vector3.xAxis,
+				HangPosition = Vector3.zero,
+			}
+			local hanging: State.ParkourState = { kind = "Hanging", data = hang }
+			expect(State.enter(controller, hanging)).to.equal(false)
 			expect(State.kind(controller)).to.equal("Vaulting")
 			expect(state:IsActive("Hang")).to.equal(false)
 		end)

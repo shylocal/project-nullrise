@@ -1,3 +1,4 @@
+--!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -13,6 +14,12 @@ local UiContracts = require(StarterPlayer.StarterPlayerScripts.client.UiContract
 -- Specs must never yield indefinitely, so every lookup uses FindFirstChild.
 -- ServerStorage and ServerScriptService are empty when viewed from a client.
 local IS_SERVER = RunService:IsServer()
+
+-- Modules are looked up with FindFirstChild (never yielding), so the analyzer
+-- cannot resolve them; the exports are checked at runtime instead.
+local function require_found(module: Instance): any
+	return (require :: any)(module)
+end
 
 local function find_controller(name)
 	local player_scripts = StarterPlayer:FindFirstChild("StarterPlayerScripts")
@@ -171,7 +178,7 @@ return function()
 				return
 			end
 
-			local modules = {}
+			local modules: { { Name: string, Module: Instance? } } = {}
 			for _, name in ipairs({
 				"AnimationController",
 				"CharacterController",
@@ -184,17 +191,17 @@ return function()
 				"UIController",
 				"WeaponController",
 			}) do
-				table.insert(modules, { name, controllers:FindFirstChild(name) })
+				table.insert(modules, { Name = name, Module = controllers:FindFirstChild(name) })
 			end
 			for _, name in ipairs({ "CombatClient", "LoadoutClient" }) do
-				table.insert(modules, { name, session:FindFirstChild(name) })
+				table.insert(modules, { Name = name, Module = session:FindFirstChild(name) })
 			end
 
 			for _, entry in ipairs(modules) do
-				local module = entry[2]
+				local module = entry.Module
 				expect(module ~= nil and module:IsA("ModuleScript")).to.equal(true)
 				if module then
-					local exported = require(module)
+					local exported = require_found(module)
 					expect(typeof(exported)).to.equal("table")
 					expect(typeof(exported.new)).to.equal("function")
 				end
@@ -227,7 +234,7 @@ return function()
 				local module = services:FindFirstChild(expectation[1])
 				expect(module ~= nil and module:IsA("ModuleScript")).to.equal(true)
 				if module then
-					local exported = require(module)
+					local exported = require_found(module)
 					expect(typeof(exported)).to.equal("table")
 					expect(typeof(exported[expectation[2]])).to.equal("function")
 				end
@@ -245,14 +252,14 @@ return function()
 
 			local ui_controller = make_ui_controller({})
 
-			local menu = require(weapon_menu_module).new(ui_controller)
+			local menu = require_found(weapon_menu_module).new(ui_controller)
 			expect(menu.Gui).to.equal(nil)
 			ui_controller.Loadout.InventoryChanged:Fire({ { Slot = 2, Uid = "uid-katana", ItemId = "Katana" } }, 2)
 			ui_controller.Loadout.EquippedChanged:Fire("Katana")
 			expect(menu.SelectedWeapon).to.equal(nil)
 			menu:Destroy()
 
-			local hitmarker = require(hitmarker_module).new(ui_controller)
+			local hitmarker = require_found(hitmarker_module).new(ui_controller)
 			expect(hitmarker.Gui).to.equal(nil)
 			ui_controller.Combat.HitConfirmed:Fire(1, nil)
 			hitmarker:Show()
@@ -272,7 +279,7 @@ return function()
 			visual.Parent = gui
 
 			local ui_controller = make_ui_controller({ Hitmarker = gui })
-			local hitmarker = require(hitmarker_module).new(ui_controller)
+			local hitmarker = require_found(hitmarker_module).new(ui_controller)
 			expect(visual.Visible).to.equal(false)
 
 			ui_controller.Combat.HitConfirmed:Fire(1, nil)
@@ -296,7 +303,7 @@ return function()
 
 			local ui_controller = make_ui_controller({ WeaponMenu = gui })
 			local loadout = ui_controller.Loadout
-			local menu = require(weapon_menu_module).new(ui_controller)
+			local menu = require_found(weapon_menu_module).new(ui_controller)
 			expect(menu.SelectedWeapon).to.equal(Catalog.DefaultId)
 			expect(fists_selection.Visible).to.equal(true)
 
@@ -328,7 +335,7 @@ return function()
 			end
 
 			local created = {}
-			local controller, player = make_player_controller(require(player_controller_module), created)
+			local controller, player = make_player_controller(require_found(player_controller_module), created)
 			local character = Instance.new("Model")
 
 			player.CharacterAdded:Fire(character)
@@ -355,7 +362,7 @@ return function()
 			end
 
 			local created = {}
-			local controller, player = make_player_controller(require(player_controller_module), created)
+			local controller, player = make_player_controller(require_found(player_controller_module), created)
 			local old_character = Instance.new("Model")
 			local new_character = Instance.new("Model")
 
@@ -379,7 +386,7 @@ return function()
 				return
 			end
 
-			local controller, _, input, loadout = make_player_controller(require(player_controller_module), {})
+			local controller, _, input, loadout = make_player_controller(require_found(player_controller_module), {})
 			input.ActionBegan:Fire("Slot3")
 			input.ActionBegan:Fire("Slot9")
 			input.ActionBegan:Fire("Primary")

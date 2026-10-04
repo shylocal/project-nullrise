@@ -1,3 +1,4 @@
+--!strict
 local StarterPlayer = game:GetService("StarterPlayer")
 local Workspace = game:GetService("Workspace")
 
@@ -55,7 +56,7 @@ return function()
 				table.insert(seen, result.Instance)
 				return if result.Instance == middle then "accept" else "skip"
 			end, 8)
-			expect(hit.Instance).to.equal(middle)
+			expect((hit :: RaycastResult).Instance).to.equal(middle)
 			expect(#seen).to.equal(2)
 			expect(seen[1]).to.equal(near)
 		end)
@@ -92,13 +93,13 @@ return function()
 			local hit = pierce(function()
 				return "accept"
 			end, 8)
-			expect(hit.Instance).to.equal(near)
+			expect((hit :: RaycastResult).Instance).to.equal(near)
 		end)
 
 		it("always excludes the character", function()
 			local body = make_wall("Body", -1, character)
 			local hit = ctx:Raycast(ORIGIN, Vector3.new(0, 0, -10), ctx.Params.CastAny)
-			expect(hit.Instance).to.equal(near)
+			expect((hit :: RaycastResult).Instance).to.equal(near)
 			body:Destroy()
 		end)
 
@@ -114,13 +115,13 @@ return function()
 		it("restricts Include params to one instance", function()
 			local params = ctx:Include(ctx.Params.GuideTop, far)
 			local hit = ctx:Raycast(ORIGIN, Vector3.new(0, 0, -10), params)
-			expect(hit.Instance).to.equal(far)
+			expect((hit :: RaycastResult).Instance).to.equal(far)
 		end)
 
 		it("adds extra exclusions on top of the base list", function()
 			local params = ctx:Exclude(ctx.Params.VaultSupport, { near })
 			local hit = ctx:Raycast(ORIGIN, Vector3.new(0, 0, -10), params)
-			expect(hit.Instance).to.equal(middle)
+			expect((hit :: RaycastResult).Instance).to.equal(middle)
 		end)
 
 		it("counts overlap queries", function()

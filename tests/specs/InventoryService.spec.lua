@@ -25,7 +25,7 @@ type Fixture = { h: any, store: any, data: any, inventory: any, player: any }
 local function setup(): Fixture
 	local h = ServerHarness.new()
 	local store = FakeProfileStore.new(DataSchema.Template())
-	h.Runtime:Add("PlayerDataService", function(get)
+	h.Runtime:Add("PlayerDataService", function(get: (string) -> any)
 		return PlayerDataService.new({
 			players = get("PlayerService"),
 			store = store,
@@ -34,7 +34,7 @@ local function setup(): Fixture
 			telemetry = get("Telemetry"),
 		})
 	end)
-	h.Runtime:Add("InventoryService", function(get)
+	h.Runtime:Add("InventoryService", function(get: (string) -> any)
 		return InventoryService.new({
 			players = get("PlayerService"),
 			data = get("PlayerDataService"),

@@ -68,7 +68,7 @@ local function setup(): Fixture
 	h.Runtime:Add("Weapons", function()
 		return weapons
 	end)
-	h.Runtime:Add("PositionHistory", function(get)
+	h.Runtime:Add("PositionHistory", function(get: (string) -> any)
 		return PositionHistory.new({
 			players = get("PlayerService"),
 			scheduler = h.Clock:scheduler(),
@@ -76,7 +76,7 @@ local function setup(): Fixture
 			capacity = Config.Combat.LagCompensation.HistoryCapacity,
 		})
 	end)
-	h.Runtime:Add("DamageService", function(get)
+	h.Runtime:Add("DamageService", function(get: (string) -> any)
 		return DamageService.new({
 			players = get("PlayerService"),
 			scheduler = h.Clock:scheduler(),
@@ -84,7 +84,7 @@ local function setup(): Fixture
 			tags = Config.World.Tags,
 		})
 	end)
-	h.Runtime:Add("CombatService", function(get)
+	h.Runtime:Add("CombatService", function(get: (string) -> any)
 		return CombatService.new({
 			players = get("PlayerService"),
 			weapons = get("Weapons"),

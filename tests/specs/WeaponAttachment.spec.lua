@@ -51,8 +51,8 @@ return function()
 			expect(typeof(reason)).to.equal("string")
 
 			local empty = create_instance("Model", "EmptyCharacter", Workspace, created)
-			expect(WeaponAttachment.IsSupportedRig(empty)).to.equal(false)
-			expect(WeaponAttachment.IsSupportedRig(nil)).to.equal(false)
+			expect((WeaponAttachment.IsSupportedRig(empty))).to.equal(false)
+			expect((WeaponAttachment.IsSupportedRig(nil))).to.equal(false)
 		end)
 	end)
 
@@ -85,11 +85,12 @@ return function()
 			expect(clone ~= nil).to.equal(true)
 
 			if clone then
-				local cloned_handle = clone:FindFirstChild("Handle", true)
-				local motor = cloned_handle and cloned_handle:FindFirstChildOfClass("Motor6D")
-				local hitpoint = cloned_handle and cloned_handle:FindFirstChild(HITPOINT_NAME)
+				local found = clone:FindFirstChild("Handle", true)
+				expect(found ~= nil and found:IsA("BasePart")).to.equal(true)
+				local cloned_handle = found :: BasePart
+				local motor = cloned_handle:FindFirstChildOfClass("Motor6D")
+				local hitpoint = cloned_handle:FindFirstChild(HITPOINT_NAME)
 
-				expect(cloned_handle ~= nil).to.equal(true)
 				expect(cloned_handle.Anchored).to.equal(false)
 				expect(cloned_handle.CanCollide).to.equal(false)
 				expect(cloned_handle.CanQuery).to.equal(false)

@@ -28,15 +28,10 @@ end
 
 local ITEM = item_id()
 
--- Every hitbox part name a definition uses, whichever move shape it has.
-local function hitbox_names(def: any, names: { [string]: boolean })
-	for _, list in { def.Attacks, def.Moves } do
-		for _, move in pairs(list) do
-			names[move.Hitbox] = true
-		end
-	end
-	if def.Charge then
-		names[def.Charge.Hitbox] = true
+-- Every hitbox part name a definition's moves use.
+local function hitbox_names(def: Catalog.WeaponDefinition, names: { [string]: boolean })
+	for _, move in pairs(def.Moves) do
+		names[move.Hitbox] = true
 	end
 end
 
@@ -47,16 +42,15 @@ local function make_models(): Folder
 	folder.Name = "SpecWeaponModels"
 
 	for _, definition in Catalog.All() do
-		local def = definition :: any
 		local model = Instance.new("Model")
-		model.Name = def.Model
+		model.Name = definition.Model
 		model.Parent = folder
 
 		local names: { [string]: boolean } = {}
-		for wield_name in def.Wield do
+		for wield_name in definition.Wield do
 			names[wield_name] = true
 		end
-		hitbox_names(def, names)
+		hitbox_names(definition, names)
 
 		for name in names do
 			local part = Instance.new("Part")
@@ -75,7 +69,7 @@ end
 -- Adds a limb for every character part any weapon wields onto.
 local function add_limbs(character: Model)
 	for _, definition in Catalog.All() do
-		for _, limb_name in (definition :: any).Wield do
+		for _, limb_name in definition.Wield do
 			if not character:FindFirstChild(limb_name) then
 				local limb = Instance.new("Part")
 				limb.Name = limb_name
@@ -100,7 +94,7 @@ local function setup(): Fixture
 	h:Track(models)
 	local store = FakeProfileStore.new(DataSchema.Template())
 
-	h.Runtime:Add("PlayerDataService", function(get)
+	h.Runtime:Add("PlayerDataService", function(get: (string) -> any)
 		return PlayerDataService.new({
 			players = get("PlayerService"),
 			store = store,
@@ -109,7 +103,7 @@ local function setup(): Fixture
 			telemetry = get("Telemetry"),
 		})
 	end)
-	h.Runtime:Add("InventoryService", function(get)
+	h.Runtime:Add("InventoryService", function(get: (string) -> any)
 		return InventoryService.new({
 			players = get("PlayerService"),
 			data = get("PlayerDataService"),
@@ -118,7 +112,7 @@ local function setup(): Fixture
 			telemetry = get("Telemetry"),
 		})
 	end)
-	h.Runtime:Add("WeaponService", function(get)
+	h.Runtime:Add("WeaponService", function(get: (string) -> any)
 		return WeaponService.new({
 			players = get("PlayerService"),
 			inventory = get("InventoryService"),
@@ -182,7 +176,8 @@ return function()
 
 		it("requires a scheduler", function()
 			expect(function()
-				WeaponService.new({ players = {}, inventory = {}, remote = {} })
+				-- Deliberately missing the scheduler.
+				WeaponService.new({ players = {}, inventory = {}, remote = {} } :: any)
 			end).to.throw()
 		end)
 

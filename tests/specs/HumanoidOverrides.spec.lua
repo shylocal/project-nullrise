@@ -1,3 +1,4 @@
+--!strict
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local HumanoidOverrides = require(StarterPlayer.StarterPlayerScripts.client.controllers.CharacterState.HumanoidOverrides)

@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
@@ -10,23 +11,42 @@ local ParkourController = require(Controllers.ParkourController)
 local ParkourState = require(Controllers.ParkourController.State)
 local VaultTraversal = require(Controllers.ParkourController.VaultTraversal)
 
-local function make_input()
-	local input = {
+type Signal = typeof(Signal.new())
+
+type FakeInput = {
+	ActionBegan: Signal,
+	ActionEnded: Signal,
+	Down: { [string]: boolean },
+	IsDown: (self: FakeInput, action: string) -> boolean,
+	Destroy: (self: FakeInput) -> (),
+}
+
+local function make_input(): FakeInput
+	return {
 		ActionBegan = Signal.new(),
 		ActionEnded = Signal.new(),
 		Down = {},
+		IsDown = function(self: FakeInput, action: string): boolean
+			return self.Down[action] == true
+		end,
+		Destroy = function(self: FakeInput)
+			self.ActionBegan:Destroy()
+			self.ActionEnded:Destroy()
+		end,
 	}
-	function input:IsDown(action)
-		return self.Down[action] == true
-	end
-	function input:Destroy()
-		self.ActionBegan:Destroy()
-		self.ActionEnded:Destroy()
-	end
-	return input
 end
 
-local function make_fixture()
+type Fixture = {
+	Controller: ParkourController.Controller,
+	Character: Model,
+	Root: Part,
+	Humanoid: Humanoid,
+	Input: FakeInput,
+	State: CharacterState.CharacterState,
+	Changes: { { Activity: string, Active: boolean } },
+}
+
+local function make_fixture(): Fixture
 	local character = Instance.new("Model")
 	character.Name = "ParkourLifecycleSpecCharacter"
 
@@ -40,10 +60,11 @@ local function make_fixture()
 
 	local input = make_input()
 	local state = CharacterState.new({ policy = Policy })
-	local movement = {}
-	function movement:IsSprinting()
-		return false
-	end
+	local movement = {
+		IsSprinting = function(_self: any): boolean
+			return false
+		end,
+	}
 
 	local controller = ParkourController.new({
 		character = character,
@@ -53,8 +74,8 @@ local function make_fixture()
 	})
 
 	-- Every activity start/end, in order (replaces the old SetSprintBlocked log).
-	local changes = {}
-	state.Changed:Connect(function(activity, active)
+	local changes: { { Activity: string, Active: boolean } } = {}
+	state.Changed:Connect(function(activity: string, active: boolean)
 		table.insert(changes, { Activity = activity, Active = active })
 	end)
 
@@ -69,7 +90,7 @@ local function make_fixture()
 	}
 end
 
-local function hanging(climbable)
+local function hanging(climbable: BasePart): { kind: "Hanging", data: ParkourState.HangData }
 	return {
 		kind = "Hanging",
 		data = {
@@ -83,7 +104,7 @@ local function hanging(climbable)
 	}
 end
 
-local function mantling(elapsed)
+local function mantling(elapsed: number): { kind: "Mantling", data: ParkourState.MantleData }
 	return {
 		kind = "Mantling",
 		data = {
@@ -97,9 +118,9 @@ end
 
 return function()
 	describe("Parkour traversal lifecycle", function()
-	local fixture
-	local controller
-	local climbable
+	local fixture: Fixture
+	local controller: ParkourController.Controller
+	local climbable: BasePart
 
 	beforeEach(function()
 		fixture = make_fixture()
@@ -108,20 +129,18 @@ return function()
 	end)
 
 	afterEach(function()
-		if controller then
-			controller:Destroy()
-			controller = nil
-		end
+		-- Destroy is idempotent, so specs that already destroyed it are fine.
+		controller:Destroy()
 		fixture.State:Destroy()
 		fixture.Input:Destroy()
 		fixture.Character:Destroy()
 		climbable:Destroy()
-		fixture = nil
 	end)
 
 	it("requires every constructor dependency", function()
 		expect(function()
-			ParkourController.new({ character = fixture.Character, input = fixture.Input, state = fixture.State })
+			-- Deliberately missing the movement dependency.
+			ParkourController.new({ character = fixture.Character, input = fixture.Input, state = fixture.State } :: any)
 		end).to.throw()
 	end)
 
@@ -163,17 +182,17 @@ return function()
 	it("blocks attacks, sprint and vaults while hanging and grabs while mantling", function()
 		local state = fixture.State
 		expect(ParkourState.enter(controller, hanging(climbable))).to.equal(true)
-		expect(state:CanStart("Attack")).to.equal(false)
-		expect(state:CanStart("Charge")).to.equal(false)
-		expect(state:CanStart("Sprint")).to.equal(false)
-		expect(state:CanStart("Vault")).to.equal(false)
-		expect(state:CanStart("Grab")).to.equal(true)
+		expect((state:CanStart("Attack"))).to.equal(false)
+		expect((state:CanStart("Charge"))).to.equal(false)
+		expect((state:CanStart("Sprint"))).to.equal(false)
+		expect((state:CanStart("Vault"))).to.equal(false)
+		expect((state:CanStart("Grab"))).to.equal(true)
 
 		expect(ParkourState.enter(controller, mantling(0))).to.equal(true)
 		expect(state:IsActive("Hang")).to.equal(false)
 		expect(state:IsActive("Mantle")).to.equal(true)
-		expect(state:CanStart("Grab")).to.equal(false)
-		expect(state:CanStart("Attack")).to.equal(false)
+		expect((state:CanStart("Grab"))).to.equal(false)
+		expect((state:CanStart("Attack"))).to.equal(false)
 	end)
 
 	it("hands the hang lease to the mantle without briefly unblocking sprint", function()
@@ -196,7 +215,7 @@ return function()
 		expect(humanoid.AutoRotate).to.equal(false)
 		expect(humanoid.PlatformStand).to.equal(true)
 		controller.CornerProbeMiss = {
-			Climbable = climbable,
+			Climbable = climbable :: Instance,
 			Direction = 1,
 			Normal = Vector3.xAxis,
 			HangPosition = Vector3.new(1, 2, 3),
@@ -243,7 +262,7 @@ return function()
 
 		expect(VaultTraversal.update_vault(controller, 0.25)).to.equal(true)
 		local vault = ParkourState.vault(controller)
-		expect(vault.Elapsed).to.equal(0.25)
+		expect((vault :: ParkourState.VaultData).Elapsed).to.equal(0.25)
 		expect(math.abs(root.CFrame.Position.Z - (-1)) < 1e-4).to.equal(true)
 		expect(overrides:Base("JumpingEnabled")).to.equal(true)
 		expect(humanoid:GetStateEnabled(jumping)).to.equal(false)
@@ -414,7 +433,6 @@ return function()
 		expect(controller.Latch:IsBlocked("Jump")).to.equal(false)
 		expect(humanoid:GetStateEnabled(jumping)).to.equal(true)
 		expect(#fixture.Changes).to.equal(changes_after_destroy)
-		controller = nil
 	end)
 
 	it("releases every parkour lease and override on Destroy", function()
@@ -422,7 +440,6 @@ return function()
 		expect(ParkourState.enter(controller, hanging(climbable))).to.equal(true)
 
 		controller:Destroy()
-		controller = nil
 
 		expect(fixture.State:IsActive("Hang")).to.equal(false)
 		expect(humanoid.AutoRotate).to.equal(true)

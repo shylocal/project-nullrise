@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local Config = require(ReplicatedStorage.shared.config)
@@ -6,7 +7,7 @@ local Validator = require(ReplicatedStorage.shared.weapons.Validator)
 return function()
 	describe("Weapon Catalog", function()
 		it("loads the built-in melee weapon definitions", function()
-			local fists = Catalog.Get("Fists")
+			local fists = assert(Catalog.Get("Fists"))
 			local katana = Catalog.Get("Katana")
 
 			expect(fists).to.be.ok()
@@ -41,7 +42,7 @@ return function()
 		end)
 
 		it("returns the same deep-frozen definition on every lookup", function()
-			local fists = Catalog.Get("Fists")
+			local fists = assert(Catalog.Get("Fists"))
 			expect(fists).to.equal(Catalog.Get("Fists"))
 			expect(table.isfrozen(fists)).to.equal(true)
 			expect(table.isfrozen(fists.Moves)).to.equal(true)

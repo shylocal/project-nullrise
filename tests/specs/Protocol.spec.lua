@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Actions = require(ReplicatedStorage.shared.input.Actions)
 local Config = require(ReplicatedStorage.shared.config)

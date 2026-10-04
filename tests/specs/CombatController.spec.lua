@@ -1,3 +1,4 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
@@ -74,7 +75,7 @@ local function make_animation()
 		end,
 	}
 
-	function animation.StopAction()
+	function animation.StopAction(_self)
 		animation.StopCount += 1
 		local track = animation.Current
 		animation.Current = nil
@@ -86,7 +87,7 @@ local function make_animation()
 	return animation
 end
 
-local function make_harness(weapon_id)
+local function make_harness(weapon_id: string?)
 	local clock = FakeClock.new(0)
 	local character = Instance.new("Model")
 	local humanoid = Instance.new("Humanoid")
@@ -103,10 +104,13 @@ local function make_harness(weapon_id)
 
 	local controller = CombatController.new({
 		weapon = weapon,
-		animation = animation,
+		-- The fake's methods are untyped closures.
+		animation = animation :: any,
 		state = state,
 		input = input,
-		combat = combat,
+		-- A class instance (metatable type) does not match the structural
+		-- CombatLike in the analyzer; at runtime it has every member.
+		combat = combat :: any,
 		scheduler = clock:scheduler(),
 	})
 
@@ -164,7 +168,8 @@ return function()
 	describe("CombatController construction", function()
 		it("requires every dependency", function()
 			expect(function()
-				CombatController.new({})
+				-- Deliberately missing every dependency.
+				CombatController.new({} :: any)
 			end).to.throw()
 		end)
 	end)

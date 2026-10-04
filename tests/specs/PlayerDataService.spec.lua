@@ -19,7 +19,7 @@ type Fixture = { h: any, store: any, data: any }
 local function setup(is_studio: boolean): Fixture
 	local h = ServerHarness.new()
 	local store = FakeProfileStore.new(DataSchema.Template())
-	h.Runtime:Add("PlayerDataService", function(get)
+	h.Runtime:Add("PlayerDataService", function(get: (string) -> any)
 		return PlayerDataService.new({
 			players = get("PlayerService"),
 			store = store,
