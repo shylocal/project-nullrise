@@ -1224,3 +1224,65 @@ Agents never edit this section directly. Each INTEGRATE agent appends the entrie
 - (architect) R9's policy table lives client-side in `CharacterState/Policy.lua`, not in shared config, because no server code consults it.
 - (architect) R18's `Inventory.DefaultWeaponId` is folded into `Catalog.DefaultId` (R4) to keep one source.
 - (architect) ProfileStore is vendored under `src/server/vendor/` (server-only), rather than in `src/packages`, which would replicate it to clients.
+
+Phase 1 (recorded by INTEGRATE-1):
+
+- (P1-shared) `Validator.resolve(def)` merges `AttackDefaults` into each attack and the charge; the Catalog stores the resolved copies.
+- (P1-shared) `Envelope.sources()` is exported in addition to `Envelope.compute`.
+- (P1-shared) `Catalog.IsEquippable` requires the Catalog-injected `Id` (a known catalog id) and a `Type` in `Validator.KINDS`. A hand-built `{ Type = "Melee" }` no longer counts; specs copy `Catalog.Get(...)` instead.
+- (P1-shared) Schema reports only the first failing constraint per value. Custom checks return a message without the path. The root path is `(root)`, and non-identifier keys are shown as `["Combat.Hit"]`.
+- (P1-shared) Validator: a nil `Type` gives `"<id>.Type: is required"`; an unknown `Type` gives `"must be one of: Melee"` and `validate` returns false; `validate(def)` without an id labels errors `definition`.
+- (P1-shared) Extra config bounds: `Inventory.MaxSlots` is an integer in 1..9; envelope margins are >= 1; every budget `Burst` is >= 1; `MinFacingDot` is in [-1, 1]; budget keys match `^%a+%.%a+$`.
+- (P1-shared) `Types.lua` returns `table.freeze({})` (it only exports types).
+- (P1-shared) `Protocol.spec` checks action-name uniqueness per remote (CombatFx.Hit and Combat.Hit share a name on different remotes).
+- (P1-server) `tests/support/ServerHarness.lua` was added (builds the server services over the fakes).
+- (P1-server) `PlayerService:GetSessions()` was added so components can release per-session state when they are destroyed before PlayerService.
+- (P1-server) Character hooks (`OnCharacterAdded` / `OnCharacterRemoving`) only reach components whose `OnPlayerAdded` succeeded.
+- (P1-server) Telemetry: suspicion weights apply only to the Combat, Movement and Network categories; details are truncated to 48 characters; at most 64 distinct keys per player are kept between flushes (the rest are counted under `<overflow>`); `Forget` logs that player's counts immediately; `Destroy` does a final flush.
+- (P1-server) `InventoryService:SelectSlot` accepts 0 to mean "select nothing" (the Phase 1 wire is unchanged).
+- (P1-server) Cooldown and out-of-sequence Attack rejects are not counted in Telemetry (they happen in normal play).
+- (P1-server) A non-string remote action is counted as `Network/BadPayload`.
+- (P1-server) The Runtime factory return type is `any` and is checked at runtime (`Destroy` is required).
+- (P1-server) `MovementValidation.Window` holds frozen window constants; `LastViolationAt` starts at `-math.huge`.
+- (P1-server) `RemoteBudget` counts `UnknownAction` with the full action string as the detail (bounded by the Telemetry key cap).
+- (P1-parkour) `State.enter` acquires the incoming state's lease and overrides before releasing the outgoing ones; `State.init`, `State.reset` and `State.resources` were added.
+- (P1-parkour) `QueryContext:Raycast` / `:Pierce` take an optional trailing metric name; `ctx:Exclude(params, extra)` was added.
+- (P1-parkour) `ClimbableIndex` marks a guide dirty on CFrame, Size or descendant changes, treats unanchored parts as dynamic (in addition to the `ClimbableDynamic` attribute), keeps `Bounds()` live for BaseParts, and stores guides that span more than 512 cells in a flat list.
+- (P1-parkour) `LedgeDetection.select_higher_top` takes the index as a 6th argument; a `mantle_search_box` helper was added.
+- (P1-parkour) Controller fields were renamed to `Input`, `Movement` and `CharacterState`; metrics live on `controller.Metrics`; `controller.Climbables` is public so specs can inject a fake index.
+- (P1-parkour) The `ModelBoundsQueries` metric was removed; `TaggedGuides` counts index candidates.
+- (P1-parkour) Grabbing a ledge during a top-hop ends the top-hop at the grab.
+- (P1-parkour) `CornerProbeMiss` is cleared on any exit from Hanging.
+- (P1-parkour) The grab positions the root with the frame `dt`; input-driven snaps use 0.
+- (P1-parkour) Parkour specs use local fake input objects.
+- (P1-client) `PlayerController.new` takes an extra dependency, `create_character` (init passes `CharacterController.new`), so specs can record character construction.
+- (P1-client) `InputController.from_adapters({ adapters, focus_released, initial_source })` was added for specs.
+- (P1-client) The WeaponMenu Fists button sends `SelectItem(Catalog.DefaultId)`, which the server maps to no selection, rather than `SelectSlot(0)`; the wire is unchanged in Phase 1.
+- (P1-client) `WeaponController.new` and `AnimationController.new` take `{ character }`; `Hitbox.resolve_target` is exposed for specs.
+- (P1-client) `CombatController._finish_attack` keeps its `task.defer` and Hitmarker keeps its `task.delay` (neither affects gameplay timing).
+- (P1-client) TrackCache reuses tracks, so `Ended` handlers ignore an `Ended` that arrives while the same track is playing again.
+- (P1-client) WeaponMenu shows the loadout state at startup: the Katana button is hidden until the server reports Katana in a slot.
+- (INTEGRATE-1) `WeaponMenu:SetInventory` / `:SetEquipped` were renamed to the private `_show_inventory` / `_show_equipped`, so no public `SetInventory` / `SetEquipped` remains.
+
+## 17. Phase 1 status
+
+Recorded by INTEGRATE-1 after reconciling the four Phase 1 agents.
+
+**Done**
+
+- §3 shared contracts: the config tree with validation and `Envelope`, `Freeze`, `Schema`, the Catalog additions (`DefaultId`, `Ids`, `All`, `IsEquippable`, `Loadout`), `CharacterQuery`, `Actions.Slots`, the Protocol split, `Runtime` / `Scheduler` / `Deps`, and `RejectReason`.
+- §4 server: `PlayerSession` / `PlayerService` components with session phases, `compose/{Core,Items,Combat}`, `RemoteBudget`, `Telemetry`, the CombatService amplifier fix and per-target reject cap, CombatValidation reason codes, `CanQuery = false` on weapon parts, and MovementValidation with derived limits.
+- §5 client: the client Runtime boot, `CombatClient` / `LoadoutClient` as the only remote listeners, the session-lifetime UI, CharacterController composition through a Runtime (reverse teardown), TrackCache with boot preload, CombatController on the scheduler and `combat:Send`, and PC hotkeys 1-9.
+- §6 parkour: the typed `State`, `InputLatch`, `ClimbableIndex`, `QueryContext`, frame ray metrics, the corner miss cache, `CharacterState` (leases, policy, `HumanoidOverrides`) and MovementController on CharacterState.
+- §7 test fakes, with every spec rewritten against the new APIs.
+- INTEGRATE-1 deleted the shims `shared/movement/Config.lua`, `shared/weapons/CombatConfig.lua` and `Catalog.IsMelee` (no callers remained) along with their spec assertions. It checked the cross-agent constructor contracts, which already matched §5.5 and §12, and updated README, TESTING (Phase 1 smoke tests) and THREAT_MODEL. `sh scripts/analyze.sh` reports zero diagnostics for the whole project and `rojo build` succeeds. Fists and Katana numbers are identical to the pre-refactor commit; the only feel-adjacent changes are the ones listed in §14.
+
+**Deviations:** see the Phase 1 block in §16.
+
+**Deferred / to verify in Studio**
+
+- The whole suite has been checked only by inspection and the analyzer. The next Studio run must confirm it; the pre-refactor baseline was 151/151.
+- The `PlayerService.spec` "destroyed character" case relies on one `task.wait()` for the deferred `Destroying` event.
+- The LateHitStart and charge-past-MaxHoldTime specs set `HitStartClosesAt` on the active record through `session:Get`.
+- The manual smoke tests in `docs/TESTING.md` ("Refactor (Phase 1) smoke tests") have not been run yet.
+- Phase 2 (§9) has not started: weapon schema v2 and moves, DamageService and CombatFx, lag compensation and PendingHitStart, items and persistence, content contracts, selene and Wally.

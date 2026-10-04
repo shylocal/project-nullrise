@@ -8,7 +8,7 @@ Combat crosses the trust boundary through `ReplicatedStorage.remotes.Combat`. Th
 
 **Fixed:** line of sight is now always checked from the attacker's root to the target's root (head to head as a fallback), so a hit through a wall is rejected even when the hitpoint-to-impact segment is clear. The reported impact must also lie on the target's bounding box (within `HitPositionTolerance`). Attack rate is enforced per attack through `MinDuration`, and hit timing through each attack's `HitStartAt`/`HitWindow`.
 
-Inventory selection crosses a separate remote. The server validates slot/item values and rate-limits selection requests. **Fixed:** slots are integers in `1..InventoryService.MAX_SLOTS` (9); non-integer, huge, NaN and infinite slots are rejected. Weapon models are kept server-side in `ServerStorage` and only attached to the character after server validation. **Fixed:** the server refuses to attach weapons to non-R6 rigs, so such characters cannot attack.
+Inventory selection crosses a separate remote. The server validates slot/item values and charges every request against the per-player `RemoteBudget` (token buckets per action plus a global bucket, `Config.Network.RemoteBudget`). **Fixed:** slots are integers in `1..InventoryService.MAX_SLOTS` (9); non-integer, huge, NaN and infinite slots are rejected. Weapon models are kept server-side in `ServerStorage` and only attached to the character after server validation. **Fixed:** the server refuses to attach weapons to non-R6 rigs, so such characters cannot attack.
 
 ## Client-authoritative movement
 
@@ -17,14 +17,14 @@ Parkour and movement still run on the client by design. `ParkourController` writ
 A server-side `MovementValidation` observer now watches the replicated character root and classifies only extreme anomalies:
 
 - `TeleportDistance`: displacement more than 40 studs beyond the allowed speed envelope.
-- `HorizontalSpeed`: more than 96 studs/s horizontally.
-- `VerticalSpeed`: more than 240 studs/s upward, or faster downward than free fall allows: `sqrt(240^2 + 2 * Workspace.Gravity * h)`, where `h` is the height fallen since the last apex.
+- `HorizontalSpeed`: more than 98.5 studs/s horizontally (derived: `Envelope.HorizontalMargin` times the fastest legitimate source, see `src/shared/config/Envelope.lua`).
+- `VerticalSpeed`: more than 240 studs/s upward (derived the same way from `MaxJumpVelocity`), or faster downward than free fall allows: `sqrt(240^2 + 2 * Workspace.Gravity * h)`, where `h` is the height fallen since the last apex.
 
 **Fixed:** long falls no longer produce false `VerticalSpeed` reports. Displacement is judged over a sliding window of up to 1 second, and only once the window covers at least 0.25 seconds, so a burst of delayed replicated positions is averaged over the time it covers.
 
 The observer resets its baseline when a character spawns/removes and ignores the first 1.5 seconds of each character's life while Roblox settles spawn physics. During that grace period it continues refreshing its baseline without classifying movement. It also ignores samples separated by more than 0.5 seconds so server stalls do not become false positives.
 
-This validator is **observe-only**. It records a per-player violation count and rate-limited server warning; it does not kick, reposition, or otherwise mutate the character. The thresholds are intentionally loose enough to encompass the authored vault/top-hop movement envelopes while still providing server-side evidence when a client makes implausible jumps.
+This validator is **observe-only**. It records a per-player violation count, a Telemetry counter and a rate-limited server warning; it does not kick, reposition, or otherwise mutate the character. The thresholds are intentionally loose enough to encompass the authored vault/top-hop movement envelopes while still providing server-side evidence when a client makes implausible jumps.
 
 ## What this does and does not protect
 
