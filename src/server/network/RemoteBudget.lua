@@ -34,6 +34,9 @@ export type RemoteBudgetDeps = {
 	telemetry: Telemetry.Telemetry,
 	-- Studio prints the raw name of each unknown action.
 	is_studio: boolean,
+	-- PlayerService component name. Only specs that run a second budget next
+	-- to the composed one need to set it.
+	component_name: string?,
 }
 
 type RemoteBudgetFields = {
@@ -92,7 +95,7 @@ function RemoteBudget.new(deps: RemoteBudgetDeps): RemoteBudget
 	}
 	local self = setmetatable(fields, RemoteBudget)
 
-	deps.players:Register(self, "RemoteBudget")
+	deps.players:Register(self, deps.component_name or "RemoteBudget")
 
 	return self
 end

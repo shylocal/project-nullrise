@@ -26,6 +26,7 @@ local function setup(): (any, any)
 			clock = h.Clock.now,
 			telemetry = get("Telemetry"),
 			is_studio = false,
+			component_name = "SpecBudget",
 		})
 	end)
 	h:Start()

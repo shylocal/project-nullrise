@@ -153,16 +153,17 @@ local function model_of(f: Fixture, player: any, weapon_id: string): Instance
 	return model
 end
 
-local function announced(f: Fixture): { string }
-	local ids = {}
-	for _, packet in f.h.Remotes.Weapon.Sent do
-		expect(packet[2]).to.equal(Protocol.Weapon.Equipped)
-		table.insert(ids, packet[3])
-	end
-	return ids
-end
-
 return function()
+	-- Defined inside the spec function so TestEZ's injected `expect` is in scope.
+	local function announced(f: Fixture): { string }
+		local ids = {}
+		for _, packet in f.h.Remotes.Weapon.Sent do
+			expect(packet[2]).to.equal(Protocol.Weapon.Equipped)
+			table.insert(ids, packet[3])
+		end
+		return ids
+	end
+
 	describe("WeaponService", function()
 		local f: Fixture
 

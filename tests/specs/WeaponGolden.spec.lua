@@ -42,14 +42,15 @@ local ANIMATIONS: { [string]: { [string]: { any } } } = {
 	},
 }
 
-local function expect_animation(animation: any, values: { any })
-	expect(animation.Id).to.equal(values[1])
-	expect(animation.Priority).to.equal(values[2])
-	expect(animation.Looped).to.equal(values[3])
-	expect(animation.TransitionTime).to.equal(values[4])
-end
-
 return function()
+	-- Defined inside the spec function so TestEZ's injected `expect` is in scope.
+	local function expect_animation(animation: any, values: { any })
+		expect(animation.Id).to.equal(values[1])
+		expect(animation.Priority).to.equal(values[2])
+		expect(animation.Looped).to.equal(values[3])
+		expect(animation.TransitionTime).to.equal(values[4])
+	end
+
 	describe("Weapon golden values", function()
 		for weapon_id, moves in pairs(GOLDEN) do
 			local current_weapon_id = weapon_id

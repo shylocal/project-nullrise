@@ -11,6 +11,12 @@ src/shared, src/packages, tests) to resolve. selene is installed at ~/.aftman/bi
 TestEZ specs live in tests/specs and run only in Studio (cannot be executed here). The user just ran the suite in
 Studio on the pre-refactor code: 151 passed, 0 failed. Keep specs correct by inspection AND analyzer-clean; add specs
 for every new module with pure logic. Never infinite-WaitForChild in specs.
+TestEZ pitfalls the analyzer cannot catch (both broke specs in the first post-refactor Studio run):
+- `expect` (and describe/it) exist only inside the spec's returned function. A helper declared at module
+  level that calls `expect` gets nil at runtime. Declare such helpers inside `return function() ... end`.
+- FakePlayers:Add fires PlayerAdded synchronously, so a whole join (including store hooks) runs before Add
+  returns. Inside those hooks, look the player up with `GetPlayers()` instead of reading a local that Add
+  has not assigned yet.
 
 Rules:
 - Gameplay feel must stay the same for Fists and Katana (damage, timing, ranges, cooldowns, movement speeds) unless

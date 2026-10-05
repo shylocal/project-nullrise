@@ -265,7 +265,9 @@ return function()
 			local player: any
 			f.store.BeforeReturn = function(_key, params)
 				cancelled_before = params.Cancel()
-				f.h.Players:Remove(player)
+				-- Players:Add fires PlayerAdded synchronously, so the load runs
+				-- before Add returns and `player` is still unassigned here.
+				f.h.Players:Remove(f.h.Players:GetPlayers()[1])
 			end
 			player = f.h.Players:Add({ UserId = USER_ID })
 
@@ -279,7 +281,9 @@ return function()
 			f.store.IgnoreCancel = true
 			local player: any
 			f.store.BeforeReturn = function()
-				f.h.Players:Remove(player)
+				-- Players:Add fires PlayerAdded synchronously, so the load runs
+				-- before Add returns and `player` is still unassigned here.
+				f.h.Players:Remove(f.h.Players:GetPlayers()[1])
 			end
 			player = f.h.Players:Add({ UserId = USER_ID })
 
