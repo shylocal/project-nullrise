@@ -65,7 +65,7 @@ type CharacterInfo = { Player: Player, SpawnedAt: number }
 
 type AttackerEntry = { Source: Combatant, At: number }
 
-type TargetRecord = { Entries: { AttackerEntry }, Connection: RBXScriptConnection? }
+type TargetRecord = { Entries: { AttackerEntry }, Connections: { RBXScriptConnection } }
 
 type NamedPolicy = { Name: string, Policy: Policy }
 
@@ -271,12 +271,19 @@ end
 function DamageService._remember(self: DamageService, target: Model, source: Combatant)
 	local record = self._recent[target]
 	if record == nil then
-		record = { Entries = {}, Connection = nil }
+		record = { Entries = {}, Connections = {} }
 		self._recent[target] = record
-		-- Non-player targets have no removal hook; drop their record with them.
-		record.Connection = target.Destroying:Connect(function()
+		-- Non-player targets have no removal hook; drop their record when
+		-- they are destroyed or leave the DataModel (an unparented NPC, for
+		-- example one returned to a pool, is never destroyed).
+		table.insert(record.Connections, target.Destroying:Connect(function()
 			self:_forget(target)
-		end)
+		end))
+		table.insert(record.Connections, target.AncestryChanged:Connect(function()
+			if not target:IsDescendantOf(game) then
+				self:_forget(target)
+			end
+		end))
 	end
 
 	local now = self._scheduler.clock()
@@ -299,8 +306,8 @@ function DamageService._forget(self: DamageService, target: Model)
 		return
 	end
 	self._recent[target] = nil
-	if record.Connection then
-		record.Connection:Disconnect()
+	for _, connection in record.Connections do
+		connection:Disconnect()
 	end
 end
 

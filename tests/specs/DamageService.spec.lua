@@ -269,6 +269,33 @@ return function()
 			expect(#f.damage:GetRecentAttackers(target)).to.equal(0)
 		end)
 
+		it("forgets a target's attackers when the target leaves the DataModel", function()
+			-- Regression: an unparented (not destroyed) NPC kept its record.
+			f = setup()
+			local target = f.h:Character({ Name = "Target" })
+			f.damage:Apply(request(f, target))
+			expect(#f.damage:GetRecentAttackers(target)).to.equal(1)
+
+			target.Parent = nil
+			task.wait()
+
+			expect(#f.damage:GetRecentAttackers(target)).to.equal(0)
+			expect(f.damage._recent[target]).to.equal(nil)
+		end)
+
+		it("keeps a target's attackers when it moves within the DataModel", function()
+			f = setup()
+			local target = f.h:Character({ Name = "Target" })
+			f.damage:Apply(request(f, target))
+			local folder = f.h:Track(Instance.new("Folder"))
+			folder.Parent = Workspace
+
+			target.Parent = folder
+			task.wait()
+
+			expect(#f.damage:GetRecentAttackers(target)).to.equal(1)
+		end)
+
 		it("rejects malformed requests", function()
 			f = setup()
 			local target = f.h:Character({ Name = "Target" })
