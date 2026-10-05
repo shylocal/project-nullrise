@@ -1226,6 +1226,7 @@ Baseline diagnostics:
 16. (Finish, client) When the Animator is replaced mid-attack, the attack finishes at once: HitStop is sent, the hitbox stops and the attack lease is released. Before, they stayed open until the next attack or Reset. `AnimationController.CacheReset` carries this. Review finding 9.
 17. (Finish, client) After a window focus loss, the first Left Shift press sprints again. Before, it was swallowed. Adapters may define an optional `ReleaseAll()`, which InputController calls on focus loss. Review finding 10.
 18. (Finish, server) After a Charge (Heavy) is held past its HitStart marker and released, the next Hold-bound move's hit window cannot open before `release + Hold.HoldTime + HitStartAt - TimingTolerance`. An earlier HitStart is armed until then. Legitimate play cannot reach this bound, because a new hold needs a fresh press after the release. Attack acceptance, Lights and cooldowns are unchanged. Review finding 1.
+19. (User decision 1, client) A ledge grab can start during a light attack or a Heavy charge, and the grab cancels that attack: HitStop is sent, the hitbox and the move animation stop, the attack lease is released, and a pending tap, buffered hold or held charge is dropped. Before, the attack kept playing while hanging. CombatController reacts to `CharacterState.Changed` reporting Hang active. Hang still blocks new attacks; the cooldown and the server combo sequence are kept.
 
 ---
 

@@ -65,6 +65,15 @@ return function()
 			rooted:Release()
 		end)
 
+		it("lets a ledge grab start during any attack", function()
+			-- A grab cancels the attack (CombatController reacts to Hang).
+			for _, activity in { "Attack", "AttackRooted" } do
+				local lease = state:Acquire("combat", activity :: CharacterState.Activity)
+				expect((state:CanStart("Grab"))).to.equal(true)
+				lease:Release()
+			end
+		end)
+
 		it("fires Changed only on the first acquire and the last release", function()
 			local first = state:Acquire("a", "Vault")
 			local second = state:Acquire("b", "Vault")

@@ -46,7 +46,7 @@ The ranked review behind all of this is in `docs/refactor/REVIEW_IDEAS.md`.
 
 ## User decisions to implement (2026-10-05, after the review fixes land)
 
-1. **Attacks and ledge grabs (confirmed by the user).** The player CAN grab a ledge while light-attacking or charging. **The grab cancels that attack.**
+1. **DONE (2026-10-05, see plan §14.19). Attacks and ledge grabs (confirmed by the user).** The player CAN grab a ledge while light-attacking or charging. **The grab cancels that attack.**
    - In `src/client/controllers/CharacterState/Policy.lua`, attack activities (`Attack`, `AttackRooted`, the charge activity) must NOT block `Grab`. Hang already blocks Attack and Charge.
    - On a successful grab, cancel the current attack, whether a light attack or a Heavy charge:
      - release its lease;

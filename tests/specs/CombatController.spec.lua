@@ -473,6 +473,107 @@ return function()
 		end)
 	end)
 
+	describe("CombatController ledge grab", function()
+		local function charge_def()
+			return default_weapon().Moves.Heavy
+		end
+
+		it("lets a grab start during a light attack and ends the attack", function()
+			local h = make_harness()
+			h.tap()
+			h.remote:Inject("AttackAccepted", LIGHT1, LIGHT2)
+			h.animation.Tracks.Light1:FireMarker("HitStart")
+			local stopped = false
+			h.controller.ActiveHit = {
+				Hitbox = { Stop = function() stopped = true end },
+				MoveId = LIGHT1,
+				AttackTrove = h.controller.AttackTrove,
+				LifecycleId = h.controller.AttackLifecycleId,
+			} :: any
+			h.remote:Clear()
+
+			expect((h.state:CanStart("Grab"))).to.equal(true)
+			local hang = h.state:Acquire("spec", "Hang")
+
+			expect(h.sent()[1]).to.equal(message("HitStop", LIGHT1))
+			expect(stopped).to.equal(true)
+			expect(h.controller.ActiveHit).to.equal(nil)
+			expect(h.controller.AttackTrove).to.equal(nil)
+			expect(h.controller.AttackLease).to.equal(nil)
+			expect(h.controller.CurrentMoveId).to.equal(nil)
+			expect(h.state:IsActive("Attack")).to.equal(false)
+			expect(h.animation.StopCount).to.equal(1)
+			expect(h.animation.Tracks.Light1.IsPlaying).to.equal(false)
+			hang:Release()
+			h.destroy()
+		end)
+
+		it("lets a grab start during a charge and ends the charge", function()
+			local h = make_harness()
+			h.press()
+			h.clock:advance(charge_def().Hold.HoldTime)
+			h.animation.Tracks.Heavy:FireMarker("HitStart")
+			expect(h.controller.Charging).to.equal(true)
+			h.remote:Clear()
+
+			expect((h.state:CanStart("Grab"))).to.equal(true)
+			local hang = h.state:Acquire("spec", "Hang")
+
+			expect(h.sent()[1]).to.equal(message("HitStop", HEAVY))
+			expect(h.controller.Charging).to.equal(false)
+			expect(h.controller.ChargeReady).to.equal(false)
+			expect(h.controller.AttackLease).to.equal(nil)
+			expect(h.state:IsActive("AttackRooted") or h.state:IsActive("Attack")).to.equal(false)
+
+			-- Neither the release nor MaxHoldTime starts the abandoned hit.
+			h.release()
+			h.clock:advance(charge_def().Hold.MaxHoldTime + 1)
+			expect(contains(h.sent(), message("HitStart", HEAVY))).to.equal(false)
+			hang:Release()
+			h.destroy()
+		end)
+
+		it("drops a hold that has not reached HoldTime yet", function()
+			local h = make_harness()
+			h.press()
+			local hang = h.state:Acquire("spec", "Hang")
+			hang:Release()
+
+			h.clock:advance(charge_def().Hold.HoldTime * 2)
+			expect(contains(h.sent(), message("Attack", HEAVY))).to.equal(false)
+			expect(h.controller.BufferedMove).to.equal(nil)
+			h.release()
+			-- The cancelled press does not fall back to a tap either.
+			expect(#h.remote.Sent).to.equal(0)
+			h.destroy()
+		end)
+
+		it("blocks attacks while hanging and allows them after release", function()
+			local h = make_harness()
+			h.tap()
+			local hang = h.state:Acquire("spec", "Hang")
+			h.remote:Inject("AttackAccepted", LIGHT1, LIGHT2)
+			h.clock:advance(default_weapon().Moves.Light1.Cooldown)
+			h.remote:Clear()
+
+			h.tap()
+			h.press()
+			h.clock:advance(charge_def().Hold.HoldTime)
+			h.release()
+			expect(#h.remote.Sent).to.equal(0)
+			expect(h.controller.AttackLease).to.equal(nil)
+
+			hang:Release()
+			expect(h.state:IsActive("Attack")).to.equal(false)
+			expect(h.state:IsActive("AttackRooted")).to.equal(false)
+
+			h.tap()
+			expect(h.sent()[1]).to.equal(message("Attack", LIGHT2))
+			expect(h.state:IsActive("Attack")).to.equal(true)
+			h.destroy()
+		end)
+	end)
+
 	describe("Hitbox target resolution", function()
 		local function make_character(name)
 			local model = Instance.new("Model")

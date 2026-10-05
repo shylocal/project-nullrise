@@ -141,3 +141,11 @@ Phase 3 only adds types, with two behaviour fixes (`docs/REFACTOR_PLAN.md` §14.
 
 - Early-HitStart hit (§14.14): set Network > Incoming Replication Lag to about 0.2s and stand right next to a dummy, so the weapon touches it as the swing starts. Fast combo taps and Heavy releases land on the first frame of contact, and each target is damaged once per swing. In the Telemetry summary, `Combat/EarlyHitStart` still counts, but `Combat/NotActive` does not rise during these swings. A HitStop or a respawn before the window opens drops the buffered hits (no damage).
 - MeshPart/Union climb-guide A/D (§14.13): tag a MeshPart, a WedgePart and a UnionOperation as `Climbable`. Hang on each and hold A, then D. The character shimmies (or stops at the edge) with no error in the output. A cylinder `Part` guide still traverses as before.
+
+## Ledge grab during an attack (user decision 1)
+
+`docs/REFACTOR_PLAN.md` §14.19. With Fists, then with Katana:
+
+- Run at a ledge, tap a light attack and jump to grab mid-swing. The grab succeeds, the swing animation stops, and no hit lands after the grab. While hanging, taps and holds do nothing.
+- Hold Primary until the Heavy charge pauses, then jump to grab while still holding. The grab succeeds and the charge ends. Releasing Primary while hanging starts no hit, and no Heavy fires later.
+- Drop off or mantle the ledge, then tap: the next light attack plays at once (no stuck attack lease) and sprint works.
