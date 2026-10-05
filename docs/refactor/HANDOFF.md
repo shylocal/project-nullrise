@@ -4,6 +4,13 @@ Last updated: 2026-10-05. Work happens directly on `main` (commit and push witho
 
 **The refactor is complete in code and docs.** The architecture as built is in [docs/ARCHITECTURE.md](../ARCHITECTURE.md). The original design contract is in git history: `git show 973df88:docs/REFACTOR_PLAN.md`.
 
+## Verified in Studio (2026-10-05)
+
+- Every P1 smoke test in docs/TESTING.md passed.
+- First post-refactor TestEZ run: 555/574. The 19 failures were fixed in 687d70b (overkill was counted as applied damage) and 32987e9 (spec bugs).
+- Re-run: **574 passed, 0 failed**. The refactor is complete.
+- Still open: `src/shared/weapons/AnimationManifest.lua` is empty (`return {}`), so no move timing is checked against the real animations yet. Bake it (see "What remains").
+
 ## Status
 
 | Step | Status |
