@@ -16,6 +16,12 @@ export type State = {
 	RaysThisFrame: number,
 	MaxRaysPerFrame: number,
 	LastBudgetWarnAt: number,
+	-- Rays cast this frame inside a ledge search; excluded from FrameRayBudget.
+	SearchRaysThisFrame: number,
+	-- Nesting depth of measure_search, and rays cast by the current search.
+	SearchDepth: number,
+	SearchRays: number,
+	LastSearchWarnAt: number,
 }
 
 -- Anything that carries metrics state (the controller, or a spec fake).
@@ -45,6 +51,10 @@ function Metrics.new(enabled: boolean): State
 		RaysThisFrame = 0,
 		MaxRaysPerFrame = 0,
 		LastBudgetWarnAt = -math.huge,
+		SearchRaysThisFrame = 0,
+		SearchDepth = 0,
+		SearchRays = 0,
+		LastSearchWarnAt = -math.huge,
 	}
 end
 
@@ -68,9 +78,12 @@ end
 -- Called first in every controller step.
 function Metrics.begin_frame(controller: Host)
 	controller.Metrics.RaysThisFrame = 0
+	controller.Metrics.SearchRaysThisFrame = 0
 end
 
--- Counts one raycast against the frame budget, whether or not profiling is on.
+-- Counts one raycast, whether or not profiling is on. Rays inside a ledge
+-- search count toward that search's SearchRayBudget; every other ray counts
+-- toward FrameRayBudget, the steady per-frame cost.
 function Metrics.count_ray(controller: Host)
 	local metrics = controller.Metrics
 	local rays = metrics.RaysThisFrame + 1
@@ -78,13 +91,19 @@ function Metrics.count_ray(controller: Host)
 	if rays > metrics.MaxRaysPerFrame then
 		metrics.MaxRaysPerFrame = rays
 	end
-	if IS_STUDIO and rays == Config.Parkour.FrameRayBudget + 1 then
+	if metrics.SearchDepth > 0 then
+		metrics.SearchRaysThisFrame += 1
+		metrics.SearchRays += 1
+		return
+	end
+	local frame_rays = rays - metrics.SearchRaysThisFrame
+	if IS_STUDIO and frame_rays == Config.Parkour.FrameRayBudget + 1 then
 		local now = os.clock()
 		if now - metrics.LastBudgetWarnAt >= Config.Parkour.BudgetWarnInterval then
 			metrics.LastBudgetWarnAt = now
 			warn(string.format(
 				"[ParkourMetrics] %d+ raycasts in one frame (budget %d)",
-				rays,
+				frame_rays,
 				Config.Parkour.FrameRayBudget
 			))
 		end
@@ -104,17 +123,47 @@ function Metrics.reset(controller: Host)
 	table.clear(controller.Metrics.Stats)
 end
 
--- Runs one ledge search. With profiling on, the counters are reset first and
+-- Runs one ledge search. Its rays are checked against SearchRayBudget instead
+-- of FrameRayBudget. With profiling on, the counters are reset first and
 -- printed afterwards with the search's duration.
 function Metrics.measure_search(controller: Host, name: string, search: () -> ())
-	if not Metrics.is_enabled(controller) then
-		search()
+	local metrics = controller.Metrics
+	local outermost = metrics.SearchDepth == 0
+	if outermost then
+		metrics.SearchRays = 0
+	end
+	metrics.SearchDepth += 1
+
+	local profiling = Metrics.is_enabled(controller)
+	local started_at = os.clock()
+	if profiling then
+		Metrics.reset(controller)
+	end
+
+	-- The depth must unwind even if the search errors.
+	local result = table.pack(pcall(search))
+	metrics.SearchDepth -= 1
+	if not result[1] then
+		error(result[2], 0)
+	end
+
+	if outermost and IS_STUDIO and metrics.SearchRays > Config.Parkour.SearchRayBudget then
+		local now = os.clock()
+		if now - metrics.LastSearchWarnAt >= Config.Parkour.BudgetWarnInterval then
+			metrics.LastSearchWarnAt = now
+			warn(string.format(
+				"[ParkourMetrics] %s search cast %d raycasts (budget %d)",
+				name,
+				metrics.SearchRays,
+				Config.Parkour.SearchRayBudget
+			))
+		end
+	end
+
+	if not profiling then
 		return
 	end
 
-	Metrics.reset(controller)
-	local started_at = os.clock()
-	search()
 	Metrics.record(controller, "SearchMilliseconds", (os.clock() - started_at) * 1000)
 
 	local stats = Metrics.snapshot(controller)

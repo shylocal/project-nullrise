@@ -61,7 +61,13 @@ local Parkour = {
 	-- Seconds an empty corner-fan result is reused while straight traversal is blocked.
 	CornerProbeMissTtl = 0.2,
 	-- Raycasts per frame above which Studio warns (metrics count regardless).
+	-- Rays cast inside a one-off ledge search (mantle, lower ledge) are not
+	-- counted here; they have SearchRayBudget instead.
 	FrameRayBudget = 48,
+	-- Raycasts one ledge search may cast before Studio warns. A search scans a
+	-- 7x6 column grid per guide in range, so it is a burst on one key press,
+	-- not a per-frame cost.
+	SearchRayBudget = 256,
 	-- Minimum seconds between frame-budget warnings.
 	BudgetWarnInterval = 5,
 }

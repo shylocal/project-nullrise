@@ -62,6 +62,7 @@ local PARKOUR_OVERRIDES: { [string]: Schema.Spec } = {
 	VaultDurationMultiplier = Schema.number({ gte = 0.5, lte = 1.5 }),
 	MaxTopSurfaceHits = positive_integer,
 	FrameRayBudget = positive_integer,
+	SearchRayBudget = positive_integer,
 }
 
 local function parkour_spec(): Schema.Spec

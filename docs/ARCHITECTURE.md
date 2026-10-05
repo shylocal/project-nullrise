@@ -329,7 +329,7 @@ Around it:
 - `LedgeTraversal` and `Traversal`: hang, shimmy and corners. The corner fan's miss is cached for `CornerProbeMissTtl` (0.2s) while traversal is blocked.
 - `VaultTraversal` and `VaultMath`: vault, and the top-hop onto a raised surface. The top-hop pushes `JumpPower = 0` (or `JumpHeight`) until the Humanoid leaves `Jumping`.
 - `QueryContext`: owns every `RaycastParams` and `OverlapParams`, and routes every Workspace query (`Raycast`, `Pierce`, `PartsInPart`, `PartBoundsInBox`) through one place that records metrics.
-- `Metrics`: per-frame ray counters. In Studio it warns at most once per `BudgetWarnInterval` when a frame exceeds `FrameRayBudget` (48).
+- `Metrics`: ray counters. Rays cast inside `measure_search` (the one-off Mantle and LowerLedge searches, which scan a 7x6 column grid per guide on a key press) count toward that search's `SearchRayBudget` (256). Every other ray counts toward the steady per-frame `FrameRayBudget` (48). In Studio each budget warns at most once per `BudgetWarnInterval` when exceeded.
 
 ### 7.2 CharacterState arbiter (`CharacterState/`)
 
