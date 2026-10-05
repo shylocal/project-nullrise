@@ -20,6 +20,9 @@ local Combat = {
 	MaxLineOfSightCasts = 4,
 	-- Minimum seconds between throttled AttackRejected replies to one player.
 	RejectReplyInterval = 0.25,
+	-- In Studio, print every dropped or rejected hit with its reason and the
+	-- measured distances. Never prints on live servers.
+	LogRejectsInStudio = true,
 	LagCompensation = {
 		Enabled = true,
 		InterpolationDelay = 0.1,

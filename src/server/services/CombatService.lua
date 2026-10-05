@@ -25,6 +25,13 @@ local MoveKinds = require(script.Parent.MoveKinds)
 local PlayerService = require(script.Parent.PlayerService)
 local PlayerSession = require(script.Parent.PlayerSession)
 local PositionHistory = require(script.Parent.PositionHistory)
+
+-- Studio-only reject diagnostics (Config.Combat.LogRejectsInStudio).
+local LOG_REJECTS = game:GetService("RunService"):IsStudio() and Config.Combat.LogRejectsInStudio
+local DEBUG_FIELDS = {
+	"Reach", "ReachWithLead", "ReachLimit", "BodyDistance", "HitpointOffset",
+	"HitpointOffsetWithLead", "Tolerance", "Lead", "Rewind", "FacingDot",
+}
 local Telemetry = require(script.Parent.Telemetry)
 local WeaponService = require(script.Parent.WeaponService)
 
@@ -297,8 +304,25 @@ function CombatService._state(self: CombatService, player: Player): (State?, Pla
 	return session:Get(self) :: State?, session
 end
 
-function CombatService._count(self: CombatService, player: Player, reason: Reason, weapon_id: string?)
+function CombatService._count(self: CombatService, player: Player, reason: Reason, weapon_id: string?, debug: { [string]: number }?)
 	self._telemetry:Count(player, "Combat", reason, weapon_id)
+	if LOG_REJECTS then
+		local parts = {}
+		if debug then
+			for _, field in DEBUG_FIELDS do
+				local value = debug[field]
+				if value ~= nil then
+					table.insert(parts, ("%s=%.2f"):format(field, value))
+				end
+			end
+		end
+		print(("[CombatDebug] %s %s: %s %s"):format(
+			player.Name,
+			tostring(weapon_id),
+			reason,
+			table.concat(parts, " ")
+		))
+	end
 end
 
 function CombatService._equipped_id(self: CombatService, player: Player): string?
@@ -776,6 +800,7 @@ function CombatService._validate_hit(
 
 	active.HitRequests += 1
 
+	local debug: { [string]: number }? = if LOG_REJECTS then {} else nil
 	local hit_humanoid, reason, rewound = CombatValidation.ValidateHit(
 		-- WeaponService has the WieldLookup shape; the checker does not match
 		-- metatable-backed classes against table types.
@@ -788,12 +813,13 @@ function CombatService._validate_hit(
 		{
 			History = if LagCompensation.Enabled then self._history else nil,
 			Rewind = self:_rewind(player),
+			Debug = debug,
 		}
 	)
 
 	if not hit_humanoid then
 		active.Rejected[target] = rejected + 1
-		self:_count(player, reason or RejectReason.BadPayload, weapon_id)
+		self:_count(player, reason or RejectReason.BadPayload, weapon_id, debug)
 		return
 	end
 

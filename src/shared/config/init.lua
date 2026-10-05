@@ -84,6 +84,7 @@ local COMBAT = Schema.record({
 	MinFacingDot = Schema.number({ gte = -1, lte = 1 }),
 	MaxLineOfSightCasts = positive_integer,
 	RejectReplyInterval = non_negative,
+	LogRejectsInStudio = Schema.boolean(),
 	LagCompensation = Schema.record({
 		Enabled = Schema.boolean(),
 		InterpolationDelay = non_negative,

@@ -36,6 +36,8 @@ export type ValidateOptions = {
 	History: PositionHistory.PositionHistory?,
 	-- Seconds before the target's newest sample to rewind to.
 	Rewind: number,
+	-- When set, filled with the measured distances (Studio diagnostics).
+	Debug: { [string]: number }?,
 }
 
 local CombatValidation = {}
@@ -263,6 +265,18 @@ function CombatValidation.ValidateHit<P>(
 	local lead = if history and opts then attacker_lead(history, active.Character, opts.Rewind) else Vector3.zero
 
 	local box_cframe, box_size = target:GetBoundingBox()
+	local debug = opts and opts.Debug
+	if debug then
+		debug.Reach = (hit_root.Position - attacker_root.Position).Magnitude
+		debug.ReachWithLead = distance_to_sweep(hit_root.Position, attacker_root.Position, lead)
+		debug.ReachLimit = range + hit_position_tolerance
+		debug.BodyDistance = distance_to_box(box_cframe, box_size, impact)
+		debug.HitpointOffset = (segment.WorldPosition - impact).Magnitude
+		debug.HitpointOffsetWithLead = distance_to_sweep(impact, segment.WorldPosition, lead)
+		debug.Tolerance = hit_position_tolerance
+		debug.Lead = lead.Magnitude
+		debug.Rewind = opts and opts.Rewind or 0
+	end
 	local reason = check_reach_and_body(
 		attacker_root.Position,
 		lead,
@@ -325,6 +339,9 @@ function CombatValidation.ValidateHit<P>(
 
 	if horizontal_look.Magnitude > 0.05 and horizontal_target.Magnitude > 0.05 then
 		local facing_dot = horizontal_look.Unit:Dot(horizontal_target.Unit)
+		if debug then
+			debug.FacingDot = facing_dot
+		end
 		if facing_dot < MIN_FACING_DOT then
 			return nil, RejectReason.Facing
 		end
