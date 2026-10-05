@@ -12,6 +12,7 @@ local Runtime = require(ReplicatedStorage.shared.runtime.Runtime)
 local server = script.Parent.Parent
 local Core = require(server.compose.Core)
 local Remotes = require(server.compose.Remotes)
+local InboundSink = require(server.network.InboundSink)
 local CombatFxService = require(server.services.CombatFxService)
 local CombatService = require(server.services.CombatService)
 local DamageService = require(server.services.DamageService)
@@ -55,6 +56,15 @@ return function(rt: Runtime.Runtime, env: Core.ServerEnv): ()
 			-- Engine boundary: UnreliableRemoteEvent satisfies UnreliableRemoteLike.
 			remote = Remotes.unreliable(env.Remotes, "CombatFx") :: any,
 			config = Config.Combat.Fx,
+		})
+	end)
+
+	-- CombatFx is server-to-client only; drain what clients fire at it.
+	rt:Add("CombatFxInbound", function(get)
+		return InboundSink.new({
+			remote = Remotes.unreliable(env.Remotes, "CombatFx"),
+			name = "CombatFx",
+			budget = get("RemoteBudget"),
 		})
 	end)
 

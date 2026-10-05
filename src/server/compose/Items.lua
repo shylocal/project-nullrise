@@ -11,6 +11,7 @@ local Schema = require(ReplicatedStorage.shared.data.Schema)
 local server = script.Parent.Parent
 local Core = require(server.compose.Core)
 local Remotes = require(server.compose.Remotes)
+local InboundSink = require(server.network.InboundSink)
 local PlayerDataService = require(server.services.PlayerDataService)
 local InventoryService = require(server.services.InventoryService)
 local WeaponService = require(server.services.WeaponService)
@@ -69,6 +70,15 @@ return function(rt: Runtime.Runtime, env: Core.ServerEnv): ()
 			remote = Remotes.event(env.Remotes, "Weapon"),
 			weapon_models = env.WeaponModels,
 			scheduler = env.Scheduler,
+		})
+	end)
+
+	-- Weapon is server-to-client only; drain what clients fire at it.
+	rt:Add("WeaponInbound", function(get)
+		return InboundSink.new({
+			remote = Remotes.event(env.Remotes, "Weapon"),
+			name = "Weapon",
+			budget = get("RemoteBudget"),
 		})
 	end)
 end
