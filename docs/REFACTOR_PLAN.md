@@ -1222,6 +1222,9 @@ Baseline diagnostics:
 12. Remote budget state is not reset on respawn (previously `RemoteAt` was).
 13. Hanging on a MeshPart, WedgePart or UnionOperation climb guide and pressing A/D no longer errors every frame (Phase 3). The cylinder check in `Traversal.traverse` now uses `IsA("Part")` instead of `IsA("BasePart")`, because only a `Part` has a `Shape`. Cylinder guides behave as before.
 14. Hit packets that arrive while an early HitStart is armed (before `HitStartOpensAt`) are buffered and validated when the window opens, instead of being dropped as `NotActive` (Phase 3). The client reports each target once per swing, so such a target could not land for the rest of the swing before.
+15. (Finish, client) A Climbable Model guide moved by PivotTo, a tween or its PrimaryPart is re-measured on the next query, and a Model that contains an unanchored BasePart is measured live on every query, as before the refactor. Each query costs two property reads per static Model guide (`GetPivot` and one reference part's CFrame). Review finding 8.
+16. (Finish, client) When the Animator is replaced mid-attack, the attack finishes at once: HitStop is sent, the hitbox stops and the attack lease is released. Before, they stayed open until the next attack or Reset. `AnimationController.CacheReset` carries this. Review finding 9.
+17. (Finish, client) After a window focus loss, the first Left Shift press sprints again. Before, it was swallowed. Adapters may define an optional `ReleaseAll()`, which InputController calls on focus loss. Review finding 10.
 
 ---
 

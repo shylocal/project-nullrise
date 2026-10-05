@@ -42,14 +42,17 @@ No critical or high-severity findings.
    - **Problem:** before the refactor, `GetBoundingBox()` ran live on every query.
    - **Scenario:** a tagged Model is moved by PivotTo or a tween (an elevator or platform), or it is an unanchored welded crate. W/S ledge transfers then silently fail, and `get_guide_top`'s ray can start below the real top.
    - **Fix:** store `GetPivot()` per Model entry and re-measure when it changes. Also treat a Model that contains any unanchored BasePart as dynamic (check on refresh and on DescendantAdded).
+   - **Status: Fixed (2b392b7).** The finding was confirmed. Each static Model entry now stores its pivot plus one reference part (PrimaryPart or first BasePart) and that part's CFrame. `_flush` (every `QueryBox`) and `Bounds` re-measure the Model when either value has changed, so a Model with no PrimaryPart whose parts are tweened is caught as well. `_refresh` (which also runs on DescendantAdded/Removing) scans the Model and treats it as dynamic if any BasePart is unanchored. Specs are in `ClimbableIndex.spec.lua`: PivotTo, parts moved directly, and a Model with an unanchored part. Plan §14.15.
 9. **LOW: Replacing the Animator mid-attack leaves the attack lifecycle open.**
    - **Where:** `AnimationController/init.lua:~310-323` (`_set_animator` stops, then destroys, the cached tracks) and `CombatController/AttackLifecycle.lua:~405-417`.
    - **Problem:** destroying the track disconnects the attack's Ended connection before the deferred Ended runs. So `_finish_attack` never runs: AttackTrove and AttackLease stay held, the hitbox stays active, and HitStop is never sent until the next attack or Reset.
    - **Fix:** fire a CacheReset (or similar) signal from AnimationController and have CombatController run `clear_attack_lifecycle` and `release_lease`. Alternatively, add a track `Destroying` handler in the attack trove.
+   - **Status: Fixed (2b392b7).** The finding was confirmed. `_set_animator` fires `AnimationController.CacheReset` after replacing an existing cache; it does not fire for the first Animator. `CombatController` handles it by running `_finish_attack` for the in-flight attack, which sends HitStop, stops the hitbox, removes AttackTrove, releases AttackLease and resolves a buffered hold as a normal end would. `CacheReset` is required on `AnimationLike`. Specs: `AnimationController.spec.lua` (it fires only on replacement) and `CombatController.spec.lua` ("finishes the attack when the Animator is replaced mid-swing"). Plan §14.16.
 10. **LOW (already present before the refactor): Sprint is ignored for one Shift press after a focus loss.**
     - **Where:** `PC.lua:~396-406` and `InputController.lua:~266-277`.
     - **Problem:** `_release_all` clears Sprint, but `PCInput.SprintActive` stays true. The next Shift press returns early.
     - **Fix:** add an optional `adapter:ReleaseAll()` called on focus release, and have PC reset `SprintActive` there.
+    - **Status: Fixed (2b392b7).** The finding was confirmed. InputController keeps its adapters and, in `_release_all`, calls `ReleaseAll` on each adapter that defines one. `PCInput.ReleaseAll` clears `SprintActive` without reporting. The method is optional, so existing adapters and fakes keep working. Specs are in `InputController.spec.lua`: "begins sprint on the first Left Shift press after a focus loss" and "still accepts adapters without ReleaseAll on focus loss". Plan §14.17.
 
 Note (already in §16; not a bug): `_position_hanging(0)` on input snaps leaves Y and facing unsmoothed for one frame.
 
