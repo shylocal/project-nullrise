@@ -29,8 +29,8 @@ local PositionHistory = require(script.Parent.PositionHistory)
 -- Studio-only reject diagnostics (Config.Combat.LogRejectsInStudio).
 local LOG_REJECTS = game:GetService("RunService"):IsStudio() and Config.Combat.LogRejectsInStudio
 local DEBUG_FIELDS = {
-	"Reach", "ReachWithLead", "ReachLimit", "BodyDistance", "HitpointOffset",
-	"HitpointOffsetWithLead", "Tolerance", "Lead", "Rewind", "FacingDot",
+	"Reach", "ReachWithLead", "ImpactReach", "ReachLimit", "BodyDistance",
+	"Tolerance", "Lead", "Rewind", "FacingDot",
 }
 local Telemetry = require(script.Parent.Telemetry)
 local WeaponService = require(script.Parent.WeaponService)

@@ -271,8 +271,7 @@ function CombatValidation.ValidateHit<P>(
 		debug.ReachWithLead = distance_to_sweep(hit_root.Position, attacker_root.Position, lead)
 		debug.ReachLimit = range + hit_position_tolerance
 		debug.BodyDistance = distance_to_box(box_cframe, box_size, impact)
-		debug.HitpointOffset = (segment.WorldPosition - impact).Magnitude
-		debug.HitpointOffsetWithLead = distance_to_sweep(impact, segment.WorldPosition, lead)
+		debug.ImpactReach = distance_to_sweep(impact, attacker_root.Position, lead)
 		debug.Tolerance = hit_position_tolerance
 		debug.Lead = lead.Magnitude
 		debug.Rewind = opts and opts.Rewind or 0
@@ -320,10 +319,13 @@ function CombatValidation.ValidateHit<P>(
 		return nil, reason
 	end
 
-	-- The impact must also be where the weapon's hitpoint actually is, allowing
-	-- for the attacker's own movement during the lag window.
-	if distance_to_sweep(impact, segment.WorldPosition, lead) > hit_position_tolerance then
-		return nil, RejectReason.HitpointOffset
+	-- The impact itself must be within weapon reach of the attacker (allowing
+	-- for its lead). It is not compared with the server's copy of the
+	-- weapon's hitpoint: swing animations play on the client and the
+	-- server's pose of the arm and weapon does not follow them, so that
+	-- comparison rejected real hits by up to the weapon's full length.
+	if distance_to_sweep(impact, attacker_root.Position, lead) > range + hit_position_tolerance then
+		return nil, RejectReason.Reach
 	end
 
 	local horizontal_look = Vector3.new(

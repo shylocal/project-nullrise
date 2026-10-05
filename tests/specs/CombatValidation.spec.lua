@@ -301,17 +301,32 @@ return function()
 			expect(reason).to.equal(RejectReason.OffBody)
 		end)
 
-		it("rejects an impact far from the weapon's hitpoint", function()
+		it("accepts an impact far from the server's copy of the hitpoint", function()
+			-- Swing animations play on the client; the server's pose of the
+			-- weapon stays near the body, so it can be studs from the impact.
 			local attacker = make_attacker(created)
-			local target = make_character("Target", Vector3.new(0, 0, -6), created)
+			local target = make_character("Target", Vector3.new(0, 0, -10), created)
+			local wielded = make_wielded(attacker, Vector3.new(0, 0, -0.5))
+			local active, segment = make_active(attacker, wielded)
+
+			local humanoid, reason = validate(wielded, active, target, segment, Vector3.new(0, 0, -9.2))
+
+			expect(humanoid).to.equal(humanoid_of(target))
+			expect(reason).to.equal(nil)
+		end)
+
+		it("rejects an impact beyond weapon reach of the attacker", function()
+			local attacker = make_attacker(created)
+			-- The target's root is in reach, but the reported impact is on the
+			-- far side of its body, past Range + HitPositionTolerance (11).
+			local target = make_character("Target", Vector3.new(0, 0, -10), created)
 			local wielded = make_wielded(attacker, Vector3.new(0, 0, -1))
 			local active, segment = make_active(attacker, wielded)
 
-			-- On the target's body, but 5 studs from the hitpoint.
-			local humanoid, reason = validate(wielded, active, target, segment, root_of(target).Position)
+			local humanoid, reason = validate(wielded, active, target, segment, Vector3.new(0, 0, -13.5))
 
 			expect(humanoid).to.equal(nil)
-			expect(reason).to.equal(RejectReason.HitpointOffset)
+			expect(reason).to.equal(RejectReason.Reach)
 		end)
 
 		it("rejects a target outside weapon reach", function()
@@ -346,17 +361,17 @@ return function()
 			expect(history.Requested[1]).to.be.near(50 - 0.2)
 		end)
 
-		it("accepts a running attacker's hit ahead of its server-side hitpoint", function()
+		it("extends a running attacker's reach by its lead", function()
 			local attacker = make_attacker(created)
-			local target = make_character("Target", Vector3.new(0, 0, -5.5), created)
+			local target = make_character("Target", Vector3.new(0, 0, -10), created)
 			local wielded = make_wielded(attacker, Vector3.new(0, 0, -1))
 			local active, segment = make_active(attacker, wielded)
-			-- Sprinting toward the target at 24 studs/s; the client's weapon is
-			-- 4 studs ahead of where the server holds it.
+			-- Sprinting toward the target at 24 studs/s: the server holds the
+			-- attacker ~4.8 studs behind where its client swung.
 			local history = moving_history(attacker, Vector3.new(0, 0, 2.4), Vector3.zero, 50)
-			local impact = Vector3.new(0, 0, -5)
+			local impact = Vector3.new(0, 0, -13.5)
 
-			expect(reason_of(validate(wielded, active, target, segment, impact))).to.equal(RejectReason.HitpointOffset)
+			expect(reason_of(validate(wielded, active, target, segment, impact))).to.equal(RejectReason.Reach)
 
 			local humanoid, reason =
 				validate(wielded, active, target, segment, impact, { History = history, Rewind = 0.2 })
@@ -364,34 +379,36 @@ return function()
 			expect(reason).to.equal(nil)
 		end)
 
-		it("gives a stationary attacker no extra hitpoint allowance", function()
+		it("gives a stationary attacker no extra reach", function()
 			local attacker = make_attacker(created)
-			local target = make_character("Target", Vector3.new(0, 0, -5.5), created)
+			local target = make_character("Target", Vector3.new(0, 0, -10), created)
 			local wielded = make_wielded(attacker, Vector3.new(0, 0, -1))
 			local active, segment = make_active(attacker, wielded)
 			local history = moving_history(attacker, Vector3.zero, Vector3.zero, 50)
 
 			local humanoid, reason =
-				validate(wielded, active, target, segment, Vector3.new(0, 0, -5), { History = history, Rewind = 0.2 })
+				validate(wielded, active, target, segment, Vector3.new(0, 0, -13.5), { History = history, Rewind = 0.2 })
 			expect(humanoid).to.equal(nil)
-			expect(reason).to.equal(RejectReason.HitpointOffset)
+			expect(reason).to.equal(RejectReason.Reach)
 		end)
 
 		it("caps the attacker's lead at MaxAttackerSpeed", function()
 			local attacker = make_attacker(created)
-			local target = make_character("Target", Vector3.new(0, 0, -13.5), created)
-			local wielded = make_wielded(attacker, Vector3.new(0, 0, -1))
-			local active, segment = make_active(attacker, wielded)
-			-- 400 studs/s observed; the lead is capped at MaxAttackerSpeed * Rewind.
-			local history = moving_history(attacker, Vector3.new(0, 0, 40), Vector3.zero, 50)
 			local rewind = 0.2
 			local cap = Config.Combat.LagCompensation.MaxAttackerSpeed * rewind
-			local impact = Vector3.new(0, 0, -1 - cap - 4)
+			-- The target's root is reachable along the capped lead, but the
+			-- impact is 1 stud beyond Range + tolerance from its far end.
+			local target = make_character("Target", Vector3.new(0, 0, -(cap + 10)), created)
+			local wielded = make_wielded(attacker, Vector3.new(0, 0, -1))
+			local active, segment = make_active(attacker, wielded)
+			-- 400 studs/s observed; without the cap the lead would cover it.
+			local history = moving_history(attacker, Vector3.new(0, 0, 40), Vector3.zero, 50)
+			local impact = Vector3.new(0, 0, -(cap + 12))
 
 			local humanoid, reason =
 				validate(wielded, active, target, segment, impact, { History = history, Rewind = rewind })
 			expect(humanoid).to.equal(nil)
-			expect(reason).to.equal(RejectReason.HitpointOffset)
+			expect(reason).to.equal(RejectReason.Reach)
 		end)
 
 		it("does not rewind a hit that passes against the current state", function()
