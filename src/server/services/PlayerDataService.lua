@@ -219,7 +219,7 @@ function PlayerDataService.OnPlayerAdded(self: PlayerDataService, session: Playe
 		return
 	end
 
-	for _, warning in Schema.sanitize(data, Config.Inventory.MaxSlots) do
+	for _, warning in Schema.sanitize(data) do
 		warn(("[PlayerData] %s: %s"):format(tostring(player.Name), warning))
 		self._telemetry:Count(player, "Data", "Sanitized")
 	end

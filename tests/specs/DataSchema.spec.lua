@@ -83,7 +83,7 @@ return function()
 			expect(typeof(failed)).to.equal("string")
 		end)
 
-		it("sanitizes slot keys, records, unknown items and duplicate uids", function()
+		it("drops corrupt slot keys, records and duplicate uids", function()
 			local data: any = DataSchema.Template()
 			local slots = data.Inventory.Slots
 			slots["1"] = record("keep-1")
@@ -98,16 +98,22 @@ return function()
 			slots["x"] = record("named")
 			slots["9"] = record("keep-9")
 
-			local warnings = DataSchema.sanitize(data, 9)
+			slots["7"] = { Uid = "no-item", ItemId = "", Data = {} }
 
-			expect(#warnings).to.equal(9)
+			local warnings = DataSchema.sanitize(data)
+
+			-- Dropped: "2" (duplicate uid), "4", "5", "6", "7", "0", "01", "x".
+			expect(#warnings).to.equal(8)
 			expect(slots["1"].Uid).to.equal("keep-1")
 			expect(slots["9"].Uid).to.equal("keep-9")
+			-- Kept: an item and a slot this build does not know.
+			expect(slots["3"].Uid).to.equal("unknown")
+			expect(slots["10"].Uid).to.equal("ten")
 			local remaining = 0
 			for _ in pairs(slots) do
 				remaining += 1
 			end
-			expect(remaining).to.equal(2)
+			expect(remaining).to.equal(4)
 		end)
 
 		it("keeps the lower slot when a uid repeats", function()
@@ -115,18 +121,22 @@ return function()
 			data.Inventory.Slots["7"] = record("dup")
 			data.Inventory.Slots["2"] = record("dup")
 
-			DataSchema.sanitize(data, 9)
+			DataSchema.sanitize(data)
 
 			expect(data.Inventory.Slots["2"]).to.be.ok()
 			expect(data.Inventory.Slots["7"]).to.equal(nil)
 		end)
 
-		it("respects the slot limit it is given", function()
+		it("never drops records only because this build does not recognise them", function()
+			-- Regression: unknown items and slots above MaxSlots were deleted,
+			-- and the deletion was saved (a rollback lost newer items).
 			local data: any = DataSchema.Template()
-			data.Inventory.Slots["4"] = record("four")
+			data.Inventory.Slots["2"] = record("future-item", "FutureItem")
+			data.Inventory.Slots["42"] = record("future-slot")
 
-			expect(#DataSchema.sanitize(data, 3)).to.equal(1)
-			expect(data.Inventory.Slots["4"]).to.equal(nil)
+			expect(#DataSchema.sanitize(data)).to.equal(0)
+			expect(data.Inventory.Slots["2"].ItemId).to.equal("FutureItem")
+			expect(data.Inventory.Slots["42"].Uid).to.equal("future-slot")
 		end)
 	end)
 end

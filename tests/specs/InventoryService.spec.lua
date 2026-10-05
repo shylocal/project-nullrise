@@ -345,6 +345,45 @@ return function()
 			expect(f.inventory:GetEquippedWeaponId(kicked)).to.equal(DEFAULT_ID)
 		end)
 
+		it("keeps records this build does not recognise, without exposing them", function()
+			-- Regression: they used to be deleted on load and the deletion saved.
+			local key = Config.Data.KeyPrefix .. "888"
+			f.store.Saved[key] = {
+				Version = DataSchema.Version,
+				Inventory = {
+					Seeded = true,
+					Slots = {
+						["1"] = { Uid = "known", ItemId = ITEM, Data = {} },
+						["2"] = { Uid = "future-item", ItemId = "FutureItem", Data = { Level = 3 } },
+						[tostring(MAX_SLOTS + 1)] = { Uid = "future-slot", ItemId = ITEM, Data = {} },
+					},
+				},
+			}
+			local player = f.h.Players:Add({ UserId = 888 })
+
+			-- Only the known record in a known slot is replicated.
+			local entries = f.inventory:Get(player).Entries
+			expect(#entries).to.equal(1)
+			expect(entries[1].Uid).to.equal("known")
+
+			-- The unknown item's slot equips the default weapon, exposes no
+			-- record and is never overwritten by a grant.
+			expect(f.inventory:SelectSlot(player, 2)).to.equal(true)
+			expect(f.inventory:GetEquippedWeaponId(player)).to.equal(DEFAULT_ID)
+			expect(f.inventory:GetSelected(player)).to.equal(nil)
+			expect(f.inventory:Grant(player, ITEM, 2)).to.equal(nil)
+			local granted = f.inventory:Grant(player, ITEM)
+			expect(granted).to.be.ok()
+			expect(f.data:GetData(player).Inventory.Slots["3"].Uid).to.equal(granted)
+
+			-- Both are saved as they were.
+			f.h.Players:Remove(player)
+			local saved = f.store.Saved[key].Inventory.Slots
+			expect(saved["2"].ItemId).to.equal("FutureItem")
+			expect(saved["2"].Data.Level).to.equal(3)
+			expect(saved[tostring(MAX_SLOTS + 1)].Uid).to.equal("future-slot")
+		end)
+
 		it("keeps items across sessions and resets the selection", function()
 			f.inventory:SelectSlot(f.player, 2)
 			local uid = uid_in(f, 2)

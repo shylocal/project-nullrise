@@ -116,6 +116,7 @@ export type CombatController = {
 	_resolve_buffered_attack: (self: CombatController) -> (),
 	_release_charge: (self: CombatController) -> (),
 	_finish_attack: (self: CombatController, move_id: number, attack_trove: Trove) -> (),
+	_cancel_attack: (self: CombatController) -> (),
 }
 
 return table.freeze({})

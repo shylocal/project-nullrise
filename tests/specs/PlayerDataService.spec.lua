@@ -107,7 +107,7 @@ return function()
 			expect(data.Inventory.Seeded).to.equal(true)
 		end)
 
-		it("drops invalid slots and reports them to telemetry", function()
+		it("drops corrupt slots, keeps unrecognised ones and reports the drops", function()
 			f = setup(false)
 			local item = ItemCatalog.Ids()[1]
 			f.store.Saved[KEY] = {
@@ -127,9 +127,14 @@ return function()
 			local slots = f.data:GetData(player).Inventory.Slots
 			expect(slots["1"]).to.be.ok()
 			expect(slots["3"]).to.equal(nil)
-			expect(slots["4"]).to.equal(nil)
-			expect(slots["10"]).to.equal(nil)
-			expect(count(f, "Sanitized")).to.equal(3)
+			-- An item or slot unknown to this build is kept, and saved as it was.
+			expect(slots["4"].ItemId).to.equal("MissingItem")
+			expect(slots["10"].Uid).to.equal("c")
+			expect(count(f, "Sanitized")).to.equal(1)
+
+			f.h.Players:Remove(player)
+			expect(f.store.Saved[KEY].Inventory.Slots["4"].ItemId).to.equal("MissingItem")
+			expect(f.store.Saved[KEY].Inventory.Slots["10"].Uid).to.equal("c")
 		end)
 
 		it("kicks on a live server when the profile cannot be loaded", function()

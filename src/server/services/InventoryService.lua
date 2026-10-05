@@ -4,6 +4,12 @@
 -- unique Uid; the selected slot is session state and resets on join. Every
 -- change is replicated to the owner as a dense, slot-ordered entry list. The
 -- default weapon (Catalog.DefaultId) is implicit and never occupies a slot.
+--
+-- The profile can hold records this build does not recognise (an ItemId not
+-- in its ItemCatalog, or a slot above its MaxSlots), saved by a newer build.
+-- They are kept untouched: they are not replicated, an unknown item equips
+-- the default weapon, and its slot still counts as occupied so it is never
+-- overwritten.
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -72,6 +78,14 @@ local function slot_key(slot: number): string
 	return tostring(slot)
 end
 
+-- The record, if this build knows its item.
+local function known(record: SlotRecord?): SlotRecord?
+	if record ~= nil and ItemCatalog.Get(record.ItemId) ~= nil then
+		return record
+	end
+	return nil
+end
+
 local function weapon_id_of(record: SlotRecord?): string
 	local item = record and ItemCatalog.Get(record.ItemId)
 	return item and item.WeaponId or DEFAULT_ID
@@ -83,7 +97,7 @@ local function build_entries(slots: Slots): { Entry }
 	local entries: { Entry } = {}
 
 	for slot = 1, MAX_SLOTS do
-		local record = slots[slot_key(slot)]
+		local record = known(slots[slot_key(slot)])
 		if record ~= nil then
 			table.insert(entries, {
 				Slot = slot,
@@ -283,7 +297,7 @@ function InventoryService.GetSelected(self: InventoryService, player: Player): S
 		return nil
 	end
 
-	local record = present.Slots[slot_key(selected)]
+	local record = known(present.Slots[slot_key(selected)])
 	return record and Freeze.clone_deep(record)
 end
 

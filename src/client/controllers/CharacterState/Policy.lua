@@ -2,6 +2,8 @@
 -- Which actions each active character activity blocks. Client-side because
 -- only client controllers consult it. CharacterState validates this table.
 local Policy: { [string]: { string } } = {
+	-- Attacks (light or charge) never block Grab: a grab cancels the attack
+	-- (CombatController reacts to Hang starting) and Hang blocks attacks.
 	Attack = {},
 	AttackRooted = { "Sprint" },
 	Hang = { "Attack", "Charge", "Sprint", "Vault" },
