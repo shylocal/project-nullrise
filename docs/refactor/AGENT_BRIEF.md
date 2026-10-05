@@ -14,21 +14,21 @@ for every new module with pure logic. Never infinite-WaitForChild in specs.
 
 Rules:
 - Gameplay feel must stay the same for Fists and Katana (damage, timing, ranges, cooldowns, movement speeds) unless
-  docs/REFACTOR_PLAN.md explicitly changes it (see its §14 Intentional behaviour changes).
+  docs/ARCHITECTURE.md (History, intentional behaviour changes §14.N) records the change.
 - House style: tabs; snake_case locals/module-private functions; PascalCase public methods/fields and module tables;
   Trove for cleanup; Signal for events. No silent config fallbacks ("x or 0.15") — validate config instead.
 - Only INTEGRATE / FINISH agents run git add/commit/push. Everyone else: no git commit/stash/reset/checkout/branch.
-- When running concurrently with other agents, edit ONLY files docs/REFACTOR_PLAN.md §11 assigns to you for this
+- When running concurrently with other agents, edit ONLY files your task assigns to you for this
   phase; put any needed outside change in your report under NEEDS_OUTSIDE.
 - Commit messages (integrators only) end with a blank line then:
   Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
   then `git push origin main` (authorised). Never commit sourcemap.json or .luau/globalTypes.d.luau.
 
 Motivating ranked review: docs/refactor/REVIEW_IDEAS.md
-Design contract (authoritative): D:/Roblox/projects/project-nullrise/docs/REFACTOR_PLAN.md — if you must deviate,
-say so in your report (integrators append it to the plan's §16 deviation log).
+Architecture (authoritative): D:/Roblox/projects/project-nullrise/docs/ARCHITECTURE.md (the refactor plan it replaced is
+in git history: `git show 973df88:docs/REFACTOR_PLAN.md`). If you must deviate, say so in your report.
 
-Implementer procedure: read the plan fully, then implement EXACTLY your section for this phase (only your owned files).
+Implementer procedure: read ARCHITECTURE.md fully, then implement EXACTLY your task for this phase (only your owned files).
 Read every file you will touch first, plus their callers (read-only). Work incrementally and run scripts/analyze.sh
 repeatedly. Add/adjust specs. Finish with an adversarial self-review of your full diff (git diff -- <your files>):
 assume it is wrong; trace runtime paths (respawn, player leaving mid-action, nil characters, Studio vs live), check

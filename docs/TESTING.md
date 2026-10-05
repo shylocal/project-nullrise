@@ -73,7 +73,7 @@ After changes to combat, inventory, input, or parkour, exercise at least:
 
 ## Refactor (Phase 1) smoke tests
 
-These cover the intentional behaviour changes in `docs/REFACTOR_PLAN.md` §14 and the risks the Phase 1 agents could not check outside Studio. Run them in a Play session (two players where noted).
+These cover the intentional behaviour changes in [ARCHITECTURE.md](ARCHITECTURE.md#history) §14 and the risks the Phase 1 agents could not check outside Studio. Run them in a Play session (two players where noted).
 
 Server, network and telemetry:
 
@@ -102,7 +102,7 @@ Parkour:
 
 ## Refactor (Phase 2) smoke tests
 
-These cover the Phase 2 items of `docs/REFACTOR_PLAN.md` §14 (3, 8, 9, 10, 11) and the Phase 2 risks. Run `wally install` and sync with Rojo first. Use two players (Test > Clients and Servers) where noted.
+These cover the Phase 2 items of [ARCHITECTURE.md](ARCHITECTURE.md#history) §14 (3, 8, 9, 10, 11) and the Phase 2 risks. Run `wally install` and sync with Rojo first. Use two players (Test > Clients and Servers) where noted.
 
 Boot and content contracts:
 
@@ -137,14 +137,14 @@ Lifecycle:
 
 ## Refactor (Phase 3) smoke tests
 
-Phase 3 only adds types, with two behaviour fixes (`docs/REFACTOR_PLAN.md` §14.13 and §14.14). Run the Phase 1 and Phase 2 smoke tests as well, because every module changed.
+Phase 3 only adds types, with two behaviour fixes ([ARCHITECTURE.md](ARCHITECTURE.md#history) §14.13 and §14.14). Run the Phase 1 and Phase 2 smoke tests as well, because every module changed.
 
 - Early-HitStart hit (§14.14): set Network > Incoming Replication Lag to about 0.2s and stand right next to a dummy, so the weapon touches it as the swing starts. Fast combo taps and Heavy releases land on the first frame of contact, and each target is damaged once per swing. In the Telemetry summary, `Combat/EarlyHitStart` still counts, but `Combat/NotActive` does not rise during these swings. A HitStop or a respawn before the window opens drops the buffered hits (no damage).
 - MeshPart/Union climb-guide A/D (§14.13): tag a MeshPart, a WedgePart and a UnionOperation as `Climbable`. Hang on each and hold A, then D. The character shimmies (or stops at the edge) with no error in the output. A cylinder `Part` guide still traverses as before.
 
 ## Ledge grab during an attack (user decision 1)
 
-`docs/REFACTOR_PLAN.md` §14.19. With Fists, then with Katana:
+[ARCHITECTURE.md](ARCHITECTURE.md#history) §14.21. With Fists, then with Katana:
 
 - Run at a ledge, tap a light attack and jump to grab mid-swing. The grab succeeds, the swing animation stops, and no hit lands after the grab. While hanging, taps and holds do nothing.
 - Hold Primary until the Heavy charge pauses, then jump to grab while still holding. The grab succeeds and the charge ends. Releasing Primary while hanging starts no hit, and no Heavy fires later.
