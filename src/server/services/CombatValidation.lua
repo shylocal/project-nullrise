@@ -118,10 +118,21 @@ local function is_valid_active(active: HitContext): boolean
 		and type(context.Move.Hitbox) == "string"
 end
 
+-- Distance from `point` to the segment from `a` to `a + offset`.
+local function distance_to_sweep(point: Vector3, a: Vector3, offset: Vector3): number
+	local length_squared = offset:Dot(offset)
+	if length_squared < 1e-6 then
+		return (point - a).Magnitude
+	end
+	local t = math.clamp((point - a):Dot(offset) / length_squared, 0, 1)
+	return (point - (a + offset * t)).Magnitude
+end
+
 -- Reach (target root within weapon range of the attacker) and body (the
 -- reported impact on or near the target's bounding box) checks.
 local function check_reach_and_body(
 	attacker_position: Vector3,
+	attacker_lead: Vector3,
 	target_position: Vector3,
 	box_cframe: CFrame,
 	box_size: Vector3,
@@ -129,7 +140,10 @@ local function check_reach_and_body(
 	range: number,
 	tolerance: number
 ): Reason?
-	if (target_position - attacker_position).Magnitude > range + tolerance then
+	-- Reach is measured from anywhere along the attacker's lead (see
+	-- attacker_lead), so a running attacker is not judged from where the
+	-- server last saw it.
+	if distance_to_sweep(target_position, attacker_position, attacker_lead) > range + tolerance then
 		return RejectReason.Reach
 	end
 
@@ -140,6 +154,36 @@ local function check_reach_and_body(
 	end
 
 	return nil
+end
+
+-- How far the attacker may have moved on its own client beyond the position
+-- the server holds: its server-observed velocity (from PositionHistory, so a
+-- client cannot claim speed it did not show) times the same lag window the
+-- target is rewound by, with the speed capped at MaxAttackerSpeed.
+local LEAD_SAMPLE_SPAN = 0.1
+local function attacker_lead(history: PositionHistory.PositionHistory, character: Model, window: number): Vector3
+	local latest = history:Latest(character)
+	if latest == nil then
+		return Vector3.zero
+	end
+	local earlier = history:Sample(character, latest.Time - LEAD_SAMPLE_SPAN)
+	if earlier == nil then
+		return Vector3.zero
+	end
+	local dt = latest.Time - earlier.Time
+	if dt <= 1e-3 then
+		return Vector3.zero
+	end
+	local velocity = (latest.RootCFrame.Position - earlier.RootCFrame.Position) / dt
+	local speed = velocity.Magnitude
+	if speed < 1e-3 or not math.isfinite(speed) then
+		return Vector3.zero
+	end
+	local max_speed = Config.Combat.LagCompensation.MaxAttackerSpeed
+	if speed > max_speed then
+		velocity = velocity.Unit * max_speed
+	end
+	return velocity * window
 end
 
 -- hit_character, segment_instance and hit_position are the client's Hit
@@ -215,9 +259,13 @@ function CombatValidation.ValidateHit<P>(
 		return nil, RejectReason.BadPayload
 	end
 
+	local history = opts and opts.History
+	local lead = if history and opts then attacker_lead(history, active.Character, opts.Rewind) else Vector3.zero
+
 	local box_cframe, box_size = target:GetBoundingBox()
 	local reason = check_reach_and_body(
 		attacker_root.Position,
+		lead,
 		hit_root.Position,
 		box_cframe,
 		box_size,
@@ -232,7 +280,6 @@ function CombatValidation.ValidateHit<P>(
 	-- validation more lenient; every other check still runs.
 	local rewound = false
 	local target_offset = Vector3.zero
-	local history = opts and opts.History
 	if reason and opts and history then
 		local latest = history:Latest(target)
 		local sample = latest and history:Sample(target, latest.Time - opts.Rewind)
@@ -240,6 +287,7 @@ function CombatValidation.ValidateHit<P>(
 			local sample_root = sample.RootCFrame.Position
 			if not check_reach_and_body(
 				attacker_root.Position,
+				lead,
 				sample_root,
 				sample.BoxCFrame,
 				sample.BoxSize,
@@ -258,8 +306,9 @@ function CombatValidation.ValidateHit<P>(
 		return nil, reason
 	end
 
-	-- The impact must also be where the weapon's hitpoint actually is.
-	if (segment.WorldPosition - impact).Magnitude > hit_position_tolerance then
+	-- The impact must also be where the weapon's hitpoint actually is, allowing
+	-- for the attacker's own movement during the lag window.
+	if distance_to_sweep(impact, segment.WorldPosition, lead) > hit_position_tolerance then
 		return nil, RejectReason.HitpointOffset
 	end
 

@@ -118,6 +118,26 @@ local function fake_history(character: Model, root_cframe: CFrame, latest_time: 
 	return history
 end
 
+-- PositionHistory stand-in for an attacker that moved from `from` (at
+-- latest_time - 0.1) to `to` (at latest_time). Sample returns the earlier
+-- state for any time before latest_time.
+local function moving_history(character: Model, from: Vector3, to: Vector3, latest_time: number)
+	local history = {}
+	local function sample(time: number, position: Vector3)
+		local cframe = CFrame.new(position)
+		return { Time = time, RootCFrame = cframe, BoxCFrame = cframe, BoxSize = Vector3.new(2, 2, 2) }
+	end
+	local latest = sample(latest_time, to)
+	local earlier = sample(latest_time - 0.1, from)
+	function history.Latest(_self: any, model: Model)
+		return if model == character then latest else nil
+	end
+	function history.Sample(_self: any, model: Model, t: number)
+		return if model ~= character then nil elseif t >= latest_time then latest else earlier
+	end
+	return history
+end
+
 local function reason_of(...: any): any
 	local _, reason = ...
 	return reason
@@ -324,6 +344,54 @@ return function()
 			expect(no_reason).to.equal(nil)
 			expect(rewound).to.equal(true)
 			expect(history.Requested[1]).to.be.near(50 - 0.2)
+		end)
+
+		it("accepts a running attacker's hit ahead of its server-side hitpoint", function()
+			local attacker = make_attacker(created)
+			local target = make_character("Target", Vector3.new(0, 0, -5.5), created)
+			local wielded = make_wielded(attacker, Vector3.new(0, 0, -1))
+			local active, segment = make_active(attacker, wielded)
+			-- Sprinting toward the target at 24 studs/s; the client's weapon is
+			-- 4 studs ahead of where the server holds it.
+			local history = moving_history(attacker, Vector3.new(0, 0, 2.4), Vector3.zero, 50)
+			local impact = Vector3.new(0, 0, -5)
+
+			expect(reason_of(validate(wielded, active, target, segment, impact))).to.equal(RejectReason.HitpointOffset)
+
+			local humanoid, reason =
+				validate(wielded, active, target, segment, impact, { History = history, Rewind = 0.2 })
+			expect(humanoid).to.equal(humanoid_of(target))
+			expect(reason).to.equal(nil)
+		end)
+
+		it("gives a stationary attacker no extra hitpoint allowance", function()
+			local attacker = make_attacker(created)
+			local target = make_character("Target", Vector3.new(0, 0, -5.5), created)
+			local wielded = make_wielded(attacker, Vector3.new(0, 0, -1))
+			local active, segment = make_active(attacker, wielded)
+			local history = moving_history(attacker, Vector3.zero, Vector3.zero, 50)
+
+			local humanoid, reason =
+				validate(wielded, active, target, segment, Vector3.new(0, 0, -5), { History = history, Rewind = 0.2 })
+			expect(humanoid).to.equal(nil)
+			expect(reason).to.equal(RejectReason.HitpointOffset)
+		end)
+
+		it("caps the attacker's lead at MaxAttackerSpeed", function()
+			local attacker = make_attacker(created)
+			local target = make_character("Target", Vector3.new(0, 0, -13.5), created)
+			local wielded = make_wielded(attacker, Vector3.new(0, 0, -1))
+			local active, segment = make_active(attacker, wielded)
+			-- 400 studs/s observed; the lead is capped at MaxAttackerSpeed * Rewind.
+			local history = moving_history(attacker, Vector3.new(0, 0, 40), Vector3.zero, 50)
+			local rewind = 0.2
+			local cap = Config.Combat.LagCompensation.MaxAttackerSpeed * rewind
+			local impact = Vector3.new(0, 0, -1 - cap - 4)
+
+			local humanoid, reason =
+				validate(wielded, active, target, segment, impact, { History = history, Rewind = rewind })
+			expect(humanoid).to.equal(nil)
+			expect(reason).to.equal(RejectReason.HitpointOffset)
 		end)
 
 		it("does not rewind a hit that passes against the current state", function()

@@ -88,6 +88,7 @@ local COMBAT = Schema.record({
 		InterpolationDelay = non_negative,
 		MaxRewind = non_negative,
 		HistoryCapacity = positive_integer,
+		MaxAttackerSpeed = non_negative,
 	}),
 	Damage = Schema.record({
 		FriendlyFire = Schema.boolean(),

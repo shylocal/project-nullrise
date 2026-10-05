@@ -25,6 +25,10 @@ local Combat = {
 		InterpolationDelay = 0.1,
 		MaxRewind = 0.3,
 		HistoryCapacity = 64,
+		-- Cap (studs/s) on the server-observed attacker speed used to lead the
+		-- attacker's position by the same lag window. Sprint is 24 and a vault
+		-- adds a 12 forward boost, so legitimate movement stays under it.
+		MaxAttackerSpeed = 40,
 	},
 	Damage = {
 		FriendlyFire = false,
