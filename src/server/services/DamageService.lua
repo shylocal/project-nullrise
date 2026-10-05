@@ -238,8 +238,10 @@ function DamageService.Apply(self: DamageService, request: DamageRequest): (numb
 
 	local before = humanoid.Health
 	humanoid:TakeDamage(amount)
+	-- Health can drop below 0 after TakeDamage, so overkill is not counted
+	-- as applied damage.
 	local after = humanoid.Health
-	local applied = math.max(before - after, 0)
+	local applied = math.max(before - math.max(after, 0), 0)
 	if applied <= 0 then
 		return 0, NO_EFFECT
 	end
