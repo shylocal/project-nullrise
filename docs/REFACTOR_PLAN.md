@@ -1225,6 +1225,7 @@ Baseline diagnostics:
 15. (Finish, client) A Climbable Model guide moved by PivotTo, a tween or its PrimaryPart is re-measured on the next query, and a Model that contains an unanchored BasePart is measured live on every query, as before the refactor. Each query costs two property reads per static Model guide (`GetPivot` and one reference part's CFrame). Review finding 8.
 16. (Finish, client) When the Animator is replaced mid-attack, the attack finishes at once: HitStop is sent, the hitbox stops and the attack lease is released. Before, they stayed open until the next attack or Reset. `AnimationController.CacheReset` carries this. Review finding 9.
 17. (Finish, client) After a window focus loss, the first Left Shift press sprints again. Before, it was swallowed. Adapters may define an optional `ReleaseAll()`, which InputController calls on focus loss. Review finding 10.
+18. (Finish, server) After a Charge (Heavy) is held past its HitStart marker and released, the next Hold-bound move's hit window cannot open before `release + Hold.HoldTime + HitStartAt - TimingTolerance`. An earlier HitStart is armed until then. Legitimate play cannot reach this bound, because a new hold needs a fresh press after the release. Attack acceptance, Lights and cooldowns are unchanged. Review finding 1.
 
 ---
 
