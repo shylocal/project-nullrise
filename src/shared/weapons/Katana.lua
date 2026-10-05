@@ -41,6 +41,9 @@ Katana.MoveDefaults = {
 	Range = 10,
 }
 
+-- HitStartAt sits just under each animation's baked HitStart marker
+-- (AnimationManifest), so the server never opens a hit window before the
+-- swing does; a light move's HitWindow reaches its HitStop marker plus ~0.15s.
 Katana.Moves = {
 	Light1 = {
 		Kind = "Light",
@@ -53,10 +56,8 @@ Katana.Moves = {
 		Damage = 15,
 		Cooldown = 0.6,
 		MinDuration = 0.6,
-		HitStartAt = 0.1,
-		-- The baked HitStop marker is at 0.667s, so the shared 0.55 window
-		-- (closing at 0.65s) would drop the end of the swing.
-		HitWindow = 0.6,
+		HitStartAt = 0.38,
+		HitWindow = 0.45,
 	},
 
 	Light2 = {
@@ -70,7 +71,8 @@ Katana.Moves = {
 		Damage = 15,
 		Cooldown = 0.6,
 		MinDuration = 0.6,
-		HitStartAt = 0.1,
+		HitStartAt = 0.4,
+		HitWindow = 0.4,
 	},
 
 	Heavy = {
@@ -88,7 +90,7 @@ Katana.Moves = {
 		MinDuration = 0.6,
 		-- Measured from the move start. The move pauses on its HitStart
 		-- marker while held; its hits stay valid for HitWindow after the release.
-		HitStartAt = 0.15,
+		HitStartAt = 0.83,
 		Hold = {
 			HoldTime = 0.15,
 			MaxHoldTime = 10,

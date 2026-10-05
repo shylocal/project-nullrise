@@ -220,11 +220,14 @@ Current content (pinned by `WeaponGolden.spec`):
 
 | Weapon | Move | Kind | Hitbox | Damage | Cooldown | MinDuration | HitStartAt | HitWindow | Tolerance | Range | Hold |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Fists | Light1 | Light | RightFist | 10 | 0.35 | 0.35 | 0.1 | 0.55 | 3 | 8 | |
-| Fists | Light2 | Light | LeftFist | 10 | 0.35 | 0.35 | 0.1 | 0.55 | 3 | 8 | |
-| Fists | Heavy | Charge | RightFist | 20 | 0.6 | 0.6 | 0.15 | 0.55 | 3 | 8 | 0.15 / 10 |
-| Katana | Light1, Light2 | Light | Mesh | 15 | 0.6 | 0.6 | 0.1 | 0.55 | 3 | 10 | |
-| Katana | Heavy | Charge | Mesh | 30 | 0.6 | 0.6 | 0.15 | 0.55 | 3 | 10 | 0.15 / 10 |
+| Fists | Light1 | Light | RightFist | 10 | 0.35 | 0.35 | 0.13 | 0.4 | 3 | 8 | |
+| Fists | Light2 | Light | LeftFist | 10 | 0.35 | 0.35 | 0.13 | 0.4 | 3 | 8 | |
+| Fists | Heavy | Charge | RightFist | 20 | 0.6 | 0.6 | 0.26 | 0.55 | 3 | 8 | 0.15 / 10 |
+| Katana | Light1 | Light | Mesh | 15 | 0.6 | 0.6 | 0.38 | 0.45 | 3 | 10 | |
+| Katana | Light2 | Light | Mesh | 15 | 0.6 | 0.6 | 0.4 | 0.4 | 3 | 10 | |
+| Katana | Heavy | Charge | Mesh | 30 | 0.6 | 0.6 | 0.83 | 0.55 | 3 | 10 | 0.15 / 10 |
+
+`HitStartAt` sits just under each animation's baked HitStart marker (`AnimationManifest`), so the server never opens a hit window before the swing does. A light move's `HitWindow` reaches its HitStop marker plus about 0.15s.
 
 Both weapons use `Combo = { "Light1", "Light2" }` and `Bindings.Primary = { Tap = "Combo", Hold = "Heavy" }`.
 

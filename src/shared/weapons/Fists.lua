@@ -39,6 +39,9 @@ Fists.MoveDefaults = {
 	Range = 8,
 }
 
+-- HitStartAt sits just under each animation's baked HitStart marker
+-- (AnimationManifest), so the server never opens a hit window before the
+-- swing does; a light move's HitWindow reaches its HitStop marker plus ~0.15s.
 Fists.Moves = {
 	Light1 = {
 		Kind = "Light",
@@ -52,7 +55,8 @@ Fists.Moves = {
 		Damage = 10,
 		Cooldown = 0.35,
 		MinDuration = 0.35,
-		HitStartAt = 0.1,
+		HitStartAt = 0.13,
+		HitWindow = 0.4,
 	},
 
 	Light2 = {
@@ -67,7 +71,8 @@ Fists.Moves = {
 		Damage = 10,
 		Cooldown = 0.35,
 		MinDuration = 0.35,
-		HitStartAt = 0.1,
+		HitStartAt = 0.13,
+		HitWindow = 0.4,
 	},
 
 	Heavy = {
@@ -86,7 +91,7 @@ Fists.Moves = {
 		MinDuration = 0.6,
 		-- Measured from the move start. The move pauses on its HitStart
 		-- marker while held; its hits stay valid for HitWindow after the release.
-		HitStartAt = 0.15,
+		HitStartAt = 0.26,
 		Hold = {
 			HoldTime = 0.15,
 			MaxHoldTime = 10,

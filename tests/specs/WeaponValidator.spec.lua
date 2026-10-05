@@ -145,7 +145,9 @@ return function()
 			short_max_hold.Moves.Heavy.Hold.MaxHoldTime = short_max_hold.Moves.Heavy.HitStartAt
 			expect_error(
 				Validator.check(short_max_hold, "Fists"),
-				"Fists.Moves.Heavy.Hold.MaxHoldTime: must be > HitStartAt (0.15)"
+				("Fists.Moves.Heavy.Hold.MaxHoldTime: must be > HitStartAt (%s)"):format(
+					tostring(short_max_hold.Moves.Heavy.HitStartAt)
+				)
 			)
 		end)
 

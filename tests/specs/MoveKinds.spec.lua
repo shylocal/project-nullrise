@@ -21,8 +21,8 @@ return function()
 			local move = (Catalog.Get("Fists") :: any).Moves.Light1
 			local timing = MoveKinds.Light.create_timing(move, 10, TOLERANCE)
 
-			expect(timing.HitStartOpensAt).to.be.near(10 + 0.1 - TOLERANCE)
-			expect(timing.HitStartClosesAt).to.be.near(10 + 0.1 + 0.55 + TOLERANCE)
+			expect(timing.HitStartOpensAt).to.be.near(10 + move.HitStartAt - TOLERANCE)
+			expect(timing.HitStartClosesAt).to.be.near(10 + move.HitStartAt + move.HitWindow + TOLERANCE)
 			expect(timing.ExpiresAt).to.equal(timing.HitStartClosesAt)
 		end)
 
@@ -36,16 +36,16 @@ return function()
 			local move = (Catalog.Get("Katana") :: any).Moves.Heavy
 			local timing = MoveKinds.Charge.create_timing(move, 10, TOLERANCE)
 
-			expect(timing.HitStartOpensAt).to.be.near(10 + 0.15 - TOLERANCE)
-			expect(timing.HitStartClosesAt).to.be.near(10 + 10 + TOLERANCE)
-			expect(timing.ExpiresAt).to.be.near(timing.HitStartClosesAt + 0.55)
+			expect(timing.HitStartOpensAt).to.be.near(10 + move.HitStartAt - TOLERANCE)
+			expect(timing.HitStartClosesAt).to.be.near(10 + move.Hold.MaxHoldTime + TOLERANCE)
+			expect(timing.ExpiresAt).to.be.near(timing.HitStartClosesAt + move.HitWindow)
 		end)
 
 		it("measures a charge's hit window from its release", function()
 			local move = (Catalog.Get("Katana") :: any).Moves.Heavy
 			local timing = MoveKinds.Charge.create_timing(move, 10, TOLERANCE)
 
-			expect(MoveKinds.Charge.hit_expires_at(move, timing, 12, TOLERANCE)).to.be.near(12 + 0.55 + TOLERANCE)
+			expect(MoveKinds.Charge.hit_expires_at(move, timing, 12, TOLERANCE)).to.be.near(12 + move.HitWindow + TOLERANCE)
 			-- Never past the move's own lifetime.
 			expect(MoveKinds.Charge.hit_expires_at(move, timing, timing.HitStartClosesAt, TOLERANCE)).to.equal(
 				timing.ExpiresAt
