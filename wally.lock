@@ -3,14 +3,14 @@
 registry = "test"
 
 [[package]]
-name = "mykytalytovchenko/project-nullrise"
-version = "0.1.0"
-dependencies = [["Trove", "sleitnick/trove@1.8.0"], ["TestEZ", "roblox/testez@0.4.1"]]
-
-[[package]]
 name = "roblox/testez"
 version = "0.4.1"
 dependencies = []
+
+[[package]]
+name = "shylocal/project-nullrise"
+version = "0.1.0"
+dependencies = [["Trove", "sleitnick/trove@1.8.0"], ["TestEZ", "roblox/testez@0.4.1"]]
 
 [[package]]
 name = "sleitnick/trove"
