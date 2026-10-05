@@ -13,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.shared.config)
 local Deps = require(ReplicatedStorage.shared.runtime.Deps)
+local Freeze = require(ReplicatedStorage.shared.utility.Freeze)
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 local ItemCatalog = require(ReplicatedStorage.shared.items.ItemCatalog)
 local Schema = require(ReplicatedStorage.shared.data.Schema)
@@ -192,7 +193,6 @@ function PlayerDataService._fail(self: PlayerDataService, session: PlayerSession
 end
 
 function PlayerDataService.OnPlayerAdded(self: PlayerDataService, session: PlayerSession)
-	local player = session.Player
 	local profile, load_error = self:_load(session)
 
 	-- The player left while the session was starting: release it at once.
@@ -208,14 +208,53 @@ function PlayerDataService.OnPlayerAdded(self: PlayerDataService, session: Playe
 		return
 	end
 
+	-- EndSession saves profile.Data, so nothing may write to it until the
+	-- data is known to be readable. The version check and the migration
+	-- chain run on a copy; a profile that is newer, has no valid Version or
+	-- fails to migrate is released exactly as it was saved.
+	local upgraded, upgrade_error = Schema.run_migrations(Freeze.clone_deep(profile.Data), Schema.Migrations, Schema.Version)
+	if upgraded == nil then
+		profile:EndSession()
+		self:_fail(session, ("profile data is unusable (%s)"):format(tostring(upgrade_error)))
+		return
+	end
+
+	-- Anything that throws from here on would leave the profile session open
+	-- with nothing to end it: this component would not complete, so its
+	-- OnPlayerRemoving would never run. Release the profile, then fail.
+	local ok, err = pcall(self._open, self, session, profile, upgraded)
+	if not ok then
+		if session:Get(self) ~= nil then
+			-- end_state disconnects the steal listener before ending.
+			session:Clear(self)
+		elseif profile:IsActive() then
+			profile:EndSession()
+		end
+		self:_fail(session, ("the profile could not be opened (%s)"):format(tostring(err)))
+	end
+end
+
+-- Installs the upgraded data, reconciles it with the template, checks it,
+-- sanitises and seeds it, stores the component state and watches the
+-- session. A profile whose data is unusable is released and failed instead.
+-- May throw; OnPlayerAdded then releases the profile.
+function PlayerDataService._open(
+	self: PlayerDataService,
+	session: PlayerSession,
+	profile: ProfileLike,
+	upgraded: any
+)
+	local player = session.Player
+
+	profile.Data = upgraded
 	profile:AddUserId(session.UserId)
+	-- At the current version, so the template's new keys belong here.
 	profile:Reconcile()
 
-	local data, migrate_error = Schema.migrate(profile.Data)
+	local data, shape_error = Schema.validate(profile.Data)
 	if data == nil then
-		-- Never keep a session we cannot read: leave the saved data untouched.
 		profile:EndSession()
-		self:_fail(session, ("profile data is unusable (%s)"):format(tostring(migrate_error)))
+		self:_fail(session, ("profile data is unusable (%s)"):format(tostring(shape_error)))
 		return
 	end
 
@@ -227,6 +266,7 @@ function PlayerDataService.OnPlayerAdded(self: PlayerDataService, session: Playe
 	seed(data)
 
 	local state = new_state(profile, data, true)
+	session:Set(self, state)
 	state.Connection = profile.OnSessionEnd:Connect(function()
 		if state.Ended then
 			return
@@ -243,8 +283,6 @@ function PlayerDataService.OnPlayerAdded(self: PlayerDataService, session: Playe
 			player:Kick(SESSION_ENDED_MESSAGE)
 		end
 	end)
-
-	session:Set(self, state)
 end
 
 function PlayerDataService.OnPlayerRemoving(self: PlayerDataService, session: PlayerSession)

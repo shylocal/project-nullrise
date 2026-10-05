@@ -10,6 +10,9 @@
 --                                   runs inside StartSessionAsync before it
 --                                   answers (simulates the yield: remove the
 --                                   player here to leave while loading)
+--   store.AfterStart = fn(profile)  runs on a new profile just before
+--                                   StartSessionAsync returns it (patch its
+--                                   methods here to make them throw)
 --   store.IgnoreCancel = true      never consult params.Cancel (ProfileStore's
 --                                   mock does not), so the caller must notice
 --                                   the leave itself
@@ -90,6 +93,7 @@ function FakeProfileStore.new(template: any): any
 		Fail = {} :: { [string]: boolean },
 		Error = {} :: { [string]: string },
 		BeforeReturn = nil :: ((key: string, params: any) -> ())?,
+		AfterStart = nil :: ((profile: any) -> ())?,
 		IgnoreCancel = false,
 		Calls = {} :: { string },
 	}, FakeProfileStore)
@@ -122,6 +126,9 @@ function FakeProfileStore.StartSessionAsync(self: any, key: string, params: any)
 		_store = self,
 	}, FakeProfile)
 	self.Active[key] = profile
+	if self.AfterStart then
+		self.AfterStart(profile)
+	end
 	return profile
 end
 

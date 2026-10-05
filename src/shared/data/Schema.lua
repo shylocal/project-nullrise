@@ -74,16 +74,18 @@ function Schema.run_migrations(data: any, migrations: { [number]: Migration }, t
 	return data, nil
 end
 
--- Upgrades data in place to Schema.Version and checks the top-level shape.
--- Individual slot records are checked by sanitize, which drops corrupt ones
--- instead of failing the whole load.
-function Schema.migrate(data: any): (ProfileDataV1?, string?)
-	local migrated, err = Schema.run_migrations(data, Schema.Migrations, VERSION)
-	if migrated == nil then
-		return nil, err
+-- Checks the top-level shape of data already at Schema.Version. Individual
+-- slot records are checked by sanitize, which drops corrupt ones instead of
+-- failing the whole load.
+function Schema.validate(data: any): (ProfileDataV1?, string?)
+	if type(data) ~= "table" then
+		return nil, "profile data must be a table"
+	end
+	if data.Version ~= VERSION then
+		return nil, ("profile Version must be %d, got %s"):format(VERSION, tostring(data.Version))
 	end
 
-	local inventory = migrated.Inventory
+	local inventory = data.Inventory
 	if type(inventory) ~= "table" then
 		return nil, "Inventory must be a table"
 	end
@@ -94,7 +96,16 @@ function Schema.migrate(data: any): (ProfileDataV1?, string?)
 		return nil, "Inventory.Seeded must be a boolean"
 	end
 
-	return migrated :: ProfileDataV1, nil
+	return data :: ProfileDataV1, nil
+end
+
+-- Upgrades data in place to Schema.Version, then validates it.
+function Schema.migrate(data: any): (ProfileDataV1?, string?)
+	local migrated, err = Schema.run_migrations(data, Schema.Migrations, VERSION)
+	if migrated == nil then
+		return nil, err
+	end
+	return Schema.validate(migrated)
 end
 
 -- The slot a key names: a positive integer written without padding. There is

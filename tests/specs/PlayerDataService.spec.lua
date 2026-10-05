@@ -97,7 +97,7 @@ return function()
 			expect(slot_count(data.Inventory.Slots)).to.equal(0)
 		end)
 
-		it("reconciles missing keys from the template before migrating", function()
+		it("reconciles missing keys from the template once the version is known", function()
 			f = setup(false)
 			f.store.Saved[KEY] = { Version = 1, Inventory = { Slots = {} } }
 			local player = join(f)
@@ -180,6 +180,83 @@ return function()
 			expect(player.Kicked).to.equal(PlayerDataService.LOAD_FAILED_MESSAGE)
 			expect(f.store.Active[KEY]).to.equal(nil)
 			expect(f.store.Saved[KEY].Version).to.equal(DataSchema.Version + 1)
+		end)
+
+		it("never writes to a newer profile it refuses", function()
+			-- Regression: Reconcile ran before the version check, so stray
+			-- template keys were added and then saved by EndSession.
+			f = setup(false)
+			f.store.Saved[KEY] = { Version = DataSchema.Version + 1, Wallet = { Coins = 5 } }
+			local player = join(f)
+
+			expect(player.Kicked).to.equal(PlayerDataService.LOAD_FAILED_MESSAGE)
+			local saved = f.store.Saved[KEY]
+			expect(saved.Inventory).to.equal(nil)
+			expect(saved.Wallet.Coins).to.equal(5)
+			expect(saved.Version).to.equal(DataSchema.Version + 1)
+		end)
+
+		it("refuses a profile without a valid Version without giving it one", function()
+			f = setup(false)
+			f.store.Saved[KEY] = { Inventory = { Slots = {}, Seeded = true } }
+			local player = join(f)
+
+			expect(player.Kicked).to.equal(PlayerDataService.LOAD_FAILED_MESSAGE)
+			expect(f.store.Active[KEY]).to.equal(nil)
+			expect(f.store.Saved[KEY].Version).to.equal(nil)
+		end)
+
+		it("releases the profile when opening it throws", function()
+			-- Regression: the component never completed, so the session stayed
+			-- locked and autosaved until the server closed.
+			f = setup(false)
+			f.store.Saved[KEY] = { Version = 1, Inventory = { Slots = {}, Seeded = true } }
+			f.store.AfterStart = function(profile: any)
+				profile.Reconcile = function()
+					error("reconcile failed")
+				end
+			end
+			local player = join(f)
+
+			expect(player.Kicked).to.equal(PlayerDataService.LOAD_FAILED_MESSAGE)
+			expect(f.store.Active[KEY]).to.equal(nil)
+			expect(f.data:GetData(player)).to.equal(nil)
+			expect(count(f, "LoadFailed")).to.equal(1)
+		end)
+
+		it("releases the profile without a steal kick when a later step throws", function()
+			f = setup(false)
+			f.store.AfterStart = function(profile: any)
+				local signal = profile.OnSessionEnd
+				profile.OnSessionEnd = {
+					Connect = function()
+						error("connect failed")
+					end,
+					Fire = function(_self: any)
+						signal:Fire()
+					end,
+				}
+			end
+			local player = join(f)
+
+			expect(player.Kicked).to.equal(PlayerDataService.LOAD_FAILED_MESSAGE)
+			expect(f.store.Active[KEY]).to.equal(nil)
+			expect(count(f, "SessionEnded")).to.equal(0)
+		end)
+
+		it("falls back to an unsaved profile in Studio when opening throws", function()
+			f = setup(true)
+			f.store.AfterStart = function(profile: any)
+				profile.AddUserId = function()
+					error("add user id failed")
+				end
+			end
+			local player = join(f)
+
+			expect(player.Kicked).to.equal(nil)
+			expect(f.store.Active[KEY]).to.equal(nil)
+			expect(f.data:GetData(player)).to.be.ok()
+			expect(f.data:IsPersistent(player)).to.equal(false)
 		end)
 
 		it("passes a Cancel condition that turns true once the player leaves", function()
