@@ -1,7 +1,8 @@
 --!strict
 -- Golden values: the schema v2 conversion of Fists and Katana must keep every
 -- feel-critical number of the pre-move definitions (Attacks[1], Attacks[2] and
--- Charge became Light1, Light2 and Heavy).
+-- Charge became Light1, Light2 and Heavy), except the light-attack Cooldown and
+-- MinDuration, which a user decision raised (Fists 0.3 -> 0.35, Katana 0.35 -> 0.6).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Catalog = require(ReplicatedStorage.shared.weapons.Catalog)
 
@@ -10,13 +11,13 @@ local FIELDS = { "Kind", "Hitbox", "Damage", "Cooldown", "MinDuration", "HitStar
 -- { Kind, Hitbox, Damage, Cooldown, MinDuration, HitStartAt, HitWindow, Tolerance, Range }
 local GOLDEN: { [string]: { [string]: { any } } } = {
 	Fists = {
-		Light1 = { "Light", "RightFist", 10, 0.3, 0.3, 0.1, 0.55, 3, 8 },
-		Light2 = { "Light", "LeftFist", 10, 0.3, 0.3, 0.1, 0.55, 3, 8 },
+		Light1 = { "Light", "RightFist", 10, 0.35, 0.35, 0.1, 0.55, 3, 8 },
+		Light2 = { "Light", "LeftFist", 10, 0.35, 0.35, 0.1, 0.55, 3, 8 },
 		Heavy = { "Charge", "RightFist", 20, 0.6, 0.6, 0.15, 0.55, 3, 8 },
 	},
 	Katana = {
-		Light1 = { "Light", "Mesh", 15, 0.35, 0.35, 0.1, 0.55, 3, 10 },
-		Light2 = { "Light", "Mesh", 15, 0.35, 0.35, 0.1, 0.55, 3, 10 },
+		Light1 = { "Light", "Mesh", 15, 0.6, 0.6, 0.1, 0.55, 3, 10 },
+		Light2 = { "Light", "Mesh", 15, 0.6, 0.6, 0.1, 0.55, 3, 10 },
 		Heavy = { "Charge", "Mesh", 30, 0.6, 0.6, 0.15, 0.55, 3, 10 },
 	},
 }

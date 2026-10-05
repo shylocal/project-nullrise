@@ -124,7 +124,7 @@ return function()
 			invalid.Moves.Heavy.Cooldown = invalid.Moves.Heavy.MinDuration / 2
 			local errors = Validator.check(invalid, "Fists")
 			expect(#errors).to.equal(2)
-			expect_error(errors, "Fists.Moves.Light1.Cooldown: must be >= MinDuration (0.3)")
+			expect_error(errors, "Fists.Moves.Light1.Cooldown: must be >= MinDuration (0.35)")
 			expect_error(errors, "Fists.Moves.Heavy.Cooldown: must be >= MinDuration (0.6)")
 		end)
 

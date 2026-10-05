@@ -46,7 +46,7 @@ The ranked review behind all of this is in `docs/refactor/REVIEW_IDEAS.md`.
 
 ## User decisions to implement (2026-10-05, after the review fixes land)
 
-1. **DONE (2026-10-05, see plan §14.19). Attacks and ledge grabs (confirmed by the user).** The player CAN grab a ledge while light-attacking or charging. **The grab cancels that attack.**
+1. **DONE (2026-10-05, see plan §14.21). Attacks and ledge grabs (confirmed by the user).** The player CAN grab a ledge while light-attacking or charging. **The grab cancels that attack.**
    - In `src/client/controllers/CharacterState/Policy.lua`, attack activities (`Attack`, `AttackRooted`, the charge activity) must NOT block `Grab`. Hang already blocks Attack and Charge.
    - On a successful grab, cancel the current attack, whether a light attack or a Heavy charge:
      - release its lease;
@@ -59,7 +59,7 @@ The ranked review behind all of this is in `docs/refactor/REVIEW_IDEAS.md`.
      - grabbing during a light attack succeeds and ends the attack;
      - grabbing during a charge succeeds and ends the charge;
      - no lease is left held, and you can attack again after releasing the ledge (the Hang lease still blocks attacks while hanging).
-2. **Light-attack cooldowns.**
+2. **DONE (2026-10-05, see plan §14.22). Light-attack cooldowns.**
    - Fists: 0.3 → **0.35s**. Katana: 0.35 → **0.6s**.
    - Change `Cooldown` in `src/shared/weapons/Fists.lua` and `Katana.lua` (move defaults or Light1/Light2).
    - Raise the server `MinDuration` to match, so the server enforces the same pace: the Validator requires `Cooldown >= MinDuration`.

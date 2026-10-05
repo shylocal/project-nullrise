@@ -51,8 +51,8 @@ Katana.Moves = {
 		},
 
 		Damage = 15,
-		Cooldown = 0.35,
-		MinDuration = 0.35,
+		Cooldown = 0.6,
+		MinDuration = 0.6,
 		HitStartAt = 0.1,
 	},
 
@@ -65,8 +65,8 @@ Katana.Moves = {
 		},
 
 		Damage = 15,
-		Cooldown = 0.35,
-		MinDuration = 0.35,
+		Cooldown = 0.6,
+		MinDuration = 0.6,
 		HitStartAt = 0.1,
 	},
 

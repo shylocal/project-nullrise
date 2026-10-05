@@ -50,8 +50,8 @@ Fists.Moves = {
 
 		Hitbox = "RightFist",
 		Damage = 10,
-		Cooldown = 0.3,
-		MinDuration = 0.3,
+		Cooldown = 0.35,
+		MinDuration = 0.35,
 		HitStartAt = 0.1,
 	},
 
@@ -65,8 +65,8 @@ Fists.Moves = {
 
 		Hitbox = "LeftFist",
 		Damage = 10,
-		Cooldown = 0.3,
-		MinDuration = 0.3,
+		Cooldown = 0.35,
+		MinDuration = 0.35,
 		HitStartAt = 0.1,
 	},
 
