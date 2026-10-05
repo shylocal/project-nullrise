@@ -306,8 +306,7 @@ return function()
 
 			expect(#f.remote.Sent).to.equal(0)
 			expect(snapshot(f, "Network.BadPayload.Combat")).to.equal(1)
-			expect(snapshot(f, "Network.UnknownAction.Combat.Bogus")).to.equal(1)
-			expect(snapshot(f, "Network.UnknownAction.Combat.Charge")).to.equal(1)
+			expect(snapshot(f, "Network.UnknownAction.Combat.<unknown>")).to.equal(2)
 		end)
 
 		it("resets the combo but not the cooldown when the equipped weapon changes", function()

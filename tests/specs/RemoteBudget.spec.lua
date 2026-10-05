@@ -25,6 +25,7 @@ local function setup(): (any, any)
 			config = CONFIG,
 			clock = h.Clock.now,
 			telemetry = get("Telemetry"),
+			is_studio = false,
 		})
 	end)
 	h:Start()
@@ -100,11 +101,30 @@ return function()
 			local telemetry = h:Get("Telemetry")
 
 			expect(budget:Take(player, "Nope")).to.equal(false)
-			expect(telemetry:Snapshot()["Network.UnknownAction.Nope"]).to.equal(1)
+			expect(telemetry:Snapshot()["Network.UnknownAction.<unknown>"]).to.equal(1)
 
 			-- 4 unknown requests drain the rest of the 5-token global bucket.
 			take_many(budget, player, "Nope", 4)
 			expect(budget:Take(player, "Fast")).to.equal(false)
+		end)
+
+		it("never passes a client-chosen action name to analytics", function()
+			-- Regression: the raw name became the AnalyticsService custom field,
+			-- so a client could flood it with distinct values.
+			local player = h.Players:Add()
+			local telemetry = h:Get("Telemetry")
+
+			budget:Take(player, "Combat.Bogus1")
+			budget:Take(player, "Combat.Bogus2")
+			budget:Take(player, "Combat." .. string.rep("x", 200))
+			telemetry:Flush()
+
+			local events = h.Analytics.Events
+			expect(#events).to.equal(1)
+			local fields = events[1][4]
+			expect(fields.CustomField01).to.equal("UnknownAction")
+			expect(fields.CustomField02).to.equal("Combat." .. RemoteBudget.UNKNOWN)
+			expect(events[1][3]).to.equal(3)
 		end)
 
 		it("keeps separate buckets per player", function()
@@ -139,6 +159,7 @@ return function()
 					config = { Global = { Rate = 0, Burst = 1 }, Actions = {} },
 					clock = h.Clock.now,
 					telemetry = h:Get("Telemetry"),
+					is_studio = false,
 				})
 			end).to.throw()
 		end)

@@ -32,6 +32,8 @@ export type RemoteBudgetDeps = {
 	config: BudgetConfig,
 	clock: () -> number,
 	telemetry: Telemetry.Telemetry,
+	-- Studio prints the raw name of each unknown action.
+	is_studio: boolean,
 }
 
 type RemoteBudgetFields = {
@@ -39,10 +41,21 @@ type RemoteBudgetFields = {
 	_config: BudgetConfig,
 	_clock: () -> number,
 	_telemetry: Telemetry.Telemetry,
+	_is_studio: boolean,
 }
+
+-- Telemetry detail for an unknown action. The action name after the remote
+-- prefix comes from the client, and telemetry details reach AnalyticsService
+-- custom fields, so only the server-chosen remote name is kept.
+local UNKNOWN = "<unknown>"
+local function unknown_detail(action: string): string
+	local remote = string.match(action, "^([^.]+)%.")
+	return if remote then remote .. "." .. UNKNOWN else UNKNOWN
+end
 
 local RemoteBudget = {}
 RemoteBudget.__index = RemoteBudget
+RemoteBudget.UNKNOWN = UNKNOWN
 
 export type RemoteBudget = typeof(setmetatable({} :: RemoteBudgetFields, RemoteBudget))
 
@@ -60,7 +73,7 @@ local function check_rate(rate: any, path: string)
 end
 
 function RemoteBudget.new(deps: RemoteBudgetDeps): RemoteBudget
-	Deps.check(deps, "RemoteBudget", { "players", "config", "clock", "telemetry" })
+	Deps.check(deps, "RemoteBudget", { "players", "config", "clock", "telemetry", "is_studio" })
 
 	check_rate(deps.config.Global, "Global")
 	if type(deps.config.Actions) ~= "table" then
@@ -75,6 +88,7 @@ function RemoteBudget.new(deps: RemoteBudgetDeps): RemoteBudget
 		_config = deps.config,
 		_clock = deps.clock,
 		_telemetry = deps.telemetry,
+		_is_studio = deps.is_studio,
 	}
 	local self = setmetatable(fields, RemoteBudget)
 
@@ -133,7 +147,10 @@ function RemoteBudget.Take(self: RemoteBudget, player: Player, action: string): 
 		if global.Tokens >= 1 then
 			global.Tokens -= 1
 		end
-		self._telemetry:Count(player, "Network", "UnknownAction", action)
+		self._telemetry:Count(player, "Network", "UnknownAction", unknown_detail(action))
+		if self._is_studio then
+			print(("[RemoteBudget] unknown action %q from %s"):format(string.sub(action, 1, 64), tostring(player.Name)))
+		end
 		return false
 	end
 

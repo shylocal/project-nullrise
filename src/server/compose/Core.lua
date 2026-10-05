@@ -48,6 +48,7 @@ return function(rt: Runtime.Runtime, env: ServerEnv): ()
 			config = Config.Network.RemoteBudget,
 			clock = env.Scheduler.clock,
 			telemetry = get("Telemetry"),
+			is_studio = env.IsStudio,
 		})
 	end)
 end

@@ -330,7 +330,7 @@ return function()
 			f.h.Remotes.Inventory:Inject(f.player, "SelectItem", ITEM_WEAPON)
 
 			expect(f.inventory:GetSelectedSlot(f.player)).to.equal(nil)
-			expect(f.h:Get("Telemetry"):Snapshot()["Network.UnknownAction.Inventory.SelectItem"]).to.equal(1)
+			expect(f.h:Get("Telemetry"):Snapshot()["Network.UnknownAction.Inventory.<unknown>"]).to.equal(1)
 		end)
 
 		it("has no inventory for a player whose data failed to load", function()
