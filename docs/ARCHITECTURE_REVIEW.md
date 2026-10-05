@@ -1,55 +1,76 @@
 # Architecture review
 
-## Current shape
+This review assessed the pre-refactor architecture. **Every item is now done.** Each entry says where; [ARCHITECTURE.md](ARCHITECTURE.md) describes the result, and the "§14.N" numbers refer to its list of intentional behaviour changes.
 
-Nullrise uses explicit ModuleScript dependencies, domain controllers/services, Trove-owned lifecycles, shared weapon definitions, and a small shared remote protocol. That structure is appropriate for the current project; the main problem is responsibility concentration inside a few gameplay modules rather than the absence of a framework.
+## Current shape: **Done**
 
-## Combat
+The game keeps explicit ModuleScript dependencies rather than a framework. On top of them sit:
 
-`CombatService` is the security boundary. It owns player-scoped attack lifecycle, remote rate limits, combo sequencing, server timing, hit-window limits, and damage application. `CombatValidation` owns the spatial validation boundary.
+- one `Runtime` per scope (server, client, character), with ordered construction and Start and reverse teardown;
+- constructor `deps` tables checked by `Deps.check`;
+- `PlayerService` components, with per-player state stored on the `PlayerSession`.
 
-`CombatController` is now an orchestration layer over `AttackInput`, `AttackLifecycle`, and `Hitbox`. The client does not advance the combo until the server acknowledges the requested attack, and hitmarker events are raised only from server-confirmed hits.
+Responsibility concentration was addressed by splitting combat, parkour, persistence and transport into focused modules.
+Where: ARCHITECTURE.md §1–§4.
 
-Weapon swaps reset combo sequence but preserve cooldown and remote-rate-limit state. Character removal clears all player-scoped state.
+## Combat: **Done**
 
-~~Remaining design debt: the shared weapon definitions still use 0.1-second cooldowns, which is a 10-attack-per-second authored cadence.~~ **Fixed:** each attack now has a server-enforced `MinDuration` (0.3s Fists, 0.35s Katana, 0.6s charges), and the client `Cooldown` is validated to be no shorter. The values are first estimates and still need tuning against the animation markers in Studio.
+- `CombatService` remains the security boundary: per-player move lifecycle, combo sequencing, server timing and the hit buffer.
+- Transport limits moved to `RemoteBudget`.
+- Damage moved to `DamageService` (the only `TakeDamage` caller, with policies).
+- FX moved to `CombatFxService`.
+- Spatial validation stays in `CombatValidation`, now lag-compensated through `PositionHistory`.
+- The client `CombatController` orchestrates `AttackInput`, `AttackLifecycle` and `Hitbox`. It advances the combo only on `AttackAccepted`, and the hitmarker fires only on `HitConfirmed`.
 
-## Parkour
+Weapon swaps reset the combo but keep the cooldown and budget. Character removal clears player-scoped state.
 
-`ParkourController/init.lua` is the composition root, while queries, ledge detection, ledge traversal, vault traversal, state snapshots, and math live in separate modules. `LedgeDetection` now owns tagged-guide broad-phase filtering, candidate sampling, surface classification/scoring, ground-mantle search, and destination-face probing; `LedgeTraversal` owns state transitions, rollback, positioning, and movement side effects. This keeps world-search logic out of the execution layer without adding controller forwarding shells.
+The 0.1s cooldowns were replaced by a server-enforced `MinDuration` per move, with the client `Cooldown` validated to be no shorter. The current values are: Fists lights 0.35s, Katana lights 0.6s (user decision, §14.22) and Heavies 0.6s. `AnimationContracts` checks them against the animations once the manifest is baked.
+Where: ARCHITECTURE.md §5, §6; `src/shared/weapons/{Fists,Katana}.lua`; `WeaponGolden.spec`.
 
-The remaining decomposition work should be incremental and behavior-preserving. Queries return world data, detection/classification selects usable candidates, and traversal modules consume those results and own movement side effects. The controller no longer forwards most query/traversal methods.
+## Parkour: **Done**
 
-Parkour execution data is owned by explicit `State` records for `Hanging`, `Mantling`, `Vaulting`, and `TopHop`. The controller retains only cross-state lifecycle concerns such as input guards, timing, and world references. State-specific update work now lives with the traversal module that owns it.
+`ParkourController/init.lua` composes the queries, detection, traversal, vault and math modules. Its state is a typed machine (`State.lua`) whose data exists only inside its state, and transitions are checked against a table.
 
-## Input and UI
+Several things now go through shared owners:
 
-`InputController` is the device-normalization boundary. PC, touch, and gamepad adapters report logical actions plus source identity; UI selection no longer drives weapon restoration. The server's weapon event is the gameplay source of truth.
+- **Leases:** `CharacterState` arbitrates which actions may start.
+- **Humanoid properties:** layered through `HumanoidOverrides` stacks, which restore base values.
+- **Input latches:** `InputLatch`.
+- **Climbable lookups:** a spatial-hash `ClimbableIndex`. It survives respawns and re-measures moved guides (§14.15).
+- **Workspace queries:** go through `QueryContext`, with per-frame ray metrics.
 
-`AnimationController:Load` no longer blocks weapon state changes on `PreloadAsync`; asynchronous preload work is guarded by the owning animation trove.
+Where: ARCHITECTURE.md §7.
 
-## Inventory and weapon lifecycle
+## Input and UI: **Done**
 
-`InventoryService.Get` returns a detached snapshot, while mutation flows through validation methods. Inventory remotes are rate-limited. **Fixed:** `Inventory.Changed` now sends a dense `{ Slot, WeaponId }` array plus an integer selected slot (`0` = none), slots are bounded by `MAX_SLOTS`, and `PlayerController` is the single client listener that forwards it to the UI.
+`InputController` is the device-normalisation boundary. The UI is session-scoped: `UIController` modules subscribe to the session clients (`CombatClient`, `LoadoutClient`), which are the only remote listeners. The modules survive respawn, and each template is optional.
 
-`WeaponService` initializes player/character ownership independently of inventory signal ordering. Weapon templates are server-only in `ServerStorage.weapon_models`.
+Animation loading no longer blocks on `PreloadAsync`: `TrackCache.preload` preloads every Catalog animation once in the background at boot. Tracks are cached per Animator and role.
+Where: `src/client/init.client.lua`, `src/client/session/`, `AnimationController/TrackCache.lua`; ARCHITECTURE.md §3.3.
 
-## Movement authority
+## Inventory and weapon lifecycle: **Done**
 
-Movement and parkour remain client-authoritative by design. This keeps the prototype responsive. A server-side `MovementValidation` observer now records extreme replicated displacement/velocity anomalies without correcting or rejecting movement. It provides observability while preserving the client-owned traversal model; see `docs/THREAT_MODEL.md` for the measured envelope and multiplayer validation scenarios.
+`InventoryService` stores slots in the persisted profile (`{ Uid, ItemId, Data }` records, ProfileStore with a session lock). `Inventory.Changed` sends a dense `{ Slot, Uid, ItemId }` array plus the selected slot (`0` = none). Clients select by `SelectSlot` or `SelectUid`. `LoadoutClient`, not `PlayerController`, is the single client listener.
 
-This remains a prototype boundary rather than server-authoritative movement, so combat range checks still depend on the server-observed character position.
+`WeaponService` is a component that does not depend on inventory signal order. It caches models per character, coalesces rapid equips, and attaches only to R6. Templates are server-only, in `ServerStorage.weapon_models`.
+Where: ARCHITECTURE.md §8.
 
-## Build/runtime contract
+## Movement authority: **Done (by design)**
 
-`default.project.json` now declares the runtime containers for packages, UI templates, and server weapon models, and the server registers the required `Climbable` collision group at startup.
+Movement and parkour stay client-authoritative. `MovementValidation` observes the replicated position through `PositionHistory`, with limits derived from config by `Envelope`, and counts anomalies in Telemetry without correcting them.
+Where: [THREAT_MODEL.md](THREAT_MODEL.md).
 
-Those containers are still asset/package contracts rather than repository-complete source. The next step for a truly self-contained place is to vendor or otherwise source-control the approved package revisions and authored UI/weapon assets. Packages are vendored now (see `docs/VENDORED.md`, which recommends moving to Wally). UI templates are optional at runtime: a missing template disables only that UI module.
+## Build/runtime contract: **Done**
+
+`default.project.json` declares the package, UI, weapon-model and remote containers, and the server registers the `Climbable` collision group at startup. Trove and TestEZ come from Wally (`wally.toml`, `wally.lock`). Signal, ShapecastHitbox and ProfileStore are vendored with provenance in [VENDORED.md](VENDORED.md). Authored UI and weapon assets stay in Studio by design and are verified at boot by `UiContracts` and `AssetContracts`.
+Where: [DEPENDENCIES.md](DEPENDENCIES.md).
 
 ## Refactor rules
 
-1. Extract a responsibility only when it owns distinct behavior or data.
+These still apply to future work:
+
+1. Extract a responsibility only when it owns distinct behaviour or data.
 2. Keep pure calculations free of Roblox service access.
 3. Keep world queries separate from movement side effects.
 4. Give each connection, task, instance, and temporary state one visible owner.
-5. Add a regression test or explicit Studio scenario with each behavioral refactor.
+5. Add a regression test or explicit Studio scenario with each behavioural refactor.

@@ -18,10 +18,13 @@ Third-party packages come from Wally (`wally.toml`, installed into the git-ignor
 
 ## ReplicatedStorage.ui
 
-Client code expects Studio-authored `ScreenGui` templates. Each is optional: a missing template logs one warning and that UI module does nothing, without affecting gameplay. Templates are cloned with `ResetOnSpawn = false`.
+Client code expects Studio-authored `ScreenGui` templates. Each is optional: a missing template disables only that UI module, without affecting gameplay. `Hitmarker` and `WeaponMenu` log one warning when missing; `DamageIndicator` is silent. Templates are cloned once per session into `PlayerGui` with `ResetOnSpawn = false`.
 
 - `WeaponMenu`: a GUI template containing `GuiButton` descendants with a string `WeaponId` attribute. A descendant named `Selection` should be a `GuiObject` used as the selected-state indicator.
 - `Hitmarker`: a GUI template containing a descendant named `Hitmarker` that is a `GuiObject`.
+- `DamageIndicator`: a GUI template containing a `GuiObject` named `Flash`, shown for 0.15s when the local character takes damage.
+
+The hit highlight on victims (`HitHighlight`) needs no template.
 
 These assets intentionally remain Studio-only and are not part of the Rojo source tree.
 
@@ -36,9 +39,9 @@ Required built-in templates:
 Each template is a `BasePart`, or a `Model` containing at least one `BasePart`, named after the definition's `Model` field. `WeaponAttachment` then, for every entry in the definition's `Wield` table, finds the template descendant with that name (it must be a `BasePart`) and welds it with a `Motor6D` to the named R6 body part. Each move's `Hitbox` names the part combat hit validation uses; it must also be a `BasePart` (it is looked up as a wield entry first, then anywhere in the template). Every `Attachment` named `Hitpoint` inside the template is tagged `Hitpoint` on attach, and hits are only accepted from such an attachment inside the move's hitbox part.
 
 - `Fists`: `BasePart` descendants named `RightFist` (welded to `Right Arm`) and `LeftFist` (welded to `Left Arm`). These are also the hitboxes; each needs at least one `Attachment` named `Hitpoint`.
-- `Katana`: a `BasePart` descendant named **`Handle`**, welded to `Right Arm`. Without it the katana is cloned into the character but not welded to the arm, and `WeaponAttachment` warns about the missing wield part. The hitbox is a `BasePart` descendant named `Mesh` (for example the blade `MeshPart`) containing `Attachment`s named `Hitpoint`. `Mesh` must be welded to `Handle` (for example with a `WeldConstraint` authored in the template) so it moves with the arm.
+- `Katana`: a `BasePart` descendant named **`Handle`**, welded to `Right Arm`. Without it the Studio boot stops at the AssetContracts check below; on a live server the katana would be cloned into the character without being welded to the arm, and `WeaponAttachment` warns about the missing wield part. The hitbox is a `BasePart` descendant named `Mesh` (for example the blade `MeshPart`) containing `Attachment`s named `Hitpoint`. `Mesh` must be welded to `Handle` (for example with a `WeldConstraint` authored in the template) so it moves with the arm.
 
-Each template must match the weapon definition in `src/shared/weapons/*.lua`.
+Each template must match the weapon definition in `src/shared/weapons/*.lua`. Weapon parts are made `CanCollide = false` and `CanQuery = false` on attach, so hit casts pass through a held weapon to the body behind it. `WeaponService` keeps one cloned model per weapon per character and re-parents it on re-equip.
 
 **Boot check (`src/server/AssetContracts.lua`, run first by `compose/Content.lua`):** before any service is built, the server verifies that:
 
@@ -54,7 +57,7 @@ Keeping templates in `ServerStorage` prevents clients from reading the source mo
 
 ## Animation manifest
 
-`src/shared/weapons/AnimationManifest.lua` holds baked animation data (length and `HitStart`/`HitStop` marker times per animation id). When the Catalog loads, `AnimationContracts` checks every move whose animation has an entry: `HitStartAt` is at most the `HitStart` marker (+1 ms), a Light move's `HitStartAt + HitWindow` reaches the `HitStop` marker, `MinDuration` fits in the animation length, and a Charge move's animation has a `HitStart` marker. Ids without an entry are not checked, so an empty manifest checks nothing.
+`src/shared/weapons/AnimationManifest.lua` holds baked animation data (length and `HitStart`/`HitStop` marker times per animation id). When the Catalog loads, `AnimationContracts` checks every move whose animation has an entry: `HitStartAt` is at most the `HitStart` marker (+1 ms), a Light move's `HitStartAt + HitWindow` reaches the `HitStop` marker, `MinDuration` fits in the animation length, and a Charge move's animation has a `HitStart` marker. Ids without an entry are not checked, so an empty manifest checks nothing. **The manifest is still empty**: bake it once in Studio. Note that the Katana light moves now have a 0.6s `MinDuration`, which must not exceed the length of their animations.
 
 To (re)bake it after changing animations or move timing:
 

@@ -9,6 +9,7 @@ Third-party Luau code reaches the game in two ways: **Wally** packages, which ar
 | Trove | `sleitnick/trove@1.8.0` | `[dependencies]` | `Packages/Trove.lua` (+ `Packages/_Index`) | `ReplicatedStorage.packages.Trove` | MIT (declared in the package's `wally.toml`; RbxUtil carries the license text) |
 | TestEZ | `roblox/testez@0.4.1` | `[dev-dependencies]` | `DevPackages/TestEZ.lua` (+ `DevPackages/_Index`) | `TestService.TestEZ` | Apache-2.0 (`LICENSE` ships in the package) |
 
+- **Manifest:** `wally.toml` declares the project as the private package `shylocal/project-nullrise` (realm `shared`); `wally.lock` is committed.
 - **Install:** `~/.rokit/bin/wally install` (Wally is pinned in `aftman.toml`, which Rokit also reads). `sh scripts/analyze.sh` runs it automatically when `Packages/` or `DevPackages/` is missing. Run it before `rojo serve` / `rojo build` on a fresh clone, or Rojo fails on the missing `Packages/` paths.
 - **TestEZ stays out of the shipped tree.** It is a dev dependency mapped only under `TestService`; nothing from `DevPackages/` is mapped into `ReplicatedStorage`. `RuntimeContracts.spec` asserts that `ReplicatedStorage.packages` has no `TestEZ`.
 - **TestEZ 0.4.1 is identical** (apart from whitespace) to the copy that used to live in `tests/TestEZ/`, so `tests/RunTests.lua` and the specs are unchanged.

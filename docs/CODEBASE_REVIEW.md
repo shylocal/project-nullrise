@@ -1,48 +1,59 @@
 # Codebase review
 
-This review records current, actionable engineering constraints. It is intentionally descriptive rather than a session log. Items marked **Fixed** have been addressed in code.
+This review recorded actionable engineering constraints from before the refactor. **Every item is now done.** Each entry says where it was done; [ARCHITECTURE.md](ARCHITECTURE.md) describes the result, and the "§14.N" numbers refer to its list of intentional behaviour changes.
 
 ## Tier 1: combat
 
-### Mandatory hit evidence
-`CombatValidation` now rejects `Hit` packets without both a tagged hitpoint `Attachment` and a finite impact `Vector3`. The server always checks hitpoint-to-impact distance, target range, a horizontal facing cone, and an obstruction raycast. **Fixed:** the obstruction check now always runs attacker root to target root (head to head as a fallback), and the impact must lie on the target's bounding box.
+### Mandatory hit evidence: **Done**
+`CombatValidation.ValidateHit` rejects `Hit` packets without a tagged hitpoint `Attachment` and a finite impact `Vector3`. It then checks the hitpoint-to-impact distance, target range, a horizontal facing cone and line of sight. Line of sight always runs attacker root to target root (head to head as a fallback), and the impact must lie on the target's bounding box. Every rejection returns a `RejectReason` that Telemetry counts.
+Where: `src/server/services/CombatValidation.lua`; ARCHITECTURE.md §6.4; `CombatValidation.spec`.
 
-### Weapon-swap timing
-Weapon changes reset only combo sequence. They no longer clear `NextAttackAt` or remote-rate-limit timestamps, so alternating weapons cannot refresh the attack cooldown.
+### Weapon-swap timing: **Done**
+Weapon changes reset only the combo sequence. They keep `NextAttackAt` and the remote budget, so alternating weapons cannot refresh the attack cooldown.
+Where: `CombatService` (`EquippedChanged` → `_reset_attack_sequence`); ARCHITECTURE.md §6.3; `CombatService.spec`.
 
-### Server timing
-The server accepts hit activation only in a bounded start grace period and creates its own hit-window expiry. The client cannot extend a hit window to the full attack timeout. **Fixed:** the global timing constants are replaced by per-attack `HitStartAt`, `HitWindow` and `MinDuration` (plus `MaxHoldTime` for charges) in the weapon definitions. Long charges now deal damage, and every Attack request receives exactly one `AttackAccepted`/`AttackRejected`.
+### Server timing: **Done**
+The global timing constants were replaced by per-move `HitStartAt`, `HitWindow`, `MinDuration` and `Hold.MaxHoldTime` in the weapon definitions, with the formulas in `MoveKinds`. Early HitStarts are armed, hits during an armed HitStart are buffered (§14.8, §14.14), long charges deal damage, and every Attack request gets exactly one `AttackAccepted` or `AttackRejected`. Light-attack cooldowns were later raised by user decision (§14.22).
+Where: `src/shared/weapons/{Fists,Katana}.lua`, `src/server/services/{CombatService,MoveKinds}.lua`; ARCHITECTURE.md §6.1, §6.3; `CombatService.spec`, `CombatHitBuffer.spec`, `MoveKinds.spec`, `WeaponGolden.spec`.
 
-### Multi-hit behavior
-The client forwards only living Humanoid models. The server still deduplicates targets per attack and caps the total number of successful targets in one attack. ~~The hit remote uses a shorter transport throttle so two legitimate frames can be reported.~~ **Fixed:** `Hit` packets are no longer throttled, so two targets hit on the same frame both count. They are bounded by the hit window, per-target dedupe, `MAX_HITS_PER_ATTACK` and `MAX_HIT_REQUESTS_PER_ATTACK`.
+### Multi-hit behavior: **Done**
+The client forwards only living Humanoid models (`CharacterQuery.resolve_alive`). `Hit` packets are budgeted generously (60/s, burst 16) rather than throttled, so two targets hit on the same frame both count. They are bounded by the hit window, per-target dedupe, `MaxHitsPerAttack` (8), `MaxHitRequestsPerAttack` (12) and `MaxRejectsPerTarget` (2).
+Where: `CombatService._validate_hit`, `Config.Network.RemoteBudget`; ARCHITECTURE.md §5.3, §6.3.
 
-### Cleanup
-Player removal deletes active attacks, combo state, cooldown state, and rate-limit state instead of re-adding a default combo entry.
+### Cleanup: **Done**
+All per-player combat state lives on the `PlayerSession` (`session:Set(CombatService, state)`) and is destroyed with it. Character removal clears the active move and the cooldown anchor.
+Where: `PlayerService` / `PlayerSession` components; ARCHITECTURE.md §4.
 
-## Tier 2: structure
+## Tier 2: structure: **Done**
 
-Parkour is decomposed into queries, state, ledge detection, ledge traversal, vault traversal, and math modules. `LedgeDetection` owns candidate search/classification while `LedgeTraversal` owns traversal state and movement side effects. Hanging and mantling execution data lives in explicit `ParkourState` records, and the controller no longer acts as a forwarding shell for most traversal/query methods.
+Parkour is split into queries, a typed state machine (`State.enter` with a transition table), ledge detection, ledge and corner traversal, vault traversal and math. All Workspace queries go through `QueryContext`. Hang, mantle and vault data exist only inside their state.
+Where: `src/client/controllers/ParkourController/`; ARCHITECTURE.md §7.1.
 
-Combat has the useful split between input buffering, lifecycle orchestration, and hitbox sampling. Animation submodules are still thin adapters, which is acceptable until they acquire independent policy.
+Combat is split into input buffering (`AttackInput`), lifecycle orchestration (`AttackLifecycle`) and hitbox sampling (`Hitbox`, reused per equip). The animation layers sit over a shared `TrackCache`.
+Where: `CombatController/`, `AnimationController/`; ARCHITECTURE.md §6.2.
 
-## Runtime contracts
+## Runtime contracts: **Done**
 
-`default.project.json` declares `ReplicatedStorage.packages`, `ReplicatedStorage.ui`, and `ServerStorage.weapon_models` so their existence is visible in the source layout. The repository still needs approved package contents and authored assets before it can be considered fully self-contained.
+`default.project.json` declares `ReplicatedStorage.packages`, `ReplicatedStorage.ui`, `ServerStorage.weapon_models` and the remotes. Packages come from Wally (Trove, TestEZ) or are vendored with recorded provenance (Signal, ShapecastHitbox, ProfileStore). TestEZ is a Wally dev dependency mapped under `TestService` and never replicated.
 
-`WeaponService` reads weapon templates from `ServerStorage`, and the server registers the `Climbable` collision group at startup. Shared melee definitions are validated by `src/shared/weapons/Validator.lua` when loaded. **Fixed:** `Catalog` serves only an explicit allowlist (Fists, Katana), validates every attack in the combo, and errors at startup on a missing or invalid definition. Vendored package provenance is documented in `docs/VENDORED.md`, and TestEZ moved out of `ReplicatedStorage.packages` into `tests/TestEZ`.
+Authored assets remain Studio-only by design, but are verified at boot: `AssetContracts` checks the weapon templates and `UiContracts` checks the UI templates. `AnimationContracts` checks move timing against the baked animation manifest. `Catalog` serves only the allowlist (Fists, Katana), validates every move, and raises every error at once.
+Where: `src/server/AssetContracts.lua`, `src/client/UiContracts.lua`, `src/shared/weapons/{Catalog,Validator,AnimationContracts}.lua`; ARCHITECTURE.md §6.1, §9; [DEPENDENCIES.md](DEPENDENCIES.md), [VENDORED.md](VENDORED.md).
 
-## Input
+## Input: **Done**
 
-PC, touch, and gamepad adapters feed a single logical input layer. Mobile now exposes parkour actions, and gamepad has an explicit adapter instead of only mapping input types.
+PC, touch and gamepad adapters feed `InputController`, which de-duplicates by device family and physical source. Mobile exposes parkour actions, gamepad has its own adapter, PC hotkeys 1–9 select slots 1–9, and a focus loss releases every action.
+Where: `src/client/input/`, `InputController.lua`; `InputController.spec`.
 
-## Authority
+## Authority: **Done**
 
-Combat, inventory selection validation, and weapon attachment are server-owned. Movement and parkour remain client-owned; that boundary is documented in `docs/THREAT_MODEL.md`.
+Combat, inventory and persistence are server-owned. Movement and parkour are client-owned and observed by `MovementValidation`, with limits derived from config by `Envelope`.
+Where: [THREAT_MODEL.md](THREAT_MODEL.md).
 
-## Hygiene
+## Hygiene: **Done**
 
-Parkour configuration has a single source in `Config.lua`; avoid new `Config.X or default` fallbacks. **Fixed:** the unused `VaultMaxHopDistance` was removed, mantle duration and top-hop timeout moved into `Config.lua`, the remaining `or <default>` fallbacks were removed from parkour and combat, and `ShapecastHitbox` debug drawing is off. Remove history comments, normalize lifecycle flag naming, and keep documentation tied to the actual code.
+- All tuning lives in one validated, deep-frozen config tree (`src/shared/config`), and no `x or default` fallbacks remain.
+- The unused `VaultMaxHopDistance` is gone, and `ShapecastHitbox` debug drawing is off.
+- Every module under `src/**` and `tests/**` is `--!strict` (vendored code excepted). The gate (`scripts/analyze.sh`, luau-lsp plus selene) reports zero findings.
+- Dead code was removed in Phase 3. History comments were replaced by invariant comments.
 
-Known data issue: the Katana currently uses the same animation ID for `Idle` and `Sprint`. This review does not invent a replacement asset ID; fix it when the intended Sprint asset is identified.
-
-Known dead-code candidates such as the unused `CharacterTrove` claim in the previous review were rechecked against current source and were not removed when they are actually used. This review prefers verified cleanup over checklist-driven deletion.
+The Katana's shared `Idle`/`Sprint` animation id is now declared intentional (`Sprint.SharedWith = "Idle"`, enforced by the Validator). Replace it if a dedicated Sprint asset is made.

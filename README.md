@@ -17,12 +17,12 @@ A Roblox game built with native Luau and Roblox primitives.
 src/
 ├── client/
 │   ├── controllers/
-│   │   ├── AnimationController/   init, Movement, Weapon, Combat, TrackCache
+│   │   ├── AnimationController/   init, Movement, Weapon, Combat, TrackCache, Types
 │   │   ├── CharacterState/        init (leases, CanStart), Policy, HumanoidOverrides
-│   │   ├── CombatController/      init, AttackInput, AttackLifecycle, Hitbox
+│   │   ├── CombatController/      init, AttackInput, AttackLifecycle, Hitbox, Types
 │   │   ├── ParkourController/     init, State, InputLatch, ClimbableIndex, QueryContext,
 │   │   │                          Queries, LedgeDetection, LedgeTraversal, Traversal,
-│   │   │                          VaultTraversal, VaultMath, Metrics
+│   │   │                          VaultTraversal, VaultMath, Metrics, Types
 │   │   ├── UIController/          init, Hitmarker, WeaponMenu, HitHighlight, DamageIndicator
 │   │   ├── CharacterController.lua
 │   │   ├── InputController.lua
@@ -31,12 +31,14 @@ src/
 │   │   └── WeaponController.lua
 │   ├── input/                     PC, Mobile, Gamepad
 │   ├── session/                   CombatClient, LoadoutClient (the only remote listeners)
+│   ├── ClientTrove.lua            typed front for Trove (client modules require this)
 │   ├── UiContracts.lua            boot check of UI templates against the Catalog
 │   └── init.client.lua            client composition root (Runtime)
 ├── server/
 │   ├── AssetContracts.lua         boot check of weapon templates against the Catalog
-│   ├── compose/                   Content, Core, Items, Combat (per-domain service composition)
-│   ├── network/RemoteBudget.lua
+│   ├── compose/                   Content, Core, Items, Combat (per-domain service composition),
+│   │                              Remotes (typed remote lookups)
+│   ├── network/                   RemoteBudget, InboundSink
 │   ├── services/                  PlayerService, PlayerSession, Telemetry, PlayerDataService,
 │   │                              InventoryService, WeaponService, WeaponAttachment,
 │   │                              CombatService, CombatValidation, MoveKinds, DamageService,
@@ -78,7 +80,7 @@ The server registers the `Climbable` collision group (`Config.World.CollisionGro
 
 ## Architecture
 
-Both entry points compose their services with `shared/runtime/Runtime`: services are constructed in order, then started, and torn down in reverse. Constructor dependencies are passed as a `deps` table and checked with `Deps.check`. The server composes `Content` (the `AssetContracts` boot check of the weapon templates), then `Core` (Telemetry, PlayerService, RemoteBudget), `Items` (PlayerDataService, InventoryService, WeaponService) and `Combat` (PositionHistory, MovementValidation, DamageService, CombatFxService, CombatService). `PlayerService` drives registered components through the player lifecycle (session phase `Loading` -> `Ready` -> `Leaving`) and every per-player state lives on its `PlayerSession`. The client checks its UI templates with `UiContracts` before building anything. On the client, `CharacterController` builds the per-character controllers (CharacterState, WeaponController, AnimationController, MovementController, ParkourController, CombatController) and `CharacterState` arbitrates which actions may start (for example no attacks while hanging or vaulting). The architecture is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Both entry points compose their services with `shared/runtime/Runtime`: services are constructed in order, then started, and torn down in reverse. Constructor dependencies are passed as a `deps` table and checked with `Deps.check`. The server composes `Content` (the `AssetContracts` boot check of the weapon templates), then `Core` (Telemetry, PlayerService, RemoteBudget), `Items` (PlayerDataService, InventoryService, WeaponService) and `Combat` (PositionHistory, MovementValidation, DamageService, CombatFxService, CombatService). `PlayerService` drives registered components through the player lifecycle (session phase `Loading` -> `Ready` -> `Leaving`) and every per-player state lives on its `PlayerSession`. The client checks its UI templates with `UiContracts` before building anything. On the client, `CharacterController` builds the per-character controllers (CharacterState, WeaponController, AnimationController, MovementController, ParkourController, CombatController) and `CharacterState` arbitrates which actions may start (for example no attacks while hanging or vaulting; a ledge grab during an attack or a Heavy charge cancels that attack). The architecture is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Combat rules
 
@@ -91,7 +93,7 @@ The server validates attack sequencing, attack rate, active hit windows, current
 - **Damage and FX.** `DamageService` is the only place damage is dealt. Its policies (the `Invulnerable` attribute, spawn protection, team / friendly fire) can block a hit, and it tracks recent attackers. `HitConfirmed` (the hitmarker) is sent only when damage was actually applied. `CombatFxService` sends `CombatFx.Hit` over an unreliable remote to the victim and to players within `Fx.RelevanceRadius`; the client shows a brief highlight on the victim and, if the template exists, a damage flash for the victim.
 - **Line of sight** is always checked from the attacker's root to the target's root (head to head as a fallback). Both characters, non-collidable parts and up to four bystander characters are ignored; anything else blocks the hit. The reported impact must be within `HitPositionTolerance` of the target's bounding box and of the weapon hitpoint.
 - **Every well-formed Attack request that passes the remote budget gets exactly one reply**, `AttackAccepted` or `AttackRejected`. Malformed or budget-dropped requests get at most one `AttackRejected` per `RejectReplyInterval` (0.25s). The client also drops a pending attack after `PendingAttackTimeout`, and resets it on death and weapon swaps.
-- **Every inbound remote action is budgeted** by `RemoteBudget` (per-action token buckets plus a global bucket per player, `Config.Network.RemoteBudget`), and every dropped request is counted in `Telemetry` with a `RejectReason`. In Studio, Telemetry prints one `[Telemetry] ...` summary line per flush (every 60s) when anything was counted.
+- **Every inbound remote action is budgeted** by `RemoteBudget` (per-action token buckets plus a global bucket per player, `Config.Network.RemoteBudget`), and every dropped request is counted in `Telemetry` with a `RejectReason`. Events that clients fire at the server-to-client `Weapon` and `CombatFx` remotes are drained by `InboundSink` and charged to the same budget. Telemetry never forwards client-chosen text to AnalyticsService. In Studio, Telemetry prints one `[Telemetry] ...` summary line per flush (every 60s) when anything was counted.
 
 Weapon changes reset combo sequencing but do **not** reset attack cooldown. Remote budget state lives for the whole session and is not reset by weapon changes or respawns. Player/character teardown clears all player-scoped combat state.
 
@@ -103,7 +105,7 @@ Items are defined in `src/shared/items/ItemCatalog.lua`; a weapon item points at
 
 ## Persistence
 
-`PlayerDataService` (the first player component) loads each profile through ProfileStore v1.0.3 (vendored in `src/server/vendor`, Apache-2.0) with a session lock. The profile shape, its migration chain and load-time sanitising live in `src/shared/data/Schema.lua`. In Studio, `Config.Data.UseMockInStudio` (on by default) uses ProfileStore's mock store, so nothing is saved. On a live server a load failure kicks the player instead of playing on unsaved data, and another server taking the session lock kicks the player from this one; in Studio a load failure only warns and continues on an in-memory profile.
+`PlayerDataService` (the first player component) loads each profile through ProfileStore v1.0.3 (vendored in `src/server/vendor`, Apache-2.0) with a session lock. The profile shape, its migration chain and load-time sanitising live in `src/shared/data/Schema.lua`. In Studio, `Config.Data.UseMockInStudio` (on by default) uses ProfileStore's mock store, so nothing is saved. On a live server a load failure kicks the player instead of playing on unsaved data, and another server taking the session lock kicks the player from this one; in Studio a load failure only warns and continues on an in-memory profile. Migrations run on a copy, so a profile this server refuses (a newer, missing or invalid `Version`, or a failed migration) is released exactly as saved. Sanitising drops only structurally corrupt slot records; records naming items or slots this build does not know are kept (but not replicated or equipped), so rolling back a build never deletes items.
 
 ## Movement validation
 
