@@ -9,7 +9,7 @@ Last updated: 2026-10-05. Work happens directly on `main` (commit and push witho
 - Every P1 smoke test in docs/TESTING.md passed.
 - First post-refactor TestEZ run: 555/574. The 19 failures were fixed in 687d70b (overkill was counted as applied damage) and 32987e9 (spec bugs).
 - Re-run: **574 passed, 0 failed**. The refactor is complete.
-- Still open: `src/shared/weapons/AnimationManifest.lua` is empty (`return {}`), so no move timing is checked against the real animations yet. Bake it (see "What remains").
+- The animation manifest was baked on 2026-10-05. To pass it, Katana Light1 needed its own `HitWindow = 0.6`, because its HitStop marker is at 0.667s.
 
 ## Status
 

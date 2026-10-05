@@ -16,7 +16,7 @@ local GOLDEN: { [string]: { [string]: { any } } } = {
 		Heavy = { "Charge", "RightFist", 20, 0.6, 0.6, 0.15, 0.55, 3, 8 },
 	},
 	Katana = {
-		Light1 = { "Light", "Mesh", 15, 0.6, 0.6, 0.1, 0.55, 3, 10 },
+		Light1 = { "Light", "Mesh", 15, 0.6, 0.6, 0.1, 0.6, 3, 10 },
 		Light2 = { "Light", "Mesh", 15, 0.6, 0.6, 0.1, 0.55, 3, 10 },
 		Heavy = { "Charge", "Mesh", 30, 0.6, 0.6, 0.15, 0.55, 3, 10 },
 	},

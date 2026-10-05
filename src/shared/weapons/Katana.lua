@@ -54,6 +54,9 @@ Katana.Moves = {
 		Cooldown = 0.6,
 		MinDuration = 0.6,
 		HitStartAt = 0.1,
+		-- The baked HitStop marker is at 0.667s, so the shared 0.55 window
+		-- (closing at 0.65s) would drop the end of the swing.
+		HitWindow = 0.6,
 	},
 
 	Light2 = {
