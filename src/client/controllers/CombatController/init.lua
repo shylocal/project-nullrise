@@ -124,14 +124,6 @@ function CombatController._start(self: CombatController, input_controller: Types
 		end
 	end)
 
-	-- Grabbing a ledge cancels the attack in progress, light or charge. The
-	-- Hang activity then blocks new attacks until the ledge is released.
-	self.Trove:Connect(self.State.Changed, function(activity: string, active: boolean)
-		if activity == "Hang" and active then
-			self:_cancel_attack()
-		end
-	end)
-
 	self.Trove:Connect(
 		input_controller.ActionBegan,
 		function(action: string)
@@ -280,26 +272,6 @@ function CombatController._finish_attack(self: CombatController, move_id: number
 			end
 		end)
 	end
-end
-
--- Ends the attack in progress and drops pending input (a ledge grab):
--- sends HitStop, stops the hitbox and the move's animation, removes the
--- attack trove and releases the lease. Unlike Reset it keeps the cached
--- hitboxes, the cooldown and the server's combo sequencing.
-function CombatController._cancel_attack(self: CombatController)
-	-- Invalidates the scheduled MaxHoldTime release, the cooldown's buffered
-	-- move and a hold still waiting for HoldTime.
-	self.AttackLifecycleId += 1
-	self.PrimaryPressId += 1
-	self.PrimaryPressAttackPending = false
-	self.BufferedMove = nil
-
-	local had_track = self.CurrentTrack ~= nil
-	AttackLifecycle.clear_attack_lifecycle(self)
-	if had_track then
-		self.AnimationController:StopAction()
-	end
-	AttackLifecycle.release_lease(self)
 end
 
 function CombatController.Reset(self: CombatController)
