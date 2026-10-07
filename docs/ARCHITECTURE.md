@@ -420,7 +420,7 @@ Ids without an entry are not checked. `tests/tools/BakeAnimationManifest.lua` ge
 
 - **Aftman / Rokit** (`aftman.toml`) pin `rojo` 7.7.0, `luau-lsp` 1.70.1, `selene` 0.32.0 and `wally` 0.3.2.
 - **Wally** (`wally.toml`, package `shylocal/project-nullrise`): `sleitnick/trove@1.8.0` and the dev dependency `roblox/testez@0.4.1`, installed into the git-ignored `Packages/` and `DevPackages/`. Run `~/.rokit/bin/wally install` before `rojo serve` or `rojo build`.
-- **`sh scripts/analyze.sh`** is the gate. It installs Wally packages if they are missing, fetches the Roblox type definitions into `scripts/` (gitignored), regenerates `sourcemap.json`, and runs `luau-lsp analyze` (Roblox platform, TestEZ defs; vendored code and packages ignored). It then runs `selene src tests` (`std = "roblox+testez+luau_extras"`; `roblox.yml` is generated locally). It must report zero luau-lsp diagnostics and zero selene findings.
+- **`sh scripts/analyze.sh`** is the gate. It installs Wally packages if they are missing, fetches the Roblox type definitions into `.luau/` (gitignored), regenerates `sourcemap.json`, and runs `luau-lsp analyze` (Roblox platform, TestEZ defs; vendored code and packages ignored). It then runs `selene src tests` (`std = "roblox+testez+luau_extras"`; `roblox.yml` is generated locally). It must report zero luau-lsp diagnostics and zero selene findings.
 - **Build:** `rojo build default.project.json -o <out>.rbxlx`.
 - **Tests:** TestEZ in Studio only, with `require(game:GetService("TestService").RunTests).Run()` ([TESTING.md](TESTING.md)).
 - **No CI**, on purpose.

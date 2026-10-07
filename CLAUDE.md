@@ -8,7 +8,7 @@ Roblox Luau game (R6 parkour + melee combat), synced with Rojo 7.7 (`default.pro
 - After pulling, run `~/.rokit/bin/wally install` (Trove and TestEZ come from Wally; `Packages/` and `DevPackages/` are not in git).
 - The gate is `sh scripts/analyze.sh` (luau-lsp with Roblox types + selene). It must report zero diagnostics before every commit. New files must sit in a Rojo-mapped folder (`src/server`, `src/client`, `src/shared`, `src/packages`, `tests`) to resolve.
 - TestEZ specs in `tests/specs` run only in Studio (`require(game:GetService("TestService").RunTests).Run()`), so ask the user to run them and paste results. Manual smoke tests are in `docs/TESTING.md`.
-- Never commit `sourcemap.json`, `scripts/globalTypes.d.luau` or `roblox.yml` (all generated).
+- Never commit `sourcemap.json`, `.luau/globalTypes.d.luau` or `roblox.yml` (all generated).
 
 ## Code style
 

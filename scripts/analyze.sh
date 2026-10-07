@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Static type/lint check for the whole project (no Studio needed).
 # Requires the aftman tools (rojo, luau-lsp, selene) and Wally. Fetches Roblox
-# type definitions into scripts/ and installs Wally packages on first run.
+# type definitions into .luau/ and installs Wally packages on first run.
 set -e
 cd "$(dirname "$0")/.."
 TOOLS="${AFTMAN_BIN:-$HOME/.aftman/bin}"
@@ -9,9 +9,9 @@ WALLY="${WALLY:-$HOME/.rokit/bin/wally}"
 if [ ! -d Packages ] || [ ! -d DevPackages ]; then
 	"$WALLY" install
 fi
-if [ ! -f scripts/globalTypes.d.luau ]; then
-	curl -sSfL -o scripts/globalTypes.d.luau \
-		https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/main/scripts/globalTypes.d.luau
+if [ ! -f .luau/globalTypes.d.luau ]; then
+	curl -sSfL -o .luau/globalTypes.d.luau \
+		https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/main/.luau/globalTypes.d.luau
 fi
 "$TOOLS/rojo" sourcemap default.project.json -o sourcemap.json >/dev/null
 
@@ -19,8 +19,8 @@ status=0
 "$TOOLS/luau-lsp" analyze \
 	--platform=roblox \
 	--sourcemap=sourcemap.json \
-	--defs=scripts/globalTypes.d.luau \
-	--defs=scripts/testez.d.luau \
+	--defs=.luau/globalTypes.d.luau \
+	--defs=.luau/testez.d.luau \
 	--ignore="**/src/packages/**" \
 	--ignore="**/src/server/vendor/**" \
 	--ignore="**/Packages/**" \
