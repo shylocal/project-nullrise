@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes how project-nullrise is built today. It replaces the refactor design contract (`docs/REFACTOR_PLAN.md`), which is summarised in [History](#history) at the end. When this document and the code disagree, the code wins; fix the document.
+This document describes how project-nullrise is built today. When this document and the code disagree, the code wins; fix the document.
 
 Related documents: [DEPENDENCIES.md](DEPENDENCIES.md) (place contents the code expects), [THREAT_MODEL.md](THREAT_MODEL.md) (trust boundary), [TESTING.md](TESTING.md) (specs and smoke tests), [VENDORED.md](VENDORED.md) (third-party code).
 
@@ -420,7 +420,7 @@ Ids without an entry are not checked. `tests/tools/BakeAnimationManifest.lua` ge
 
 - **Aftman / Rokit** (`aftman.toml`) pin `rojo` 7.7.0, `luau-lsp` 1.70.1, `selene` 0.32.0 and `wally` 0.3.2.
 - **Wally** (`wally.toml`, package `shylocal/project-nullrise`): `sleitnick/trove@1.8.0` and the dev dependency `roblox/testez@0.4.1`, installed into the git-ignored `Packages/` and `DevPackages/`. Run `~/.rokit/bin/wally install` before `rojo serve` or `rojo build`.
-- **`sh scripts/analyze.sh`** is the gate. It installs Wally packages if they are missing, fetches the Roblox type definitions into `.luau/`, regenerates `sourcemap.json`, and runs `luau-lsp analyze` (Roblox platform, TestEZ defs; vendored code and packages ignored). It then runs `selene src tests` (`std = "roblox+testez+luau_extras"`; `roblox.yml` is generated locally). It must report zero luau-lsp diagnostics and zero selene findings.
+- **`sh scripts/analyze.sh`** is the gate. It installs Wally packages if they are missing, fetches the Roblox type definitions into `scripts/` (gitignored), regenerates `sourcemap.json`, and runs `luau-lsp analyze` (Roblox platform, TestEZ defs; vendored code and packages ignored). It then runs `selene src tests` (`std = "roblox+testez+luau_extras"`; `roblox.yml` is generated locally). It must report zero luau-lsp diagnostics and zero selene findings.
 - **Build:** `rojo build default.project.json -o <out>.rbxlx`.
 - **Tests:** TestEZ in Studio only, with `require(game:GetService("TestService").RunTests).Run()` ([TESTING.md](TESTING.md)).
 - **No CI**, on purpose.
@@ -429,45 +429,10 @@ Ids without an entry are not checked. `tests/tools/BakeAnimationManifest.lua` ge
 
 ## History
 
-The current architecture came out of a three-phase refactor on `main`, driven by a ranked review of 20 items (R1–R20, `docs/refactor/REVIEW_IDEAS.md`). Its design contract was `docs/REFACTOR_PLAN.md`; the full text, including the per-agent file ownership and the complete deviation log, is in git history (`git show 973df88:docs/REFACTOR_PLAN.md`). The handoff log is `docs/refactor/HANDOFF.md`.
+This architecture came out of a multi-phase refactor in October 2026 (foundations, features, strict typing, then an adversarial review whose findings were all fixed). The full design contract, review notes and handoff log were removed from `docs/` once the work was verified in Studio; they remain in git history (for example `git show 973df88:docs/REFACTOR_PLAN.md`).
 
-**Phases**
+Decisions worth knowing before changing combat:
 
-- **Phase 1, foundations:** the config tree and Envelope, Freeze and Schema; Catalog as the single source of weapons; CharacterQuery; the Protocol split; Runtime, Scheduler and Deps; PlayerService and PlayerSession components; RemoteBudget and Telemetry with reason codes. On the client: session clients and composition, TrackCache, the parkour state machine, InputLatch, ClimbableIndex, QueryContext, the CharacterState arbiter and HumanoidOverrides. Test fakes.
-- **Phase 2, features:** weapon schema v2 (Moves, Combo, Bindings) and the move-id wire; MoveKinds; DamageService and CombatFx; PositionHistory lag compensation and armed early HitStarts; ItemCatalog, profile Schema v1 and ProfileStore persistence; WeaponService model caching and equip coalescing; asset, UI and animation contracts; selene; Wally for Trove and TestEZ.
-- **Phase 3, strict typing:** `--!strict` everywhere, exported class and `Deps` types, structural `*Like` interfaces for client collaborators, `ClientTrove`, dead-code removal, and the early-HitStart hit buffer.
-- **Review and Finish:** an adversarial review (`docs/refactor/REVIEW_FINDINGS.md`) found 10 issues, none critical or high. All are fixed. Then two user decisions (ledge grab cancels an attack; slower light-attack cooldowns), and this document.
-
-**Notable deviations from the plan**
-
-- R9's policy table lives client-side (`CharacterState/Policy.lua`). R18's default weapon id is folded into `Catalog.DefaultId`.
-- ProfileStore is vendored server-only under `src/server/vendor/`. Signal and ShapecastHitbox stay vendored; Trove and TestEZ come from Wally.
-- `ServerHarness`, `InboundSink`, `compose/Remotes` and `ClientTrove` were added. Session state is typed `unknown` and cast by its owner, and server troves are `any`.
-- Telemetry details are bounded (48 characters, 64 keys per player). Cooldown and out-of-sequence rejects are not counted. `Rewound`, `Blocked` and `EarlyHitStart` carry low or zero suspicion weight.
-- `DamageService` reports the health actually removed, so a ForceField yields no hitmarker.
-- `ClimbableIndex` treats unanchored parts as dynamic and re-measures moved Models. `State.enter` acquires the new state's resources before releasing the old ones.
-
-**Intentional behaviour changes** (numbering kept from the plan's §14; other docs cite them as "§14.N")
-
-1. Hits on an enemy's weapon resolve to the enemy: weapon parts are `CanQuery = false`.
-2. Malformed or budget-dropped Attack requests get at most one `AttackRejected` per 0.25s. Hit packets are budgeted (60/s, burst 16); Attack, HitStart and inventory requests allow small bursts.
-3. The Heavy (Charge) gets `AttackAccepted` / `AttackRejected` replies.
-4. Attacks cannot start while hanging, mantling or vaulting.
-5. The movement observer's horizontal limit moved from 96 to 98.5 studs/s (derived by Envelope).
-6. PC hotkeys 3–9 select slots 3–9.
-7. The corner fan is cached for 0.2s while traversal is blocked.
-8. Early HitStarts are armed instead of dropped, and validation is lag-compensated (only ever more lenient).
-9. Hit FX: a highlight on the victim for nearby players, and a damage flash for the victim if its template exists.
-10. Inventory persists across sessions; Studio uses the mock store by default.
-11. Damage policies exist but are no-ops with current content; untagged Humanoids stay valid targets.
-12. Remote budget state is not reset on respawn.
-13. Hanging on a MeshPart, WedgePart or Union guide and pressing A/D no longer errors every frame.
-14. Hits that arrive while an early HitStart is armed are buffered and validated when the window opens.
-15. Moved Climbable Models are re-measured, and Models with unanchored parts are measured live (review finding 8).
-16. An Animator replacement mid-attack finishes the attack at once (review finding 9).
-17. After a window focus loss, the first Left Shift press sprints again (review finding 10).
-18. After a Heavy held past its marker is released, the next Hold-bound move's hit cannot open before `release + HoldTime + HitStartAt - TimingTolerance` (review finding 1).
-19. Load-time sanitising keeps records this build does not recognise, and refused or failed profiles are released untouched (review findings 2–4).
-20. UnknownAction telemetry no longer carries client text, and events fired at server-to-client remotes are drained and budgeted (review findings 5–6).
-21. A ledge grab can start during a light attack or a Heavy charge, and it cancels that attack (user decision 1).
-22. Light-attack cooldowns are slower: Fists 0.3 → 0.35s, Katana 0.35 → 0.6s, for both `Cooldown` and the server `MinDuration` (user decision 2).
+- The server never trusts its own copy of a weapon's pose. Swing animations play on the client, so hit impacts are checked by reach from the attacker (extended by its running lead), on-body distance, facing and line of sight, not by distance from the server's hitpoint.
+- Each move's `HitStartAt` sits just under its animation's baked HitStart marker, and light `HitWindow`s end shortly after the HitStop marker. Re-bake `AnimationManifest.lua` after changing an animation; the Catalog refuses to load on a mismatch.
+- Lag compensation rewinds the target and leads the attacker by the same window; both only make validation more lenient, and the attacker lead is capped at `MaxAttackerSpeed`.

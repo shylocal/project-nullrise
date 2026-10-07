@@ -33,7 +33,7 @@ TestEZ 0.4.1 is a Wally dev dependency ([VENDORED.md](VENDORED.md)). Rojo maps `
 
 `tests/RunTests.lua` refuses to run outside Studio.
 
-**Status:** the pre-refactor baseline was 151/151. The refactored suite (every spec under `tests/specs`, including the new ones listed in [ARCHITECTURE.md](ARCHITECTURE.md#2-module-map)) has so far been checked only by inspection and the analyzer. The next Studio run is the first real execution.
+**Status:** last full Studio run, 2026-10-05: 581 passed, 0 failed.
 
 Before running, set up Studio:
 
@@ -75,7 +75,7 @@ The suite does not prove real map traversal, that the animation assets and their
 
 ## Smoke tests
 
-This consolidated list covers every intentional behaviour change ([ARCHITECTURE.md](ARCHITECTURE.md#history) §14.N) and the areas the specs cannot reach. Run it after the TestEZ suite, with Fists and then with Katana where it applies. **P1** items are the riskiest and come first. Use two players (Test > Clients and Servers) where noted.
+This list covers the behaviour the specs cannot reach. Run it after the TestEZ suite, with Fists and then with Katana where it applies. **P1** items are the riskiest and come first. Use two players (Test > Clients and Servers) where noted.
 
 ### Boot and content
 
@@ -88,45 +88,46 @@ This consolidated list covers every intentional behaviour change ([ARCHITECTURE.
 
 ### Combat
 
-- **P1** Light combo with each weapon (§14.22): tap repeatedly and see Light1 and Light2 alternate (Fists: right fist, then left). Fists repeats at most every 0.35s and Katana every 0.6s. Mashing faster never gets a swing rejected, and no swing plays without its hit landing.
-- **P1** Heavy (§14.3): hold Primary past 0.15s, see the windup pause on its HitStart marker, release, and hit. The Heavy gets a reply, and a combo tap right after it still works. Hold for 10s: the charge releases by itself and still hits.
-- **P1** Early HitStart and the hit buffer (§14.8, §14.14): set Network > Incoming Replication Lag to about 0.2s and stand right next to a dummy. Combo taps and Heavy releases land on the first frame of contact, and each target is damaged once per swing. In the Telemetry summary `Combat/EarlyHitStart` counts but `Combat/NotActive` does not rise. A HitStop or respawn before the window opens drops the buffered hits.
-- **P1** Hit an enemy who holds a Katana so that your swing passes through the blade first (§14.1): the hit lands on the body.
-- Rewound hit (§14.8): with replication lag, hit a moving target near the end of your reach. The hit lands, `Combat/Rewound` counts, and suspicion does not rise.
+- **P1** Light combo with each weapon: tap repeatedly and see Light1 and Light2 alternate (Fists: right fist, then left). Fists repeats at most every 0.35s and Katana every 0.6s. Mashing faster never gets a swing rejected, and no swing plays without its hit landing.
+- **P1** Heavy: hold Primary past 0.15s, see the windup pause on its HitStart marker, release, and hit. The Heavy gets a reply, and a combo tap right after it still works. Hold for 10s: the charge releases by itself and still hits.
+- **P1** Early HitStart and the hit buffer: set Network > Incoming Replication Lag to about 0.2s and stand right next to a dummy. Combo taps and Heavy releases land on the first frame of contact, and each target is damaged once per swing. In the Telemetry summary `Combat/EarlyHitStart` counts but `Combat/NotActive` does not rise. A HitStop or respawn before the window opens drops the buffered hits.
+- **P1** Hit an enemy who holds a Katana so that your swing passes through the blade first: the hit lands on the body.
+- **P1** Hits near the end of your reach and while sprinting at a target land and confirm. With `Combat.LogRejectsInStudio` on, every rejected hit prints a `[CombatDebug]` line with its reason and measured distances.
+- Rewound hit: with replication lag, hit a moving target near the end of your reach. The hit lands, `Combat/Rewound` counts, and suspicion does not rise.
 - Attack through a wall, and with missing hit arguments: no damage.
 - Two valid targets in consecutive frames (and on the same frame): both take damage.
-- Damage policies (§14.11): a target with the `Invulnerable` attribute takes no damage and gives no hitmarker. Untagged Humanoid dummies still take damage. A target with a ForceField takes no damage and gives no hitmarker.
-- FX (§14.9): the victim flashes a white highlight for every nearby player. The victim sees its damage flash if the `DamageIndicator` template (with a `Flash` GuiObject) exists.
-- Budget (§14.2, §14.12): spam `Attack` with a bad move id (or past the budget) from a client. The client receives at most one `AttackRejected` per 0.25s and the server stays responsive. Respawn repeatedly while attacking: normal play never hits the budget. Fast tap/hold mixes share the `Combat.Attack` budget (12/s, burst 3) without stuck attacks.
+- Damage policies: a target with the `Invulnerable` attribute takes no damage and gives no hitmarker. Untagged Humanoid dummies still take damage. A target with a ForceField takes no damage and gives no hitmarker.
+- FX: the victim flashes a white highlight for every nearby player. The victim sees its damage flash if the `DamageIndicator` template (with a `Flash` GuiObject) exists.
+- Budget: spam `Attack` with a bad move id (or past the budget) from a client. The client receives at most one `AttackRejected` per 0.25s and the server stays responsive. Respawn repeatedly while attacking: normal play never hits the budget. Fast tap/hold mixes share the `Combat.Attack` budget (12/s, burst 3) without stuck attacks.
 - Respawn or die mid-swing, then attack again: combo, Heavy, hitmarker, highlight and weapon menu all work, and the equipped weapon is kept.
-- Replace the Animator mid-swing (§14.16): the attack ends at once and the next attack works.
-- In Studio, after 60s of play with some rejected hits, one `[Telemetry] ...` summary line prints, with no client-chosen action names (§14.20).
+- Replace the Animator mid-swing: the attack ends at once and the next attack works.
+- In Studio, after 60s of play with some rejected hits, one `[Telemetry] ...` summary line prints, with no client-chosen action names.
 
 ### Parkour
 
 - **P1** Overrides restore: after hang, mantle, vault and top-hop, AutoRotate, jump and walk speed are back to normal.
 - **P1** Jump latch: complete a vault or mantle while holding Space. No jump fires until Space is released and pressed again.
-- **P1** Ledge grab during an attack (§14.21):
+- **P1** Ledge grab during an attack:
   - Tap a light attack and jump to grab mid-swing. The grab succeeds, the swing stops, no hit lands after the grab, and taps and holds do nothing while hanging.
   - Hold Primary until the Heavy pauses, then grab while holding. The charge ends, and releasing Primary while hanging starts no hit.
   - Drop off or mantle, then tap: the next light attack plays at once (no stuck lease), and sprint works.
 - Hang on a `Climbable` ledge, traverse left and right, turn outer and inner corners, mantle with Forward, lower with Backward, and let go by releasing Space.
-- At a blocked ledge end, hold the direction for a few seconds: no hitching (the corner probe re-checks at most every 0.2s, §14.7).
+- At a blocked ledge end, hold the direction for a few seconds: no hitching (the corner probe re-checks at most every 0.2s).
 - Vault a low wall, and top-hop onto a raised platform followed immediately by a normal jump: the jump works right after the hop.
-- Moving Climbables (§14.15): a tagged Model moved by PivotTo or a tween, a Model with no PrimaryPart whose parts are moved directly, and an unanchored part can all be grabbed after they move.
-- MeshPart, WedgePart and Union guides (§14.13): hang on each and hold A, then D. The character shimmies or stops at the edge with no output errors. A cylinder `Part` guide still traverses.
-- Attacks do nothing while hanging, mantling or vaulting (§14.4) and work again right after landing.
+- Moving Climbables: a tagged Model moved by PivotTo or a tween, a Model with no PrimaryPart whose parts are moved directly, and an unanchored part can all be grabbed after they move.
+- MeshPart, WedgePart and Union guides: hang on each and hold A, then D. The character shimmies or stops at the edge with no output errors. A cylinder `Part` guide still traverses.
+- Attacks do nothing while hanging, mantling or vaulting and work again right after landing.
 - Sprint is blocked while hanging, mantling or vaulting and resumes afterwards without pressing Sprint again. Holding Sprint while standing still neither sprints nor vaults.
-- Alt-tab out while holding Left Shift, come back, press Left Shift once: you sprint (§14.17).
+- Alt-tab out while holding Left Shift, come back, press Left Shift once: you sprint.
 - A climbable surface needs the `Climbable` tag; the `Climbable` collision group alone is ignored.
-- Sprint, vault and top-hop at full speed, and take a long fall: no `MovementValidation` warning (§14.5).
+- Sprint, vault and top-hop at full speed, and take a long fall: no `MovementValidation` warning.
 
 ### Inventory and persistence
 
-- **P1** The Katana persists across rejoin (§14.10): with API access and the mock off (or on a live server), select or move items, leave, rejoin, and see the same inventory.
+- **P1** The Katana persists across rejoin: with API access and the mock off (or on a live server), select or move items, leave, rejoin, and see the same inventory.
 - **P1** Session steal (two servers): join the same account on a second live server while the first session is open. The first server kicks that player with "Your data was opened on another server."
 - Live load failure: on a live server with the DataStore unavailable, the player is kicked with the load-failed message. In Studio the same failure only warns and plays on an in-memory profile.
-- Equip by hotkey: press 2 for the Katana, press 2 again for Fists. PC hotkeys 1–9 select slots 1–9 (§14.6); only slots with an item change anything.
+- Equip by hotkey: press 2 for the Katana, press 2 again for Fists. PC hotkeys 1–9 select slots 1–9; only slots with an item change anything.
 - Equip by WeaponMenu: the Katana button equips it, the Fists button goes back to Fists. The Katana button is hidden until the server reports Katana in a slot.
 - Rapid 1/2/1/2: the weapon settles on the last pick about 0.2s later, without flicker, errors or a stuck combat state. Swap during an attack and during its cooldown: the cooldown is kept.
 - Weapon swap A → B → A: animations play at once on the second equip, and no stale `Ended` cuts a replayed attack short.

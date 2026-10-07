@@ -15,7 +15,7 @@ Thumbs.db
 .idea/
 
 # Downloaded Roblox type definitions (fetched by scripts/analyze.sh)
-.luau/globalTypes.d.luau
+/scripts/globalTypes.d.luau
 
 # Wally packages (installed by `wally install`; scripts/analyze.sh runs it when missing)
 /Packages/
